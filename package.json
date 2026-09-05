@@ -1,0 +1,27 @@
+{
+  "name": "usage-loom",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "UsageLoom 的本地只读 Codex 用量与额度统计 JavaScript 技术原型",
+  "homepage": "https://github.com/cynicism66/UsageLoom",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/cynicism66/UsageLoom.git"
+  },
+  "bugs": {
+    "url": "https://github.com/cynicism66/UsageLoom/issues"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.mjs",
+    "validate": "node scripts/validate-project.mjs",
+    "validate:local": "node scripts/validate-local-docs.mjs",
+    "check": "npm run validate && npm test",
+    "smoke": "node scripts/smoke-test.mjs",
+    "package": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/package-plugin.ps1"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT"
+}

@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #f5f7f6;
+      --panel: rgba(255,255,255,.92);
+      --text: #17211c;
+      --muted: #617069;
+      --line: #dce5e0;
+      --accent: #7c5cfc;
+      --accent2: #5b3fd4;
+      --warn: #b4690e;
+      --shadow: 0 10px 30px rgba(23,33,28,.08);
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #101713;
+        --panel: rgba(24,34,29,.94);
+        --text: #eff7f2;
+        --muted: #9eaea5;
+        --line: #33443b;
+        --accent: #a998ff;
+        --accent2: #c3b9ff;
+        --warn: #efb15b;
+        --shadow: 0 10px 30px rgba(0,0,0,.24);
+      }
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      padding: 18px;
+      background:
+        radial-gradient(circle at top right, color-mix(in srgb, var(--accent) 14%, transparent), transparent 40%),
+        var(--bg);
+      color: var(--text);
+      font: 14px/1.45 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+    .shell { max-width: 980px; margin: 0 auto; }
+    header { display: flex; gap: 14px; align-items: flex-start; justify-content: space-between; margin-bottom: 14px; }
+    h1 { font-size: 22px; line-height: 1.15; margin: 0 0 5px; letter-spacing: -.02em; }
+    h2 { font-size: 14px; margin: 0 0 12px; }
+    .sub, .muted { color: var(--muted); }
+    .badge {
+      flex: none; border: 1px solid var(--line); background: var(--panel); border-radius: 999px;
+      padding: 5px 9px; color: var(--muted); font-size: 12px;
+    }
+    .badge.live { color: var(--accent2); border-color: color-mix(in srgb, var(--accent) 48%, var(--line)); }
+    .grid { display: grid; gap: 12px; }
+    .quota-grid { grid-template-columns: repeat(auto-fit,minmax(220px,1fr)); margin-bottom: 12px; }
+    .metric-grid { grid-template-columns: repeat(auto-fit,minmax(135px,1fr)); }
+    .split { grid-template-columns: repeat(auto-fit,minmax(280px,1fr)); margin-top: 12px; }
+    .card {
+      background: var(--panel); border: 1px solid var(--line); border-radius: 15px;
+      padding: 15px; box-shadow: var(--shadow); min-width: 0;
+    }
+    .quota-title { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .quota-name { font-size: 15px; font-weight: 700; }
+    .remaining { font-size: 28px; line-height: 1; font-weight: 760; letter-spacing: -.04em; }
+    .remaining small { font-size: 12px; font-weight: 500; color: var(--muted); letter-spacing: 0; }
+    .track { height: 9px; background: color-mix(in srgb, var(--line) 70%, transparent); border-radius: 99px; overflow: hidden; margin: 12px 0 9px; }
+    .fill { height: 100%; border-radius: inherit; background: linear-gradient(90deg,var(--accent),var(--accent2)); }
+    .quota-foot { display:flex; justify-content:space-between; gap:10px; color:var(--muted); font-size:12px; }
+    .metric-label { color: var(--muted); font-size: 12px; margin-bottom: 4px; }
+    .metric-value { font-size: 20px; font-weight: 720; letter-spacing: -.025em; overflow-wrap: anywhere; }
+    .rows { display: grid; gap: 11px; }
+    .row-head { display: flex; justify-content: space-between; gap: 10px; font-size: 12px; margin-bottom: 4px; }
+    .row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; }
+    .mini-track { height: 5px; border-radius: 99px; background: color-mix(in srgb,var(--line) 75%,transparent); overflow: hidden; }
+    .mini-fill { height:100%; border-radius:inherit; background: var(--accent); }
+    .daily { height: 128px; display:flex; align-items:flex-end; gap:6px; padding-top:10px; }
+    .day { flex:1; min-width:4px; height:100%; display:flex; align-items:flex-end; position:relative; }
+    .bar { width:100%; min-height:2px; border-radius:5px 5px 2px 2px; background:linear-gradient(180deg,var(--accent2),var(--accent)); opacity:.9; }
+    .day:hover::after {
+      content: attr(data-tip); position:absolute; z-index:2; left:50%; bottom:calc(100% + 5px); transform:translateX(-50%);
+      background:var(--text); color:var(--bg); border-radius:6px; padding:4px 6px; white-space:nowrap; font-size:11px;
+    }
+    .notice { margin-top:12px; border-left:3px solid var(--warn); padding:8px 10px; color:var(--muted); font-size:12px; background:color-mix(in srgb,var(--warn) 8%,transparent); border-radius:6px; }
+    footer { color:var(--muted); font-size:11px; margin-top:12px; }
+    .empty { padding:30px; text-align:center; color:var(--muted); }
+    @media (max-width: 520px) { body{padding:12px} header{display:block}.badge{display:inline-block;margin-top:9px}.card{padding:13px} }
+  </style>
+</head>
+<body>
+  <main class="shell" id="app"><div class="card empty">正在读取 UsageLoom 用量…</div></main>
+  <script>
+    const app = document.getElementById("app");
+    const esc = (value) => String(value ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+    const number = (value) => Number.isFinite(Number(value)) ? Number(value) : 0;
+    const compact = (value) => new Intl.NumberFormat("zh-CN", {notation:"compact", maximumFractionDigits:2}).format(number(value));
+    const exact = (value) => new Intl.NumberFormat("zh-CN").format(number(value));
+    const localTime = (value) => {
+      if (!value) return "未知";
+      const date = new Date(value);
+      return Number.isNaN(date.getTime()) ? "未知" : new Intl.DateTimeFormat("zh-CN", {month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit"}).format(date);
+    };
+    function quotaCard(window) {
+      const remaining = window.remainingPercent == null ? null : Math.max(0, Math.min(100, number(window.remainingPercent)));
+      const used = window.usedPercent == null ? "未知" : `${number(window.usedPercent)}% 已用`;
+      const label = window.windowLabel === "5h" ? "5 小时额度" : window.windowLabel === "weekly" ? "每周额度" : `${window.windowLabel || "额度"}窗口`;
+      return `<section class="card">
+        <div class="quota-title"><span class="quota-name">${esc(label)}</span><span class="muted">${esc(window.limitName || window.limitId || "Codex")}</span></div>
+        <div class="remaining">${remaining == null ? "—" : remaining + "%"} <small>剩余</small></div>
+        <div class="track"><div class="fill" style="width:${remaining ?? 0}%"></div></div>
+        <div class="quota-foot"><span>${esc(used)}</span><span>重置 ${esc(localTime(window.resetsAtIso))}</span></div>
+      </section>`;
+    }
+    function metric(label, value, suffix="") {
+      return `<div class="card"><div class="metric-label">${esc(label)}</div><div class="metric-value">${esc(value)}${esc(suffix)}</div></div>`;
+    }
+    function rankRows(rows, key) {
+      if (!rows?.length) return `<div class="muted">暂无数据</div>`;
+      const max = Math.max(...rows.map(row => number(row.totalTokens)), 1);
+      return `<div class="rows">${rows.map(row => `<div>
+        <div class="row-head"><span class="row-name" title="${esc(row[key])}">${esc(row[key])}</span><span>${esc(compact(row.totalTokens))}</span></div>
+        <div class="mini-track"><div class="mini-fill" style="width:${Math.max(2,number(row.totalTokens)/max*100)}%"></div></div>
+      </div>`).join("")}</div>`;
+    }
+    function dailyChart(rows) {
+      if (!rows?.length) return `<div class="muted">暂无每日数据</div>`;
+      const max = Math.max(...rows.map(row => number(row.totalTokens)), 1);
+      return `<div class="daily">${rows.map(row => `<div class="day" data-tip="${esc(row.date)} · ${esc(exact(row.totalTokens))}"><div class="bar" style="height:${Math.max(2,number(row.totalTokens)/max*100)}%"></div></div>`).join("")}</div>`;
+    }
+    function render(data) {
+      data = data?.structuredContent || data;
+      const quota = data?.quota;
+      const usage = data?.localUsage;
+      if (!quota || !usage) { app.innerHTML = `<div class="card empty">没有可显示的组合报告。</div>`; return; }
+      const totals = usage.totals || {};
+      const source = quota.isLive ? "实时额度" : "本地快照";
+      const windows = quota.windows || [];
+      app.innerHTML = `
+        <header><div><h1>UsageLoom</h1><div class="sub">账号额度与本机 Token 归因 · 最近 ${esc(usage.rollingWindowDays)} 天</div></div><span class="badge ${quota.isLive ? "live" : ""}">${esc(source)}</span></header>
+        <div class="grid quota-grid">${windows.length ? windows.map(quotaCard).join("") : `<section class="card empty">暂未获得额度窗口</section>`}</div>
+        <div class="grid metric-grid">
+          ${metric("总 Token", compact(totals.totalTokens))}
+          ${metric("Input", compact(totals.inputTokens))}
+          ${metric("Cached", compact(totals.cachedInputTokens))}
+          ${metric("Output", compact(totals.outputTokens))}
+          ${metric("缓存命中率", number(totals.cacheHitPercent).toFixed(1), "%")}
+          ${metric("API 等价费用", "$" + number(totals.apiEquivalentCostUsd).toFixed(2))}
+        </div>
+        <div class="grid split">
+          <section class="card"><h2>模型消耗</h2>${rankRows(usage.byModel,"model")}</section>
+          <section class="card"><h2>项目消耗</h2>${rankRows(usage.byProject,"project")}</section>
+        </div>
+        <section class="card" style="margin-top:12px"><h2>每日 Token 趋势</h2>${dailyChart(usage.daily)}</section>
+        ${quota.warning ? `<div class="notice">${esc(quota.warning)}</div>` : ""}
+        <footer>本地 Token 只统计当前电脑；API 等价费用不是订阅账单。额度来源：${esc(quota.source)}。面板不读取 auth.json，也不保存 OAuth Token。</footer>`;
+    }
+    window.addEventListener("message", event => {
+      if (event.source !== window.parent) return;
+      const message = event.data;
+      if (message?.method === "ui/notifications/tool-result") render(message.params?.structuredContent || message.params);
+    }, {passive:true});
+    if (window.openai?.toolOutput) render(window.openai.toolOutput);
+  </script>
+</body>
+</html>
