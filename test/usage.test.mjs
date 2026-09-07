@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { fileURLToPath } from "node:url";
+import os from "node:os";
 import test from "node:test";
 import {
   buildLocalUsage,
@@ -16,7 +16,7 @@ function row(value) {
 }
 
 test("scanner counts increments, changes models, removes duplicates, and skips fork replay", async () => {
-  const testTemp = path.join(path.dirname(fileURLToPath(import.meta.url)), ".tmp");
+  const testTemp = path.join(os.tmpdir(), "UsageLoom-js-tests");
   await mkdir(testTemp, { recursive: true });
   const root = await mkdtemp(path.join(testTemp, "usage-"));
   try {
@@ -163,7 +163,7 @@ test("quota fallback normalizes snake_case local snapshots", () => {
 });
 
 test("cumulative high-water ignores re-emitted snapshots and fork prelude", async () => {
-  const testTemp = path.join(path.dirname(fileURLToPath(import.meta.url)), ".tmp");
+  const testTemp = path.join(os.tmpdir(), "UsageLoom-js-tests");
   await mkdir(testTemp, { recursive: true });
   const root = await mkdtemp(path.join(testTemp, "high-water-"));
   try {

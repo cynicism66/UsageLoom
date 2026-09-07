@@ -36,3 +36,13 @@ TestResults/
 /sessions/
 /archived_sessions/
 /.codex/
+/.tools/
+/artifacts/
+/.wix/
+/pelican-bike.html
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.dmp
+*.pdb

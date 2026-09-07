@@ -1,0 +1,959 @@
+using System.Text.Json;
+using UsageLoom.Core;
+using UsageLoom.Storage;
+using System.Diagnostics;
+
+if(args.Length>=2&&args[0]=="--fake-rpc")
+{
+    var scenario=args[1];var reads=0;var rateReads=0;
+    string? line;
+    while((line=await Console.In.ReadLineAsync())is not null)
+    {
+        using var document=JsonDocument.Parse(line);var message=document.RootElement;
+        if(!message.TryGetProperty("id",out var identifier))continue;
+        var id=identifier.GetInt32();var method=message.GetProperty("method").GetString();
+        if(method=="initialize")Console.WriteLine(JsonSerializer.Serialize(new{id,result=new{}}));
+        else if(method=="thread/list"&&scenario=="bad-thread-json")Console.WriteLine("{invalid}");
+        else if(method=="thread/list")Console.WriteLine(JsonSerializer.Serialize(new{id,result=new{data=new[]{new{id="account-a",sessionId="session-root",name="可读会话标题",preview="不应作为标题"}},nextCursor=(string?)null}}));
+        else if(method=="account/login/start"&&scenario.StartsWith("login-"))
+        {
+            if(message.GetProperty("params").GetProperty("type").GetString()!="chatgpt")throw new Exception("仅允许官方浏览器登录");
+            if(scenario=="login-success")Console.WriteLine("{\"method\":\"account/login/completed\",\"params\":{\"loginId\":\"synthetic-login\",\"success\":true}}");
+            Console.WriteLine(JsonSerializer.Serialize(new{id,result=new{type="chatgpt",loginId="synthetic-login",authUrl=scenario=="login-url"?"https://example.invalid/auth":"https://auth.openai.com/authorize?state=synthetic"}}));
+        }
+        else if(method=="account/login/cancel"&&scenario.StartsWith("login-"))Console.WriteLine(JsonSerializer.Serialize(new{id,result=new{status="canceled"}}));
+        else if(method=="account/logout"&&scenario=="login-logout")Console.WriteLine(JsonSerializer.Serialize(new{id,result=new{}}));
+        else if(method=="account/read")
+        {
+            reads++;
+            var refresh=message.GetProperty("params").GetProperty("refreshToken").GetBoolean();
+            if(refresh&&scenario!="auth-once")throw new Exception("不允许强制刷新凭据");
+            object? account=scenario=="signed-out"?null:scenario.StartsWith("no-identity")?new{type="chatgpt",email=scenario=="no-identity-switch"&&reads>1?"other@example.com":"synthetic@example.com"}:
+                new{type="chatgpt",accountId=scenario=="switch"&&reads>1?"account-b":"account-a",planType="test"};
+            Console.WriteLine(JsonSerializer.Serialize(new{id,result=new{account}}));
+        }
+        else if(method=="account/rateLimits/read")
+        {
+            rateReads++;
+            if(scenario=="signed-out")throw new Exception("未登录时不应请求额度");
+            if(scenario=="timeout"){await Task.Delay(10000);continue;}
+            if(scenario=="malformed"){Console.WriteLine("not json");continue;}
+            if(scenario=="network-always"||(scenario=="network-once"&&rateReads==1))
+            {Console.WriteLine(JsonSerializer.Serialize(new{id,error=new{code=-32000,message="failed to fetch codex rate limits: error sending request for url (https://chatgpt.com/private/path): dns error: no such host"}}));await Console.Out.FlushAsync();continue;}
+            if(scenario=="auth-once"&&rateReads==1)
+            {Console.WriteLine(JsonSerializer.Serialize(new{id,error=new{code=401,message="unauthorized: token expired"}}));await Console.Out.FlushAsync();continue;}
+            if(scenario=="stderr")await Console.Error.WriteAsync(new string('x',200000));
+            if(scenario=="event")Console.WriteLine("{\"method\":\"account/rateLimits/updated\",\"params\":{}}");
+            if(scenario is "invalidate" or "no-identity-event")Console.WriteLine("{\"method\":\"account/updated\",\"params\":{\"authMode\":\"chatgpt\"}}");
+            if(scenario=="no-identity-empty"){Console.WriteLine(JsonSerializer.Serialize(new{id,result=new{}}));await Console.Out.FlushAsync();continue;}
+            Console.WriteLine(JsonSerializer.Serialize(new{id,result=new{rateLimits=new{primary=new{usedPercent=25,windowDurationMins=300,resetsAt=2000000000}},rateLimitResetCredits=new{availableCount=2}}}));
+        }
+        else throw new Exception("模拟服务器拒绝不在只读白名单中的请求");
+        await Console.Out.FlushAsync();
+        if(method=="account/login/start"&&scenario=="login-disconnect")return;
+    }
+    return;
+}
+
+var tests = new List<(string Name, Func<Task> Run)>();
+void Check(bool result, string message = "断言失败") { if (!result) throw new InvalidOperationException(message); }
+JsonElement Json(string text) { using var doc = JsonDocument.Parse(text); return doc.RootElement.Clone(); }
+void Test(string name, Action action) => tests.Add((name, () => { action(); return Task.CompletedTask; }));
+void AsyncTest(string name, Func<Task> action) => tests.Add((name, action));
+Test("主额度分组与百分比边界倒计时",()=>
+{
+    var now=DateTimeOffset.Now;
+    var primary=new QuotaWindow("codex:secondary","每周额度",.001,10080,now.AddDays(7));
+    var other=primary with{Key="codex_bengalfox:primary"};
+    var state=new QuotaState([primary,other],null,now,"ok",true);
+    Check(state.PrimaryWindows.Single()==primary&&state.OtherWindows.Single()==other);
+    Check(primary.RemainingText==">99.9%"&&primary.ResetCountdown(now).Contains("7 天"));
+    Check((primary with{Used=99.999}).RemainingText=="<0.1%");
+    Check((primary with{ResetsAt=now}).ResetCountdown(now).Contains("等待刷新"));
+});
+
+Test("日志脱敏不保留 Token/邮箱/路径", () =>
+{
+    var sample = Privacy.Redact("Bearer test-value alice@example.com C:\\Users\\sample\\file.txt");
+    Check(!sample.Contains("test-value"), "Token 未脱敏");
+    Check(!sample.Contains("alice"), "邮箱未脱敏");
+    Check(!sample.Contains("sample"), "路径未脱敏");
+    foreach (var path in new[] { @"D:\private project\sample.txt", @"\\server\private\sample.txt", "/home/sample/private", "C:/Users/sample/private" })
+        Check(!Privacy.Redact(path).Contains("sample"), "路径变体未脱敏");
+    Check(Privacy.Redact(new string('x', 5000)).Length <= 1201);
+});
+Test("网址与路径分开脱敏且保留安全的网络原因", () =>
+{
+    var value=Privacy.Redact("request https://chatgpt.com/private/path failed: dns error C:\\Users\\sample\\secret.txt");
+    Check(value.Contains("[网络地址已隐藏]")&&value.Contains("dns error")&&value.Contains("[路径已隐藏]")&&!value.Contains("chatgpt.com")&&!value.Contains("sample"));
+    Check(!Privacy.Redact("https://example.com/a").Contains("[路径已隐藏]"));
+});
+Test("RPC 错误安全分类不回显服务地址",() =>
+{
+    var error=new CodexRpcException("failed to fetch https://chatgpt.com/private: dns error: no such host");
+    Check(error.Kind==RpcFailureKind.Dns&&error.Retryable&&error.Message.Contains("DNS")&&!error.Message.Contains("chatgpt.com"));
+    Check(RpcFailure.Classify("proxy tunnel connection failed")==RpcFailureKind.Proxy);
+    Check(RpcFailure.Classify("certificate verify failed")==RpcFailureKind.Tls);
+    Check(RpcFailure.Classify("unauthorized",401)==RpcFailureKind.Authentication);
+});
+Test("Token 子分类不重复累计", () => Check(new TokenUsage(100, 30, 10, 20, 5).Total == 120));
+Test("未知模型不会通过子字符串套价", () => Check(Pricing.Calculate("unknown-gpt-5.4-extra", new(100, 0, 0, 10)).Unpriced == 110));
+Test("缺失子分类价格降低覆盖率", () =>
+{
+    var value = Pricing.Calculate("synthetic", new(100, 0, 20, 10), new(2, .2m, null, 8));
+    Check(value.Priced == 90 && value.Unpriced == 20 && value.Cost == .00024m);
+});
+Test("显式零价格不当作未知", () => Check(Pricing.Calculate("synthetic", new(100, 0, 20, 10), new(2, .2m, 0, 8)).Priced == 110));
+Test("非法分类不参与计价", () => Check(Pricing.Calculate("synthetic", new(100, 90, 20, 10), new(2, .2m, 1, 8)).Priced == 0));
+Test("重置次数缺失与零不同", () =>
+{
+    var missing = QuotaParser.Parse(Json("{}"), DateTimeOffset.Now, "test", null);
+    var zero = QuotaParser.Parse(Json("{\"rateLimitResetCredits\":{\"availableCount\":0}}"), DateTimeOffset.Now, "test", null);
+    Check(missing.ResetCount is null && zero.ResetCount == 0);
+});
+Test("次数依据 availableCount 而非明细长度", () =>
+{
+    var value = QuotaParser.Parse(Json("{\"rateLimitResetCredits\":{\"availableCount\":5,\"credits\":[]}}"), DateTimeOffset.Now, "test", null);
+    Check(value.ResetCount == 5);
+});
+Test("非法额度字段安全降级", () =>
+{
+    foreach (var text in new[] { "null", "[]", "{\"rateLimits\":{\"primary\":{\"usedPercent\":\"invalid\",\"windowDurationMins\":300}}}", "{\"rateLimitResetCredits\":{\"availableCount\":-1}}" })
+        Check(QuotaParser.Parse(Json(text), DateTimeOffset.Now, null, null).ResetCount is null);
+});
+Test("邮箱和套餐不能代替账号身份", () => Check(CodexClient.ReadIdentity(Json("{\"type\":\"chatgpt\",\"email\":\"test@example.com\",\"planType\":\"pro\"}")) is null));
+Test("有效额度可计算剩余比例", () =>
+{
+    var value = QuotaParser.Parse(Json("{\"rateLimits\":{\"primary\":{\"usedPercent\":35,\"windowDurationMins\":300,\"resetsAt\":2000000000}}}"), DateTimeOffset.Now, "test", null);
+    Check(value.Fresh && value.Windows.Single().Remaining == 65);
+});
+Test("周容量只用同窗口成对增量并公开可信度",() =>
+{
+    var at=DateTimeOffset.Parse("2026-09-14T00:00:00Z");var tracker=new WeeklyCapacityEstimator();
+    QuotaState State(double used,DateTimeOffset reset)=>new([new("codex:secondary","每周额度",used,10080,reset)],null,DateTimeOffset.Now,"ok",true,"account");
+    Check(tracker.Observe(State(10,at),1_000_000).Count==0);
+    var first=tracker.Observe(State(12,at.AddSeconds(30)),1_200_000).Single();
+    Check(Math.Abs(first.EstimatedTokens-10_000_000)<1&&first.Samples==1&&first.Confidence=="低");
+    Check(tracker.Observe(State(12,at),1_300_000).Single().ObservedTokens==200_000,"额度未变化不应移动基线");
+    var second=tracker.Observe(State(16,at),1_600_000).Single();
+    Check(Math.Abs(second.EstimatedTokens-10_000_000)<1&&second.Samples==2&&second.Confidence=="中");
+    Check(tracker.Observe(State(1,at.AddDays(7)),1_700_000).Count==0,"新周窗口必须重新采样");
+});
+Test("额度变化没有本机 Token 增量时不伪造周容量",() =>
+{
+    var tracker=new WeeklyCapacityEstimator();var reset=DateTimeOffset.Now.AddDays(3);
+    tracker.Observe(new([new("weekly","每周额度",20,10080,reset)],null,DateTimeOffset.Now,"ok",true),500);
+    Check(tracker.Observe(new([new("weekly","每周额度",21,10080,reset)],null,DateTimeOffset.Now,"ok",true),500).Count==0);
+    var paired=tracker.Observe(new([new("weekly","每周额度",21,10080,reset)],null,DateTimeOffset.Now,"ok",true),600).Single();
+    Check(Math.Abs(paired.EstimatedTokens-10_000)<1,"等待日志扫描后应配对同一次额度变化");
+});
+Test("周容量采样状态说明等待原因并排除不明额度组",() =>
+{
+    var tracker=new WeeklyCapacityEstimator();var now=DateTimeOffset.Now;
+    var quota=new QuotaState([new("codex:weekly","每周额度",10,10080,now.AddDays(3)),new("codex_bengalfox:weekly","未知",20,10080,now.AddDays(3))],null,now,"ok",true,"account");
+    Check(tracker.DescribeProgress(QuotaState.LocalAccount,0,true).Contains("本地模式"));
+    Check(tracker.DescribeProgress(quota with{Fresh=false},0,true).Contains("暂停"));
+    Check(tracker.DescribeProgress(quota,0,false).Contains("索引"));
+    tracker.Observe(quota,1000);
+    Check(tracker.DescribeProgress(quota,1000,true).Contains("采样起点已建立"));
+    Check(tracker.DescribeProgress(quota,1200,true).Contains("等待周额度百分比变化"));
+    var changed=quota with{Windows=[quota.Windows[0] with{Used=12},quota.Windows[1] with{Used=30}]};
+    tracker.Observe(changed,1000);
+    Check(tracker.DescribeProgress(changed,1000,true).Contains("等待本机 Token"));
+    Check(tracker.Observe(changed,1200).Single().WindowKey=="codex:weekly");
+    Check(tracker.DescribeProgress(changed,1200,true).Contains("配对进度"));
+});
+Test("日趋势补齐24小时并保留未知时间且总量守恒",() =>
+{
+    var day=new DateOnly(2026,9,7);
+    var at=new DateTimeOffset(day.ToDateTime(new TimeOnly(13,25)));
+    var rows=new[]{Event("h1",100,20) with{Timestamp=at.ToUniversalTime(),LocalDate="2026-09-07"},Event("h2",200,30) with{Timestamp=at.AddMinutes(10),LocalDate="2026-09-07"},Event("unknown",50,10) with{Timestamp=null,LocalDate="2026-09-07"},Event("outside",999,0) with{LocalDate="2026-09-06"}};
+    var buckets=HistoryQuery.HourlyTrend(rows,day);
+    Check(buckets.Count==25&&buckets[0].Label=="00:00"&&buckets[23].Label=="23:00");
+    Check(buckets[13].Tokens==350&&buckets[13].Requests==2&&buckets[12].Tokens==0);
+    Check(buckets[^1].Label=="时间未知"&&buckets[^1].Tokens==60);
+    Check(buckets.Sum(item=>item.Tokens)==410&&buckets.Sum(item=>item.Requests)==3);
+    Check(buckets.Sum(item=>item.EstimatedCost)==Pricing.Summarize(rows.Take(3)).Cost);
+    Check(HistoryQuery.HourlyTrend([],day).Count==24);
+});
+Test("周美元只换算配对费用增量并明确缺价",() =>
+{
+    var tracker=new WeeklyCapacityEstimator();var now=DateTimeOffset.Now;
+    QuotaState State(double used)=>new([new("codex:weekly","周",used,10080,now.AddDays(3))],null,now,"ok",true,"a");
+    tracker.Observe(State(10),1000,new Estimate(100m,1000,0,null));
+    var first=tracker.Observe(State(12),1200,new Estimate(104m,1200,0,null)).Single();
+    Check(first.EstimatedDollars==200m&&first.PricingCoverage==100);
+    var partial=tracker.Observe(State(14),1400,new Estimate(106m,1300,100,"missing")).Single();
+    Check(partial.EstimatedDollars==150m&&partial.PricingCoverage==75&&partial.DollarDisplay.Contains("部分估算"));
+    tracker.Reset();tracker.Observe(State(10),1000);
+    Check(tracker.Observe(State(12),1200).Single().EstimatedDollars is null);
+});
+Test("Spark 明确名称与已验证ID映射但不覆盖冲突名称",() =>
+{
+    QuotaWindow Read(string? name)=>QuotaParser.Parse(Json(JsonSerializer.Serialize(new{rateLimitsByLimitId=new{codex_bengalfox=new{limitName=name,secondary=new{usedPercent=12,windowDurationMins=10080}}}})),DateTimeOffset.Now,"a",null).Windows.Single();
+    Check(Read("GPT-5.3-Codex-Spark").IsSpark);
+    Check(Read(null).IsSpark&&!Read(null).IsPrimary);
+    Check(!Read("Different model").IsSpark);
+    Check(Read(null).Label=="每周额度");
+});
+Test("套餐展示保留未知类型且区分本地与过期",() =>
+{
+    var quota=new QuotaState([],null,DateTimeOffset.Now,"ok",true,"a","prolite");
+    Check(quota.PlanDisplay=="套餐：Pro 5X");
+    Check((quota with{Plan="pro"}).PlanDisplay=="套餐：Pro 20X");
+    Check((quota with{Plan="unknown"}).PlanDisplay=="套餐：unknown（后端标识）");
+    Check((quota with{Plan="plus"}).PlanDisplay=="套餐：Plus");
+    Check((quota with{Plan=null}).PlanDisplay=="套餐暂不可用");
+    Check((quota with{Fresh=false}).PlanDisplay.Contains("待刷新确认"));
+    Check((quota with{IsLocalAccount=true}).PlanDisplay=="本地模式 · 无在线套餐");
+});
+Test("账户指纹变化时重置周容量样本",() =>
+{
+    var tracker=new WeeklyCapacityEstimator();var reset=DateTimeOffset.Now.AddDays(3);
+    QuotaState State(string account,double used)=>new([new("weekly","每周额度",used,10080,reset)],null,DateTimeOffset.Now,"ok",true,account);
+    tracker.Observe(State("account-a",10),1_000);
+    Check(tracker.Observe(State("account-a",20),2_000).Count==1);
+    Check(tracker.Observe(State("account-b",20),2_000).Count==0);
+});
+Test("会话标题优先于项目目录和内部 ID",() =>
+{
+    var rows=new[]{Event("a",80,20) with{Session="session-root",Project="new-chat"}};
+    var names=new Dictionary<string,string>{{"session-root","确认 ChatGPT 是否自动续费"}};
+    var session=HistoryQuery.Sessions(rows,"recent",names).Single();
+    Check(session.Name=="确认 ChatGPT 是否自动续费"&&session.Project=="new-chat"&&session.ShortId=="session-root");
+    Check(HistoryQuery.Filter(rows,new(Search:"自动续费"),names).Count==1);
+});
+Test("历史范围区分滚动七天、本周、本月和自定义",() =>
+{
+    var today=new DateOnly(2026,9,9);
+    Check(HistoryQuery.ResolveRange(HistoryRangeKind.Rolling7Days,today)==new HistoryDateRange(new(2026,9,3),today,"近 7 天"));
+    Check(HistoryQuery.ResolveRange(HistoryRangeKind.Week,today).From==new DateOnly(2026,9,7));
+    Check(HistoryQuery.ResolveRange(HistoryRangeKind.Month,today).From==new DateOnly(2026,9,1));
+    Check(!HistoryQuery.ResolveRange(HistoryRangeKind.Custom,today,new(2026,9,9),new(2026,9,8)).IsBounded);
+});
+Test("趋势补齐空日期并压缩长区间",() =>
+{
+    var rows=new[]{Event("a",80,20) with{Session="one",LocalDate="2026-09-01"},Event("b",40,10) with{Session="two",LocalDate="2026-09-03"}};
+    var daily=HistoryQuery.Trend(rows,new(new(2026,9,1),new(2026,9,3),"test"));
+    Check(daily.Count==3&&daily[0].Tokens==100&&daily[0].Requests==1&&daily[1].Tokens==0&&daily[1].Requests==0&&daily[2].Tokens==50&&daily[2].Requests==1);
+    var compressed=HistoryQuery.Trend(rows,new(new(2026,1,1),new(2026,12,31),"test"),12);
+    Check(compressed.Count<=12&&compressed.Sum(item=>item.Tokens)==150);
+    Check(compressed.Sum(item=>item.Requests)==2);
+});
+Test("非法 Token 字段不当作零", () =>
+{
+    foreach(var value in new[]{"{\"input_tokens\":\"wrong\"}","{\"input_tokens\":-1}","{\"input_tokens\":80,\"output_tokens\":20,\"total_tokens\":150}","{\"input_tokens\":9223372036854775807,\"output_tokens\":1}"})
+    {
+        var rejected=false;try{TokenUsage.Parse(Json(value));}catch(JsonException){rejected=true;}Check(rejected);
+    }
+});
+Test("通知默认关闭且阈值包括等于边界", () =>
+{
+    var now=DateTimeOffset.Parse("2026-09-06T01:00:00Z");
+    var quota=new QuotaState([new("primary","5 小时额度",80,300,now.AddHours(1))],2,now,"test",true,"account-test");
+    var policy=new NotificationPolicy();Check(policy.Evaluate(quota,new(),now,TimeSpan.FromMinutes(10)).Count==0);
+    Check(policy.Evaluate(quota,new(true),now,TimeSpan.FromMinutes(10)).Count==1);
+    Check(policy.Evaluate(quota,new(true,true,99),now,TimeSpan.FromMinutes(10)).Count==0);
+});
+Test("两类通知独立且重启时间微调不重复", () =>
+{
+    var now=DateTimeOffset.Parse("2026-09-06T01:00:00Z");
+    var quota=new QuotaState([new("primary","5 小时额度",80,300,now.AddMinutes(10))],2,now,"test",true,"account-test");
+    var policy=new NotificationPolicy();Check(policy.Evaluate(quota,new(true,true),now,TimeSpan.FromMinutes(10)).Count==2);
+    var restored=new NotificationPolicy();restored.Restore(policy.Export(),now);
+    var adjusted=quota with{Windows=[quota.Windows[0] with{ResetsAt=now.AddMinutes(10).AddSeconds(30)}]};
+    Check(restored.Evaluate(adjusted,new(true,true,90,20),now,TimeSpan.FromMinutes(10)).Count==0);
+    Check(!restored.Export().Single().Account.Contains("account-test"));
+});
+Test("过期身份不明和已过重置时间不提醒", () =>
+{
+    var now=DateTimeOffset.Parse("2026-09-06T01:00:00Z");
+    var quota=new QuotaState([new("primary","5 小时额度",99,300,now.AddMinutes(5))],2,now,"test",true,"account-test");
+    foreach(var invalid in new[]{quota with{Fresh=false},quota with{AccountKey=null},quota with{FetchedAt=now.AddHours(-1)},quota with{Windows=[quota.Windows[0] with{ResetsAt=now}]}})
+        Check(new NotificationPolicy().Evaluate(invalid,new(true,true),now,TimeSpan.FromMinutes(10)).Count==0);
+});
+Test("新窗口周期重新允许提醒", () =>
+{
+    var now=DateTimeOffset.Parse("2026-09-06T01:00:00Z");
+    var quota=new QuotaState([new("primary","5 小时额度",90,300,now.AddMinutes(5))],2,now,"test",true,"account-test");
+    var policy=new NotificationPolicy();Check(policy.Evaluate(quota,new(true,true),now,TimeSpan.FromMinutes(10)).Count==2);
+    var later=now.AddMinutes(6);var updated=quota with{FetchedAt=later,Windows=[quota.Windows[0] with{ResetsAt=later.AddMinutes(5)}]};
+    Check(policy.Evaluate(updated,new(true,true),later,TimeSpan.FromMinutes(10)).Count==2);
+});
+
+Test("每个模型价格都有官方来源和核对日期",()=>
+{
+    Check(Pricing.Entries.Count==9);
+    foreach(var entry in Pricing.Entries){Check(entry.Source.Host=="developers.openai.com"&&entry.CheckedOn==new DateOnly(2026,9,7));Check(entry.EffectiveFrom is null&&entry.EffectiveUntil is null);}
+    Check(Pricing.Find("gpt-5.4-mini-2026-03-17")?.Model=="gpt-5.4-mini");
+    Check(Pricing.Find("gpt-5.6")?.Model=="gpt-5.6-sol");
+});
+Test("Astra 长上下文与 Fast 明确条件倍率",()=>
+{
+    var usage=new TokenUsage(100,20,10,20);
+    var normal=Pricing.Calculate("gpt-6-astra",usage,context:new(RequestInputTokens:272000,FastMode:false,ValuationDate:new(2026,9,6)));
+    var longer=Pricing.Calculate("gpt-6-astra",usage,context:new(RequestInputTokens:272001,FastMode:true,ValuationDate:new(2026,9,6)));
+    Check(normal.Cost==.001845m&&longer.Cost==.00638m);
+    Check(longer.Notes.Any(n=>n.Contains("长上下文"))&&longer.Notes.Any(n=>n.Contains("Fast")));
+});
+Test("Astra Batch 价格为标准一半",()=>
+{
+    var context=new PricingContext(RequestInputTokens:100,ServiceTier:"batch",FastMode:false,ValuationDate:new(2026,9,6));
+    Check(Pricing.Calculate("gpt-6-astra",new(100,0,0,0),context:context).Cost==.0005m);
+});
+Test("长上下文条件未知不以累计总量推断",()=>
+{
+    var value=Pricing.Calculate("gpt-6-astra",new(1000000,0,0,0),context:new(ValuationDate:new(2026,9,6)));
+    Check(value.Cost==10m&&value.Notes.Any(n=>n.Contains("未核实长上下文")));
+});
+Test("未知长上下文缓存倍率明确缺价",()=>
+{
+    var value=Pricing.Calculate("gpt-5.6-sol",new(100,20,10,20),context:new(RequestInputTokens:300000,ValuationDate:new(2026,9,6)));
+    Check(value.Unpriced==30&&value.Priced==90&&value.Status=="部分估算");
+});
+Test("区域倍率需有明确依据",()=>
+{
+    var value=Pricing.Calculate("gpt-5.4-mini",new(1000000,0,0,0),context:new(RegionalProcessing:true,ValuationDate:new(2026,9,6)));
+    Check(value.Cost==.825m);
+});
+Test("未知价格和失效促销不显示零美元",()=>
+{
+    Check(Pricing.Calculate("unlisted",new(100,0,0,0)).DisplayAmount=="暂不可估算");
+    var stale=Pricing.Calculate("gpt-5.6-sol",new(100,0,0,0),context:new(ValuationDate:new(2026,11,22)));
+    Check(!stale.HasAmount&&stale.Reason!.Contains("促销"));
+});
+
+var fixtureRoot = Path.Combine(Path.GetTempPath(), "UsageLoom-tests-" + Guid.NewGuid().ToString("N"));
+Directory.CreateDirectory(fixtureRoot);
+string Fixture(string name) { var p = Path.Combine(fixtureRoot, name); Directory.CreateDirectory(Path.Combine(p, "sessions")); return p; }
+string Meta(string id, string? parent = null) => JsonSerializer.Serialize(new { type = "session_meta", payload = new { id, forked_from_id = parent, cwd = "sample-project" } });
+string Model() => "{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-5.4-mini\"}}";
+string Count(long input, long output, long? cached = null, string timestamp = "2026-09-05T01:00:00Z") => JsonSerializer.Serialize(new
+{
+    type = "event_msg", timestamp,
+    payload = new { type = "token_count", info = new { total_token_usage = new { input_tokens = input, output_tokens = output, cached_input_tokens = cached } } }
+});
+Test("本地账户指纹稳定隔离且不保存邮箱",() =>
+{
+    var path=Path.Combine(Fixture("fingerprint"),"account-fingerprint.key");
+    var fingerprints=new LocalAccountFingerprint(path);
+    var first=fingerprints.Create("email"," Test@Example.com ");
+    var same=fingerprints.Create("email","test@example.com");
+    var other=fingerprints.Create("email","other@example.com");
+    Check(first==same&&first!=other&&first is not null&&!first.Contains("example",StringComparison.OrdinalIgnoreCase));
+    Check(File.ReadAllBytes(path).Length==32&&!File.ReadAllText(path).Contains("test@example.com",StringComparison.OrdinalIgnoreCase));
+    Check(new LocalAccountFingerprint(path).Create("email","test@example.com")==first);
+});
+AsyncTest("重复扫描、累计去重与分类修正", async () =>
+{
+    var home = Fixture("correction");
+    await File.WriteAllLinesAsync(Path.Combine(home, "sessions", "a.jsonl"), [Meta("s1"), Model(), Count(160, 40, 20), Count(160, 40, 30), Count(160, 40, 30)]);
+    var scanner = new HistoryScanner();
+    var first = await scanner.ScanAsync(home, default); var second = await scanner.ScanAsync(home, default);
+    Check(first.Total == new TokenUsage(160, 30, 0, 40) && first.Events.Count == 1 && second.Total == first.Total);
+});
+AsyncTest("扫描保存可靠的单请求输入用于长上下文计价",async()=>
+{
+    var home=Fixture("request-pricing-context");
+    var count=JsonSerializer.Serialize(new
+    {
+        type="event_msg",timestamp="2026-09-05T01:00:00Z",
+        payload=new{type="token_count",info=new
+        {
+            total_token_usage=new{input_tokens=300000,cached_input_tokens=200000,output_tokens=1000},
+            last_token_usage=new{input_tokens=300000,cached_input_tokens=200000,output_tokens=1000}
+        }}
+    });
+    await File.WriteAllLinesAsync(Path.Combine(home,"sessions","a.jsonl"),[Meta("priced-request"),"{\"type\":\"turn_context\",\"payload\":{\"model\":\"gpt-6-astra\"}}",count]);
+    var item=(await new HistoryScanner().ScanAsync(home,default)).Events.Single();
+    Check(item.Pricing?.RequestInputTokens==300000&&item.Pricing?.ValuationDate==new DateOnly(2026,9,5));
+    Check(Pricing.Calculate(item).Cost==2.475m);
+});
+AsyncTest("跨文件恢复与缺失子分类保持", async () =>
+{
+    var home = Fixture("resume");
+    await File.WriteAllLinesAsync(Path.Combine(home, "sessions", "a.jsonl"), [Meta("s2"), Model(), Count(80, 20, 10)]);
+    await File.WriteAllLinesAsync(Path.Combine(home, "sessions", "b.jsonl"), [Meta("s2"), Model(), Count(120, 30)]);
+    var report = await new HistoryScanner().ScanAsync(home, default);
+    Check(report.Total == new TokenUsage(120, 10, 0, 30));
+});
+AsyncTest("同一任务跨 rollout 的独立累计重置不会漏记", async () =>
+{
+    var home=Fixture("cross-rollout-reset");
+    await File.WriteAllLinesAsync(Path.Combine(home,"sessions","a.jsonl"),[Meta("shared-reset"),Model(),Count(80,20)]);
+    string ResetCount(long input,long output,long lastInput,long lastOutput,string timestamp)=>JsonSerializer.Serialize(new
+    {
+        type="event_msg",timestamp,
+        payload=new{type="token_count",info=new
+        {
+            total_token_usage=new{input_tokens=input,output_tokens=output},
+            last_token_usage=new{input_tokens=lastInput,output_tokens=lastOutput}
+        }}
+    });
+    await File.WriteAllLinesAsync(Path.Combine(home,"sessions","b.jsonl"),
+        [Meta("shared-reset"),Model(),ResetCount(8,2,8,2,"2026-09-05T02:00:00Z"),ResetCount(16,4,8,2,"2026-09-05T03:00:00Z")]);
+    var report=await new HistoryScanner().ScanAsync(home,default);
+    Check(report.Total.Total==120&&report.Events.Count==3&&report.Warnings==1);
+});
+AsyncTest("无法唯一归属的分类修正保持总量并报告缺口", async () =>
+{
+    var home = Fixture("ambiguous-correction");
+    await File.WriteAllLinesAsync(Path.Combine(home, "sessions", "a.jsonl"), [Meta("ambiguous"), Model(), Count(80, 20, 10), Count(160, 40, 20), Count(160, 40, 30)]);
+    var result = await new HistoryScanner().ScanAsync(home, default);
+    Check(result.Total.Total == 200 && result.Total.Cached == 20 && result.Warnings == 1);
+});
+AsyncTest("跨文件同总量修正修改唯一的既有事件", async () =>
+{
+    var home = Fixture("cross-file-correction");
+    await File.WriteAllLinesAsync(Path.Combine(home, "sessions", "a.jsonl"), [Meta("cross-file"), Model(), Count(80, 20, 10)]);
+    await File.WriteAllLinesAsync(Path.Combine(home, "sessions", "b.jsonl"), [Meta("cross-file"), Model(), Count(80, 20, 15), Count(120, 30)]);
+    var result = await new HistoryScanner().ScanAsync(home, default);
+    Check(result.Total == new TokenUsage(120, 15, 0, 30));
+});
+AsyncTest("完整无换行尾行与半行后续补齐", async () =>
+{
+    var home = Fixture("partial"); var path = Path.Combine(home, "sessions", "a.jsonl");
+    var record = Count(80, 20); var prefix = Meta("s3") + "\n" + Model() + "\n";
+    await File.WriteAllTextAsync(path, prefix + record[..30]);
+    Check((await new HistoryScanner().ScanAsync(home, default)).Total.Total == 0);
+    await File.AppendAllTextAsync(path, record[30..]);
+    Check((await new HistoryScanner().ScanAsync(home, default)).Total.Total == 100);
+});
+AsyncTest("fork 父前缀未完成不得记给子任务", async () =>
+{
+    var home = Fixture("fork"); var file = Path.Combine(home, "sessions", "a.jsonl");
+    const string child = "019ffaca-c65e-78a3-8383-70d9d427eaf3";
+    await File.WriteAllLinesAsync(file, [Meta(child, "parent"), Meta("parent"), Model(), Count(240, 60)]);
+    Check((await new HistoryScanner().ScanAsync(home, default)).Total.Total == 0);
+    await File.AppendAllLinesAsync(file, ["{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"turn_id\":\"019ffaca-cac2-7122-bd5c-e30f9b7c3715\"}}", Model(), Count(280, 70)]);
+    Check((await new HistoryScanner().ScanAsync(home, default)).Total.Total == 50);
+});
+AsyncTest("超大行不会阻止后续有效记录", async () =>
+{
+    var home = Fixture("large"); var file = Path.Combine(home, "sessions", "a.jsonl");
+    await File.WriteAllLinesAsync(file, [Meta("s4"), "{\"type\":\"response_item\",\"text\":\"" + new string('x', 1_100_000) + "\"}", Count(8, 2)]);
+    var report = await new HistoryScanner().ScanAsync(home, default);
+    Check(report.Total.Total == 10 && report.Warnings > 0);
+});
+UsageEvent Event(string id, long input, long output) => new(id, "db-session", "project", "test", "main", DateTimeOffset.Now, "2026-09-05", new(input, 0, 0, output), false, "source-1");
+AsyncTest("扫描缓存仅在文件清单未变化时命中",async()=>
+{
+    var home=Fixture("cache");var file=Path.Combine(home,"sessions","a.jsonl");
+    await File.WriteAllLinesAsync(file,[Meta("cached"),Model(),Count(80,20)]);
+    var scanner=new HistoryScanner();var first=await scanner.ScanIfChangedAsync(home,default);var second=await scanner.ScanIfChangedAsync(home,default);
+    Check(!first.UsedCache&&second.UsedCache&&second.Total.Total==100);
+    await File.AppendAllLinesAsync(file,[Count(160,40)]);var appended=await scanner.ScanIfChangedAsync(home,default);
+    Check(!appended.UsedCache&&appended.Total.Total==200);
+    Check(!(await scanner.ScanIfChangedAsync(home,default,force:true)).UsedCache);
+});
+AsyncTest("已取消的扫描不能返回缓存成功",async()=>
+{
+    var home=Fixture("canceled");var scanner=new HistoryScanner();await scanner.ScanIfChangedAsync(home,default);
+    using var canceled=new CancellationTokenSource();canceled.Cancel();var thrown=false;
+    try{await scanner.ScanIfChangedAsync(home,canceled.Token);}catch(OperationCanceledException){thrown=true;}Check(thrown);
+});
+Test("估算缓存跨数据库实例恢复且不配对停机用量", () =>
+{
+    var directory=Path.Combine(fixtureRoot,"capacity-cache");var store=new HistoryStore(directory);
+    var reset=DateTimeOffset.Now.AddDays(3);
+    QuotaState State(double used,string plan="plus",string account="a")=>new([new("codex:weekly","周",used,10080,reset)],null,DateTimeOffset.Now,"ok",true,account,plan);
+    var tracker=new WeeklyCapacityEstimator();tracker.Observe(State(10),1000,new(10,1000,0,null));
+    tracker.Observe(State(12),1200,new(12,1200,0,null));store.SaveCapacity(tracker.Export());
+    var cache=new HistoryStore(directory).ReadCapacity();Check(cache is not null);
+    var legacy=new WeeklyCapacityEstimator();legacy.Restore(cache! with{Version=1});
+    Check(legacy.Observe(State(30),9000).Count==0,"旧版全机口径样本不能恢复为账号样本");
+    var next=new WeeklyCapacityEstimator();next.Restore(cache);
+    Check(next.Current.Count==0,"未经账号核验不能展示旧样本");
+    var restored=next.Observe(State(30),9000,new(90,9000,0,null)).Single();
+    Check(restored.ObservedTokens==200&&restored.ObservedPercent==2&&restored.EstimatedDollars==100);
+    var continued=next.Observe(State(32),9200,new(92,9200,0,null)).Single();
+    Check(continued.Samples==2&&continued.ObservedTokens==400&&next.RestoredAt is not null);
+    Check(next.Observe(State(33,"pro"),9300).Count==0,"套餐变化立即清样本");
+    foreach(var state in new[]{State(30,"pro"),State(30,"plus","b"),State(1),State(30) with{Windows=[new("codex:weekly","周",30,10080,reset.AddDays(7))]}})
+    {var rejected=new WeeklyCapacityEstimator();rejected.Restore(cache);Check(rejected.Observe(state,9000).Count==0);}
+    var eventRow=Event("keep",80,20);store.Save(new([eventRow],1,0,DateTimeOffset.Now));store.SaveCapacity(null);
+    Check(store.ReadCapacity() is null&&store.Read().Count==1,"重置缓存不能删除Token历史");
+});
+Test("SQLite 重复保存不重计且修正保留日期", () =>
+{
+    var store = new HistoryStore(Path.Combine(fixtureRoot, "db1")); var e = Event("one", 80, 20);
+    store.Save(new([e], 1, 0, DateTimeOffset.Now) { Sources = ["source-1"] });
+    store.Save(new([e with { Tokens = new(80, 12, 0, 20), LocalDate = "2026-09-04" }], 1, 0, DateTimeOffset.Now) { Sources = ["source-1"] });
+    var read = store.Read(); Check(read.Count == 1 && read[0].Tokens.Cached == 12 && read[0].LocalDate == "2026-09-05");
+});
+Test("SQLite 事务中断回滚全部批次", () =>
+{
+    var store = new HistoryStore(Path.Combine(fixtureRoot, "db2"));
+    try { store.Save(new([Event("one", 8, 2), Event("two", 16, 4)], 1, 0, DateTimeOffset.Now), checkpoint: _ => throw new IOException("模拟中断")); }
+    catch (IOException) { }
+    Check(store.Read().Count == 0);
+});
+Test("SQLite 检测来源截断并保留历史", () =>
+{
+    var store = new HistoryStore(Path.Combine(fixtureRoot, "db3"));
+    store.Save(new([Event("one", 8, 2)], 1, 0, DateTimeOffset.Now) { Sources = ["source-1"] });
+    var rejected = false;
+    try { store.Save(new([], 1, 0, DateTimeOffset.Now) { Sources = ["source-1"] }); } catch (InvalidDataException) { rejected = true; }
+    Check(rejected && store.Read().Single().Tokens.Total == 10);
+});
+Test("日志轮转与失败隔离", () =>
+{
+    var directory = Path.Combine(fixtureRoot, "log"); Directory.CreateDirectory(directory);
+    File.WriteAllText(Path.Combine(directory, "runtime.log"), new string('x', 1_050_000));
+    new DiagnosticLog(directory).Write("INFO", "test", "rotation");
+    Check(File.Exists(Path.Combine(directory, "runtime.1.log")));
+    var invalid = Path.Combine(fixtureRoot, "not-directory"); File.WriteAllText(invalid, "test");
+    new DiagnosticLog(invalid).Write("INFO", "test", "must not throw");
+});
+
+AsyncTest("持久化字节索引跨重启只解析追加部分",async()=>
+{
+    var home=Fixture("indexed");var file=Path.Combine(home,"sessions","a.jsonl");
+    await File.WriteAllLinesAsync(file,[Meta("indexed-session"),Model(),Count(80,20)]);
+    var store=new HistoryStore(Path.Combine(fixtureRoot,"indexed-db"));
+    var first=await new IncrementalHistory(store).ScanAsync(home,default);Check(first.FilesUpdated==1&&first.Report.Total.Total==100);
+    var cache=await new IncrementalHistory(store).ScanAsync(home,default);Check(cache.BytesParsed==0&&cache.Report.UsedCache);
+    var appended=Count(160,40)+"\n";await File.AppendAllTextAsync(file,appended);
+    var second=await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(second.BytesParsed==System.Text.Encoding.UTF8.GetByteCount(appended)&&store.Read().Sum(e=>e.Tokens.Total)==200);
+});
+AsyncTest("索引半行不前进，补全无换行尾行只记一次",async()=>
+{
+    var home=Fixture("indexed-tail");var file=Path.Combine(home,"sessions","a.jsonl");var record=Count(80,20);
+    await File.WriteAllTextAsync(file,Meta("tail")+"\n"+record[..25]);
+    var store=new HistoryStore(Path.Combine(fixtureRoot,"tail-db"));await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(store.Read().Count==0);await File.AppendAllTextAsync(file,record[25..]);
+    await new IncrementalHistory(store).ScanAsync(home,default);Check(store.Read().Sum(e=>e.Tokens.Total)==100);
+    Check((await new IncrementalHistory(store).ScanAsync(home,default)).BytesParsed==0);
+});
+AsyncTest("索引重写检测保留旧统计，正文不进入索引",async()=>
+{
+    var home=Fixture("indexed-rewrite");var file=Path.Combine(home,"sessions","a.jsonl");
+    await File.WriteAllLinesAsync(file,[Meta("rewrite"),"{\"type\":\"response_item\",\"payload\":{\"text\":\"PRIVATE-CONTENT-MARKER\"}}",Count(80,20)]);
+    var store=new HistoryStore(Path.Combine(fixtureRoot,"rewrite-db"));await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(!JsonSerializer.Serialize(store.ReadIndexes()).Contains("PRIVATE-CONTENT-MARKER"));
+    await File.WriteAllLinesAsync(file,[Meta("rewrite"),Count(8,2)]);
+    var rejected=false;try{await new IncrementalHistory(store).ScanAsync(home,default);}catch(InvalidDataException){rejected=true;}
+    Check(rejected&&store.Read().Sum(e=>e.Tokens.Total)==100);
+});
+Test("索引与事件同事务回滚",()=>
+{
+    var store=new HistoryStore(Path.Combine(fixtureRoot,"index-rollback"));
+    var index=new IndexedFile("synthetic",IncrementalHistory.ParserVersion,10,10,1,1,"hash",[],0);
+    try{store.Save(new([Event("e",8,2)],1,0,DateTimeOffset.Now),checkpoint:_=>throw new IOException("中断"),indexes:[index]);}catch(IOException){}
+    Check(store.Read().Count==0&&store.ReadIndexes().Count==0);
+});
+
+Test("服务档位空值不会崩溃或默认为免费",()=>
+{
+    foreach(var tier in new string?[]{null,""," "})
+    {
+        var estimate=Pricing.Calculate("gpt-6-astra",new(100,0,0,0),context:new(ServiceTier:tier!));
+        Check(!estimate.HasAmount&&estimate.Unpriced==100);
+    }
+});
+AsyncTest("完整校验检测保留元数据的等长重写",async()=>
+{
+    var home=Fixture("integrity");var file=Path.Combine(home,"sessions","a.jsonl");
+    await File.WriteAllLinesAsync(file,[Meta("integrity"),Count(80,20)]);
+    var store=new HistoryStore(Path.Combine(fixtureRoot,"integrity-db"));var scanner=new IncrementalHistory(store);
+    await scanner.ScanAsync(home,default);var written=File.GetLastWriteTimeUtc(file);
+    var original=await File.ReadAllTextAsync(file);await File.WriteAllTextAsync(file,original.Replace("integrity","integriTy"));
+    File.SetLastWriteTimeUtc(file,written);
+    var rejected=false;try{await scanner.ScanAsync(home,default,verifyIntegrity:true);}catch(InvalidDataException){rejected=true;}
+    Check(rejected&&store.Read().Sum(e=>e.Tokens.Total)==100);
+});
+
+long BackupTotal(string path)
+{
+    using var db=new Microsoft.Data.Sqlite.SqliteConnection(new Microsoft.Data.Sqlite.SqliteConnectionStringBuilder{DataSource=path,Mode=Microsoft.Data.Sqlite.SqliteOpenMode.ReadOnly,Pooling=false}.ToString());
+    db.Open();using var command=db.CreateCommand();command.CommandText="SELECT payload FROM events";
+    using var reader=command.ExecuteReader();long total=0;
+    while(reader.Read())total+=JsonSerializer.Deserialize<UsageEvent>(reader.GetString(0))!.Tokens.Total;
+    return total;
+}
+AsyncTest("截断后确认重建保留可读旧备份，新索引不重计",async()=>
+{
+    var home=Fixture("rebuild");var file=Path.Combine(home,"sessions","a.jsonl");
+    await File.WriteAllLinesAsync(file,[Meta("rebuild"),Model(),Count(80,20)]);
+    var store=new HistoryStore(Path.Combine(fixtureRoot,"rebuild-db"));var scanner=new IncrementalHistory(store);
+    await scanner.ScanAsync(home,default);
+    await File.WriteAllLinesAsync(file,[Meta("rebuild"),Model(),Count(8,2)]);
+    var result=await scanner.RebuildAsync(home,default);
+    Check(result.BackupPath is not null&&BackupTotal(result.BackupPath)==100);
+    Check(store.Read().Sum(e=>e.Tokens.Total)==10&&store.ReadIndexes().Count==1);
+    Check((await scanner.ScanAsync(home,default)).Report.Total.Total==10);
+});
+AsyncTest("旧索引版本自动备份并从原始日志安全迁移",async()=>
+{
+    var home=Fixture("index-migration");var file=Path.Combine(home,"sessions","a.jsonl");
+    await File.WriteAllLinesAsync(file,[Meta("migrated"),Model(),Count(80,20)]);
+    var directory=Path.Combine(fixtureRoot,"index-migration-db");var store=new HistoryStore(directory);
+    var legacy=new IndexedFile(file,IncrementalHistory.ParserVersion-1,1,1,1,1,"legacy",[],0);
+    store.Save(new([Event("legacy",24,6)],1,0,DateTimeOffset.Now),indexes:[legacy]);
+    var result=await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(result.Migrated&&result.PreviousParserVersions.SequenceEqual([IncrementalHistory.ParserVersion-1]));
+    Check(result.BackupPath is not null&&BackupTotal(result.BackupPath)==30);
+    Check(store.Read().Sum(item=>item.Tokens.Total)==100&&store.ReadIndexes().Values.All(index=>index.Version==IncrementalHistory.ParserVersion));
+});
+AsyncTest("早期有事件无索引数据库自动进入安全迁移",async()=>
+{
+    var home=Fixture("unversioned-migration");var file=Path.Combine(home,"sessions","a.jsonl");
+    await File.WriteAllLinesAsync(file,[Meta("unversioned"),Model(),Count(160,40)]);
+    var store=new HistoryStore(Path.Combine(fixtureRoot,"unversioned-migration-db"));
+    store.Save(new([Event("early",80,20)],1,0,DateTimeOffset.Now));
+    var result=await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(result.Migrated&&result.PreviousParserVersions.SequenceEqual([0])&&result.BackupPath is not null);
+    Check(BackupTotal(result.BackupPath!)==100&&store.Read().Sum(item=>item.Tokens.Total)==200);
+    Check(store.ReadIndexes().Count==1&&store.ReadIndexes().Values.All(index=>index.Version==IncrementalHistory.ParserVersion));
+});
+AsyncTest("可恢复的累计重置提示不再永久阻断安全重建",async()=>
+{
+    var home=Fixture("rebuild-quality-warning");var file=Path.Combine(home,"sessions","a.jsonl");
+    var reset=JsonSerializer.Serialize(new{type="event_msg",timestamp="2026-09-05T02:00:00Z",payload=new{type="token_count",info=new{total_token_usage=new{input_tokens=8,output_tokens=2},last_token_usage=new{input_tokens=8,output_tokens=2}}}});
+    await File.WriteAllLinesAsync(file,[Meta("quality-warning"),Model(),Count(80,20),reset]);
+    var store=new HistoryStore(Path.Combine(fixtureRoot,"rebuild-quality-warning-db"));
+    store.Save(new([Event("old-quality",40,10)],1,0,DateTimeOffset.Now));
+    var result=await new IncrementalHistory(store).RebuildAsync(home,default);
+    Check(result.Report.Warnings==1&&result.BackupPath is not null&&BackupTotal(result.BackupPath)==50);
+    Check(store.Read().Sum(item=>item.Tokens.Total)==110);
+});
+Test("重建替换中断时旧事件和游标一并回滚",()=>
+{
+    var directory=Path.Combine(fixtureRoot,"rebuild-rollback-db");var store=new HistoryStore(directory);
+    var old=new IndexedFile("old",1,1,1,1,1,"hash",[],0);
+    store.Save(new([Event("old",80,20)],1,0,DateTimeOffset.Now),indexes:[old]);
+    var failed=false;
+    try{store.ReplaceWithBackup(new([Event("new",8,2)],1,0,DateTimeOffset.Now),[],checkpoint:_=>throw new IOException("synthetic interruption"));}
+    catch(IOException){failed=true;}
+    Check(failed&&store.Read().Single().Id=="old"&&store.ReadIndexes().ContainsKey("old"));
+    Check(BackupTotal(Directory.GetFiles(Path.Combine(directory,"backups"),"*.sqlite").Single())==100);
+});
+AsyncTest("重建保留活动半行并在完成后增量补齐",async()=>
+{
+    var home=Fixture("rebuild-live-tail");var file=Path.Combine(home,"sessions","a.jsonl");
+    await File.WriteAllLinesAsync(file,[Meta("live-tail"),Count(80,20)]);
+    var store=new HistoryStore(Path.Combine(home,"data"));var scanner=new IncrementalHistory(store);await scanner.ScanAsync(home,default);
+    var next=Count(160,40)+"\n";var split=next.Length/2;await File.AppendAllTextAsync(file,next[..split]);
+    var rebuilt=await scanner.RebuildAsync(home,default);
+    Check(rebuilt.DeferredFiles==1&&store.Read().Sum(e=>e.Tokens.Total)==100);
+    await File.AppendAllTextAsync(file,next[split..]);
+    Check((await scanner.ScanAsync(home,default)).Report.Total.Total==200);
+});
+AsyncTest("完整坏记录仍拒绝安全重建",async()=>
+{
+    var home=Fixture("rebuild-invalid");var file=Path.Combine(home,"sessions","a.jsonl");
+    await File.WriteAllLinesAsync(file,[Meta("invalid"),Count(80,20)]);
+    var store=new HistoryStore(Path.Combine(home,"data"));var scanner=new IncrementalHistory(store);await scanner.ScanAsync(home,default);
+    await File.AppendAllTextAsync(file,"invalid json\n");var rejected=false;
+    try{await scanner.RebuildAsync(home,default);}catch(InvalidDataException){rejected=true;}
+    Check(rejected&&store.Read().Sum(e=>e.Tokens.Total)==100);
+});
+AsyncTest("空目录和已取消重建不清除历史",async()=>
+{
+    var home=Fixture("rebuild-empty");var store=new HistoryStore(Path.Combine(home,"data"));
+    store.Save(new([Event("retained",80,20)],1,0,DateTimeOffset.Now));var scanner=new IncrementalHistory(store);
+    var rejected=false;try{await scanner.RebuildAsync(home,default);}catch(InvalidDataException){rejected=true;}
+    Check(rejected);using var canceled=new CancellationTokenSource();canceled.Cancel();
+    try{await scanner.RebuildAsync(home,canceled.Token);throw new Exception("应当取消");}catch(OperationCanceledException){}
+    Check(store.Read().Sum(e=>e.Tokens.Total)==100);
+});
+Test("重建不改变仍可识别事件的既有本地日期",()=>
+{
+    var store=new HistoryStore(Path.Combine(fixtureRoot,"rebuild-date"));var item=Event("same",80,20);
+    store.Save(new([item],1,0,DateTimeOffset.Now));
+    store.ReplaceWithBackup(new([item with{LocalDate="2030-01-01"}],1,0,DateTimeOffset.Now),[]);
+    Check(store.Read().Single().LocalDate==item.LocalDate);
+});
+
+Test("历史筛选使用保存的本地日期并支持多维搜索",()=>
+{
+    var rows=new[]{Event("a",80,20) with{LocalDate="2026-09-01",Model="MODEL-A",Timestamp=DateTimeOffset.Parse("2030-01-01T00:00:00Z")},Event("b",8,2) with{LocalDate="2026-09-02"},Event("c",8,2) with{LocalDate="日期未知"}};
+    Check(HistoryQuery.Filter(rows,new(new(2026,9,1),new(2026,9,1),"model-a")).Single().Id=="a");
+    Check(HistoryQuery.Filter(rows,new(Day:"2026-09-02")).Single().Id=="b");
+    Check(HistoryQuery.Filter(rows,new(Search:"missing")).Count==0);
+    Check(HistoryQuery.Filter(rows,new()).Count==3);
+});
+Test("Session 汇总排序确定且不重复计入子分类",()=>
+{
+    var rows=new[]{Event("a",80,20) with{Session="A"},Event("b",8,2) with{Session="B"},Event("c",8,2) with{Session="A"}};
+    var summary=HistoryQuery.Sessions(rows);Check(summary[0].Session=="A"&&summary[0].Tokens==110&&summary[0].Events.Count==2);
+});
+
+AsyncTest("累计回退按末次用量分段补位并公开质量提示",async()=>
+{
+    var home=Fixture("reset-segment");
+    var reset=JsonSerializer.Serialize(new{type="event_msg",timestamp="2026-09-05T02:00:00Z",payload=new{type="token_count",info=new{total_token_usage=new{input_tokens=8,output_tokens=2},last_token_usage=new{input_tokens=8,output_tokens=2}}}});
+    await File.WriteAllLinesAsync(Path.Combine(home,"sessions","a.jsonl"),[Meta("reset"),Model(),Count(80,20),reset,Count(16,4,timestamp:"2026-09-05T03:00:00Z")]);
+    var result=await new HistoryScanner().ScanAsync(home,default);
+    Check(result.Total.Total==120&&result.Events.Select(e=>e.Id).Distinct().Count()==3);
+    Check(result.Events[1].QualityNote is not null&&result.Events[1].Segment==1&&result.Warnings==1);
+});
+AsyncTest("现代 fork 在子任务边界前不计父历史",async()=>
+{
+    var home=Fixture("modern-fork");var path=Path.Combine(home,"sessions","a.jsonl");
+    const string parent="01990000-0000-7000-8000-000000000001",child="01990000-0001-7000-8000-000000000001",turn="01990000-0002-7000-8000-000000000001";
+    await File.WriteAllLinesAsync(path,[Meta(child,parent),Meta(parent),Model(),Count(80,20)]);
+    Check((await new HistoryScanner().ScanAsync(home,default)).Total.Total==0);
+    await File.AppendAllTextAsync(path,JsonSerializer.Serialize(new{type="event_msg",payload=new{type="task_started",turn_id=turn}})+"\n"+Count(88,22)+"\n");
+    Check((await new HistoryScanner().ScanAsync(home,default)).Total.Total==10);
+});
+AsyncTest("增量重算只触及相关 Session，已移除前缀仍防重",async()=>
+{
+    var home=Fixture("incremental-session");var first=Path.Combine(home,"sessions","a.jsonl");
+    await File.WriteAllLinesAsync(first,[Meta("shared"),Model(),Count(80,20)]);
+    await File.WriteAllLinesAsync(Path.Combine(home,"sessions","unrelated.jsonl"),[Meta("other"),Model(),Count(800,200)]);
+    var store=new HistoryStore(Path.Combine(home,"data"));var scanner=new IncrementalHistory(store);await scanner.ScanAsync(home,default);
+    // Rename outside scanned directories models a removed rollout without deleting the fixture.
+    File.Move(first,Path.Combine(home,"retained-test-source.jsonl"));
+    await File.WriteAllLinesAsync(Path.Combine(home,"sessions","b.jsonl"),[Meta("shared"),Model(),Count(88,22)]);
+    var result=await scanner.ScanAsync(home,default);
+    Check(result.RecordsReplayed==6&&store.Read().Sum(e=>e.Tokens.Total)==1110);
+});
+AsyncTest("受影响 Session 高水位前移不会阻止当天增量",async()=>
+{
+    var home=Fixture("incremental-high-water");var first=Path.Combine(home,"sessions","a.jsonl");var second=Path.Combine(home,"sessions","b.jsonl");
+    await File.WriteAllLinesAsync(first,[Meta("moving"),Model(),Count(80,20,timestamp:"2026-09-07T01:00:00Z")]);
+    await File.WriteAllLinesAsync(second,[Meta("moving"),Model(),Count(160,40,timestamp:"2026-09-07T02:00:00Z")]);
+    await File.WriteAllLinesAsync(Path.Combine(home,"sessions","other.jsonl"),[Meta("unrelated"),Model(),Count(800,200)]);
+    var store=new HistoryStore(Path.Combine(home,"data"));var scanner=new IncrementalHistory(store);await scanner.ScanAsync(home,default);
+    Check(store.Read().Where(item=>item.Session=="moving").Sum(item=>item.Tokens.Total)==200);
+    await File.AppendAllTextAsync(first,Count(240,60,timestamp:"2026-09-07T03:00:00Z")+"\n");
+    var result=await scanner.ScanAsync(home,default);var rows=store.Read();
+    Check(result.FilesUpdated==1&&rows.Where(item=>item.Session=="moving").Sum(item=>item.Tokens.Total)==300);
+    Check(rows.Where(item=>item.Session=="unrelated").Sum(item=>item.Tokens.Total)==1000&&rows.Any(item=>item.LocalDate=="2026-09-07"));
+});
+AsyncTest("账号用量只归属连续稳定登录后的增量",async()=>
+{
+    var home=Fixture("account-attribution");var file=Path.Combine(home,"sessions","a.jsonl");var store=new HistoryStore(Path.Combine(home,"data"));var scanner=new IncrementalHistory(store);
+    await File.WriteAllLinesAsync(file,[Meta("account-session"),Model(),Count(80,20)]);
+    await scanner.ScanAsync(home,default,accountScope:"local-v1:A");
+    await File.AppendAllTextAsync(file,Count(160,40)+"\n");await scanner.ScanAsync(home,default,accountScope:"local-v1:A");
+    await File.AppendAllTextAsync(file,Count(240,60)+"\n");await scanner.ScanAsync(home,default,accountScope:"local-v1:B");
+    await File.AppendAllTextAsync(file,Count(320,80)+"\n");await scanner.ScanAsync(home,default,accountScope:"local-v1:B");
+    var rows=store.Read();
+    Check(rows.Where(item=>item.AccountScope is null).Sum(item=>item.Tokens.Total)==200);
+    Check(rows.Where(item=>item.AccountScope=="local-v1:A").Sum(item=>item.Tokens.Total)==100);
+    Check(rows.Where(item=>item.AccountScope=="local-v1:B").Sum(item=>item.Tokens.Total)==100);
+});
+AsyncTest("两万条事件性能样例与跨重启追加一致性",async()=>
+{
+    var home=Fixture("scale");const int files=200,rows=100;
+    for(var f=0;f<files;f++)await File.WriteAllLinesAsync(Path.Combine(home,"sessions",$"{f:D4}.jsonl"),new[]{Meta("scale-"+f),Model()}.Concat(Enumerable.Range(1,rows).Select(i=>Count(i*10,0))));
+    var store=new HistoryStore(Path.Combine(home,"data"));var watch=Stopwatch.StartNew();
+    var initial=await new IncrementalHistory(store).ScanAsync(home,default);var firstMs=watch.ElapsedMilliseconds;
+    await File.AppendAllTextAsync(Path.Combine(home,"sessions","0000.jsonl"),Count(1010,0)+"\n");watch.Restart();
+    var append=await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(initial.Report.Events.Count==20000&&append.RecordsReplayed==103&&store.Read().Sum(e=>e.Tokens.Total)==200010);
+    Console.WriteLine($"BENCH events=20000 initialMs={firstMs} appendMs={watch.ElapsedMilliseconds} replayed={append.RecordsReplayed} managedBytes={GC.GetTotalMemory(false)}");
+});
+
+CodexClient FakeClient(string scenario)
+{
+    return new CodexClient(new DiagnosticLog(Path.Combine(fixtureRoot,"rpc-logs")),new LocalAccountFingerprint(Path.Combine(fixtureRoot,"rpc-account-fingerprint.key")))
+    {
+        RequestTimeout=TimeSpan.FromMilliseconds(1500),
+        TestProcessFactory=(_,_)=>
+        {
+            var executable=Environment.ProcessPath??throw new InvalidOperationException("无法定位测试进程");
+            var start=new ProcessStartInfo(executable){UseShellExecute=false,CreateNoWindow=true,RedirectStandardInput=true,RedirectStandardOutput=true,RedirectStandardError=true};
+            if(string.Equals(Path.GetFileNameWithoutExtension(executable),"dotnet",StringComparison.OrdinalIgnoreCase))start.ArgumentList.Add(System.Reflection.Assembly.GetExecutingAssembly().Location);
+            start.ArgumentList.Add("--fake-rpc");start.ArgumentList.Add(scenario);return start;
+        }
+    };
+}
+AsyncTest("模拟 RPC 响应穿插事件不会丢失",async()=>
+{
+    await using var client=FakeClient("event");var notifications=0;client.QuotaUpdated+=_=>Interlocked.Increment(ref notifications);
+    var result=await client.ReadAsync(null,"unused",default);Check(result.Fresh&&result.ResetCount==2&&notifications==1);
+    Check(client.ThreadNames.GetValueOrDefault("session-root")=="可读会话标题"&&!client.ThreadNames.Values.Contains("不应作为标题"));
+    var again=await client.ReadAsync(null,"unused",default);Check(again.Fresh&&client.IsConnected);
+});
+AsyncTest("独立后端未登录时不借用桌面身份且撤下旧额度",async()=>
+{
+    await using var client=FakeClient("signed-out");var invalidated=false;client.AccountInvalidated+=()=>invalidated=true;
+    var result=await client.ReadAsync(null,"unused",default);
+    Check(invalidated&&!result.Fresh&&result.Windows.Count==0&&result.AccountKey is null&&result.IsLocalAccount&&result.AccountLabel=="本地账户"&&result.ResetCount is null);
+});
+AsyncTest("本地账户无需凭据即可扫描和持久化 Token",async()=>
+{
+    var home=Fixture("local-account");
+    await File.WriteAllLinesAsync(Path.Combine(home,"sessions","a.jsonl"),[Meta("local-only"),Model(),Count(80,20)]);
+    Check(!File.Exists(Path.Combine(home,"auth.json")));
+    var store=new HistoryStore(Path.Combine(fixtureRoot,"local-account-db"));
+    var result=await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(result.Report.Total.Total==100&&store.Read().Count==1);
+    Check(Pricing.Summarize(store.Read()).HasAmount);
+    Check(!QuotaState.LocalAccount.Fresh&&QuotaState.LocalAccount.AccountKey is null);
+});
+AsyncTest("模拟 RPC stderr 写满仍能完成",async()=>
+{
+    await using var client=FakeClient("stderr");Check((await client.ReadAsync(null,"unused",default)).Fresh);
+});
+AsyncTest("额度网络失败只重试一次且错误信息保持安全",async()=>
+{
+    await using(var recovered=FakeClient("network-once"))Check((await recovered.ReadAsync(null,"unused",default)).Fresh);
+    await using var failed=FakeClient("network-always");var message="";
+    try{await failed.ReadAsync(null,"unused",default);}catch(CodexRpcException ex){message=ex.Message;Check(ex.Kind==RpcFailureKind.Dns);}
+    Check(message.Contains("DNS")&&!message.Contains("http")&&!failed.IsConnected);
+});
+AsyncTest("明确认证失败只刷新已有缓存并重试额度",async()=>
+{
+    await using var client=FakeClient("auth-once");var result=await client.ReadAsync(null,"unused",default);
+    Check(result.Fresh&&client.IsConnected);
+});
+AsyncTest("模拟 RPC 身份变化撤下数值",async()=>
+{
+    foreach(var scenario in new[]{"switch","no-identity-switch","no-identity-event","invalidate"})
+    {await using var client=FakeClient(scenario);var result=await client.ReadAsync(null,"unused",default);Check(!result.Fresh&&result.Windows.Count==0,scenario);}
+});
+AsyncTest("模拟 RPC 超时与取消释放进程",async()=>
+{
+    await using var client=FakeClient("timeout");var timedOut=false;
+    try{await client.ReadAsync(null,"unused",default);}catch(CodexRpcException ex){timedOut=ex.Kind==RpcFailureKind.Timeout&&ex.Message.Contains("超时");}
+    Check(timedOut&&!client.IsConnected);
+    using var cancellation=new CancellationTokenSource(150);var canceled=false;
+    try{await client.ReadAsync(null,"unused",cancellation.Token);}catch(OperationCanceledException){canceled=true;}
+    Check(canceled&&!client.IsConnected);
+});
+AsyncTest("模拟 RPC 错误格式释放等待",async()=>
+{
+    await using var client=FakeClient("malformed");var failed=false;
+    try{await client.ReadAsync(null,"unused",default);}catch(IOException){failed=true;}
+    Check(failed&&!client.IsConnected);
+});
+
+var failures = 0;
+Test("未登录隐藏额度，Pro 按实际窗口而非套餐名展示",()=>
+{
+    Check(!QuotaState.LocalAccount.HasQuotaDisplay);
+    var weekly=QuotaParser.Parse(Json("{\"rateLimits\":{\"secondary\":{\"usedPercent\":18,\"windowDurationMins\":10080}}}"),DateTimeOffset.Now,null,"pro") with{IsCachedAccount=true};
+    Check(weekly.HasQuotaDisplay&&weekly.Windows.Count==1&&weekly.Windows[0].Minutes==10080);
+    var both=QuotaParser.Parse(Json("{\"rateLimits\":{\"primary\":{\"usedPercent\":30,\"windowDurationMins\":300},\"secondary\":{\"usedPercent\":18,\"windowDurationMins\":10080}}}"),DateTimeOffset.Now,null,"pro") with{IsCachedAccount=true};
+    Check(both.Windows.Count==2&&both.HasQuotaDisplay);
+    Check(!both.ClearUnverifiedSnapshot("过期").HasQuotaDisplay);
+});
+AsyncTest("缓存登录缺 ID 时用本地指纹隔离额度与通知",async()=>
+{
+    await using var client=FakeClient("no-identity");var result=await client.ReadAsync(null,"unused",default);
+    Check(result.Fresh&&result.IsCachedAccount&&result.AccountKey is not null&&!result.SnapshotOnly&&result.Windows.Count==1&&result.ResetCount==2);
+    Check(result.AccountLabel=="本机缓存账号");
+    Check(new NotificationPolicy().Evaluate(result,new(true,true,99,120),DateTimeOffset.Now,TimeSpan.FromMinutes(5)).Count==1);
+    var cleared=result.ClearUnverifiedSnapshot("重新查询");
+    Check(cleared.Fresh&&cleared.Windows.Count==1&&cleared.ResetCount==2&&cleared.FetchedAt is not null);
+});
+AsyncTest("缓存无有效窗口不伪报成功，共享 proxy 使用本地指纹",async()=>
+{
+    await using var empty=FakeClient("no-identity-empty");var result=await empty.ReadAsync(null,"unused",default);
+    Check(!result.Fresh&&result.Windows.Count==0&&result.Status.Contains("未提供有效额度窗口"));
+    await using var proxy=FakeClient("no-identity");var shared=await proxy.ReadAsync(null,"unused",default,reuseBackend:true);
+    Check(shared.Fresh&&shared.AccountKey is not null&&shared.IsCachedAccount);
+});
+AsyncTest("缓存登录检测区分未登录和缺稳定 ID，不执行 OAuth",async()=>
+{
+    await using var missing=FakeClient("signed-out");await missing.ReadAsync(null,"unused",default);
+    Check(missing.AccountObservation=="后端未识别到已有登录");
+    await using var found=FakeClient("no-identity");await found.ReadAsync(null,"unused",default);
+    Check(found.AccountObservation.Contains("已识别 ChatGPT 登录")&&found.AccountObservation.Contains("本地指纹")&&!found.AccountObservation.Contains("synthetic@example.com"));
+});
+AsyncTest("授权期间后端断开及时失败，专用登出关闭进程",async()=>
+{
+    await using var client=FakeClient("login-disconnect");using var timeout=new CancellationTokenSource(5000);var failed=false;
+    try{await client.LoginAsync(null,Path.Combine(fixtureRoot,"disconnect-home"),_=>Task.FromResult(true),timeout.Token);}catch(IOException){failed=true;}
+    Check(failed&&!client.IsConnected);
+    await using var logout=FakeClient("login-logout");await logout.LogoutAuthorizedAsync(null,Path.Combine(fixtureRoot,"logout-home"),default);Check(!logout.IsConnected);
+});
+AsyncTest("官方登录通知早于响应仍关联成功，授权结束释放子进程",async()=>
+{
+    await using var client=FakeClient("login-success");var opened=false;
+    await client.LoginAsync(null,Path.Combine(fixtureRoot,"login-home"),uri=>{opened=uri.Host=="auth.openai.com";return Task.FromResult(true);},default);
+    Check(opened&&!client.IsConnected);
+});
+AsyncTest("授权拒绝非官方链接且取消时释放连接",async()=>
+{
+    await using var client=FakeClient("login-url");var opened=false;var rejected=false;
+    try{await client.LoginAsync(null,Path.Combine(fixtureRoot,"bad-login-home"),_=>{opened=true;return Task.FromResult(true);},default);}catch(InvalidDataException){rejected=true;}
+    Check(rejected&&!opened&&!client.IsConnected);
+    await using var waiting=FakeClient("login-wait");using var ct=new CancellationTokenSource();
+    try{await waiting.LoginAsync(null,Path.Combine(fixtureRoot,"cancel-login-home"),_=>{ct.Cancel();return Task.FromResult(true);},ct.Token);throw new Exception("应当取消");}catch(OperationCanceledException){}
+    Check(!waiting.IsConnected);
+});
+Test("授权 URL 仅允许官方 HTTPS 默认端口",()=>
+{
+    foreach(var url in new[]{"http://auth.openai.com/","https://auth.openai.com.example.com/","https://user@auth.openai.com/","https://chatgpt.com:8080/"})
+    {var rejected=false;try{CodexClient.ValidateLoginUrl(url);}catch(InvalidDataException){rejected=true;}Check(rejected);}
+});
+AsyncTest("专用授权后端无官方 ID 时使用本地账户指纹",async()=>
+{
+    await using var client=FakeClient("no-identity");var result=await client.ReadAsync(null,"unused",default,managedAccount:true);
+    Check(result.Fresh&&result.AccountKey is not null&&result.IsAuthorizedAccount&&result.AccountLabel=="UsageLoom 授权账号");
+});
+Test("复用后端仅启动官方代理，不含独立监听或服务控制参数",()=>
+{
+    Check(CodexClient.ConnectionArguments(true).SequenceEqual(new[]{"app-server","proxy"}));
+    Check(CodexClient.ConnectionArguments(false).Contains("stdio://"));
+});
+AsyncTest("代理握手失败不回退独立后端",async()=>
+{
+    await using var client=FakeClient("malformed");var failed=false;
+    try{await client.ReadAsync(null,"unused",default,reuseBackend:true);}catch(IOException){failed=true;}
+    Check(failed&&!client.IsConnected);
+});
+AsyncTest("无 CLI 时进入本地账户模式而非查询失败",async()=>
+{
+    await using var client=new CodexClient(new DiagnosticLog(Path.Combine(fixtureRoot,"no-cli-log"))){ExecutableResolver=_=>null};
+    var result=await client.ReadAsync(Path.Combine(fixtureRoot,"missing-codex.exe"),fixtureRoot,default);
+    Check(result.IsLocalAccount&&!result.Fresh&&result.Windows.Count==0&&result.ResetCount is null&&!client.IsConnected);
+    Check(result.Status.Contains("未找到额度查询后端"));
+});
+Test("后端路径失效后重新发现桌面版本且有效手动路径优先",()=>
+{
+    var root=Fixture("backend-discovery");var bin=Path.Combine(root,"bin");
+    var old=Path.Combine(bin,"old","codex.exe");var newer=Path.Combine(bin,"new","codex.exe");
+    Directory.CreateDirectory(Path.GetDirectoryName(old)!);Directory.CreateDirectory(Path.GetDirectoryName(newer)!);
+    File.WriteAllText(old,"");File.WriteAllText(newer,"");
+    File.SetLastWriteTimeUtc(old,new DateTime(2026,9,1));File.SetLastWriteTimeUtc(newer,new DateTime(2026,9,7));
+    Check(CodexClient.FindExecutable(null,"",bin)==newer);
+    Check(CodexClient.FindExecutable(Path.Combine(root,"missing.exe"),"",bin)==newer);
+    Check(CodexClient.FindExecutable(old,"",bin)==old);
+    Check(CodexClient.FindExecutable(null,Path.GetDirectoryName(old),Path.Combine(root,"missing"))==old);
+    Check(CodexClient.FindExecutable(null,"",Path.Combine(root,"missing")) is null);
+});
+AsyncTest("标题响应损坏不影响账号与额度连接",async()=>
+{
+    await using var client=FakeClient("bad-thread-json");
+    var result=await client.ReadAsync(null,"unused",default);
+    Check(result.Fresh&&client.IsConnected&&result.Windows.Count==1);
+});
+Test("紧凑数字边界及精度",()=>
+{
+    Check(UsageNumbers.Compact(1000)=="1K");Check(UsageNumbers.Compact(197580900)=="197.58M");
+    Check(UsageNumbers.Compact(999999)=="1M");Check(UsageNumbers.Compact(1000000000)=="1B");
+    Check(UsageNumbers.Compact(0)=="0");Check(UsageNumbers.Compact(double.NaN)=="—");
+});
+Test("周容量不混入其他账号和未归属历史",()=>
+{
+    var own=Event("own",80,20) with {AccountScope="a"};
+    var other=own with {AccountScope="b"};var unknown=own with {AccountScope=null};
+    var spark=own with {Model="gpt-5.3-codex-spark"};
+    Check(CapacityUsage.ForAccount([own,other,unknown,spark],"a").Count==1);
+    Check(CapacityUsage.ForAccount([own,other,unknown],null).Count==0);
+});
+try
+{
+    foreach (var entry in tests)
+    {
+        try { await entry.Run(); Console.WriteLine("PASS " + entry.Name); }
+        catch (Exception ex) { failures++; Console.WriteLine("FAIL " + entry.Name + ": " + Privacy.Redact(ex.Message)); }
+    }
+}
+finally
+{
+    Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+    var checkedRoot = Path.GetFullPath(fixtureRoot);
+    if (Path.GetDirectoryName(checkedRoot) != Path.GetFullPath(Path.GetTempPath()).TrimEnd(Path.DirectorySeparatorChar) || !Path.GetFileName(checkedRoot).StartsWith("UsageLoom-tests-"))
+        throw new InvalidOperationException("拒绝清理非测试目录");
+    Directory.Delete(checkedRoot, true);
+}
+Console.WriteLine($"结果：{tests.Count - failures}/{tests.Count} 通过");
+Environment.ExitCode = failures == 0 ? 0 : 1;

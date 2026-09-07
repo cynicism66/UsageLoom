@@ -1,0 +1,6 @@
+<Solution>
+  <Project Path="src/UsageLoom.Core/UsageLoom.Core.csproj" />
+  <Project Path="src/UsageLoom.Storage/UsageLoom.Storage.csproj" />
+  <Project Path="src/UsageLoom.App/UsageLoom.App.csproj" />
+  <Project Path="tests/UsageLoom.Core.Tests/UsageLoom.Core.Tests.csproj" />
+</Solution>

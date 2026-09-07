@@ -2,7 +2,7 @@
 
 只有在公开仓库地址、维护者身份和安全联系方式确定后，才执行正式发布步骤。
 
-当前仓库可作为开发中的开源源码公开，但尚无 Windows 正式发行版。下文的 Node.js 校验和插件 ZIP 操作仅适用于保留的技术原型，不表示已经具备 MSI 或 Windows 自包含便携版；原生发行流程将在相应实现完成后更新。
+Windows 0.4.0 发布：运行核心回归、桌面冒烟和 npm run check；使用 build-windows.ps1 -Publish、build-msi.ps1、build-portable.ps1 生成同版本产物；test-msi-package.ps1 验证安装结构。审查源码和压缩包，排除个人数据、凭据、内部计划、日志与 PDB。源码提交并打标签，MSI、ZIP 与 SHA256SUMS.txt 作为 GitHub Release 附件，不把二进制提交到 Git。未完成的人工验收必须在发布说明中披露。下文 Node.js 插件打包步骤仅适用于保留的技术原型。
 
 ## 首次公开提交之前
 

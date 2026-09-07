@@ -1,0 +1,46 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <Version>0.4.0</Version>
+    <!-- 0.2.0 shipped a default 1.0.0.0 file version. Keep native file versions above it. -->
+    <FileVersion>1.0.4.0</FileVersion>
+    <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
+    <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>
+    <UseWinUI>true</UseWinUI>
+    <WindowsPackageType>None</WindowsPackageType>
+    <EnableMsixTooling>false</EnableMsixTooling>
+    <SelfContained>true</SelfContained>
+    <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <UseRidGraph>true</UseRidGraph>
+    <PlatformTarget>x64</PlatformTarget>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>../../assets/UsageLoom.ico</ApplicationIcon>
+    <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup>
+    <Content Include="../../LICENSE" Link="LICENSE" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../THIRD_PARTY_NOTICES.md" Link="THIRD_PARTY_NOTICES.md" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../assets/licenses/*.txt" Link="THIRD-PARTY-LICENSES/%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(NuGetPackageRoot)/microsoft.netcore.app.runtime.win-x64/10.0.11/LICENSE.TXT" Link="THIRD-PARTY-LICENSES/dotnet-LICENSE.txt" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(NuGetPackageRoot)/microsoft.netcore.app.runtime.win-x64/10.0.11/THIRD-PARTY-NOTICES.TXT" Link="THIRD-PARTY-LICENSES/dotnet-NOTICES.txt" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(NuGetPackageRoot)/microsoft.windowsappsdk/1.8.260804001/license.txt" Link="THIRD-PARTY-LICENSES/windowsappsdk-LICENSE.txt" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(NuGetPackageRoot)/microsoft.windowsappsdk/1.8.260804001/NOTICE.txt" Link="THIRD-PARTY-LICENSES/windowsappsdk-NOTICES.txt" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../assets/UsageLoom.ico" Link="UsageLoom.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7175" />
+    <ProjectReference Include="../UsageLoom.Core/UsageLoom.Core.csproj" />
+    <ProjectReference Include="../UsageLoom.Storage/UsageLoom.Storage.csproj" />
+  </ItemGroup>
+  <!-- WinUI build outputs are not all included by this SDK's unpackaged publish pipeline. -->
+  <Target Name="PublishLoomXamlResources" AfterTargets="Publish">
+    <ItemGroup>
+      <LoomXamlPayload Include="$(TargetDir)$(AssemblyName).pri" />
+      <LoomXamlPayload Include="$(TargetDir)App.xbf" />
+    </ItemGroup>
+    <Error Condition="!Exists('%(LoomXamlPayload.Identity)')" Text="Required WinUI resource missing: %(LoomXamlPayload.Identity)" />
+    <Copy SourceFiles="@(LoomXamlPayload)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+  </Target>
+</Project>

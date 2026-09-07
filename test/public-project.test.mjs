@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
 import { access, appendFile, cp, mkdir, mkdtemp, readFile, realpath, rm } from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
 import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
@@ -19,7 +20,7 @@ test("internal documents are ignored without excluding public documentation", as
 });
 
 test("public source validates without internal documents and rejects private documentation links", async () => {
-  const tempParent = path.join(root, "test", ".tmp");
+  const tempParent = path.join(os.tmpdir(), "UsageLoom-js-tests");
   await mkdir(tempParent, { recursive: true });
   const fixture = await mkdtemp(path.join(tempParent, "public-project-"));
   try {
@@ -33,6 +34,7 @@ test("public source validates without internal documents and rejects private doc
       await cp(path.join(root, entry), path.join(fixture, entry), {
         recursive: true,
         filter: (source) => !privateNames.has(path.basename(source))
+          && !["bin", "obj"].includes(path.basename(source))
           && path.relative(root, source).split(path.sep).join("/") !== "docs/internal",
       });
     }

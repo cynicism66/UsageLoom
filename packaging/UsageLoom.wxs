@@ -1,0 +1,60 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+  <Package Name="UsageLoom" Manufacturer="UsageLoom contributors" Version="$(var.Version)" Language="2052" UpgradeCode="9B2E2C4E-0A9E-4F4E-9F18-9B31A9E9E2B1" Scope="perUser" Compressed="yes">
+    <MajorUpgrade DowngradeErrorMessage="已安装更高版本的 UsageLoom。" />
+    <MediaTemplate EmbedCab="yes" />
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <Property Id="LOOM_DESKTOP" Value="1" Secure="yes" />
+    <Property Id="LOOM_STARTMENU" Value="1" Secure="yes" />
+    <UI>
+      <TextStyle Id="LoomHeading" FaceName="Microsoft YaHei UI" Size="12" Bold="yes" />
+      <TextStyle Id="LoomSection" FaceName="Microsoft YaHei UI" Size="9" Bold="yes" />
+      <Publish Dialog="LicenseAgreementDlg" Control="Next" Event="NewDialog" Value="LoomShortcutsDlg" Order="2" Condition="LicenseAccepted = &quot;1&quot;" />
+      <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="LoomShortcutsDlg" Order="2" />
+      <Dialog Id="LoomShortcutsDlg" Width="370" Height="270" Title="[ProductName] 安装">
+        <Control Id="Title" Type="Text" X="24" Y="18" Width="322" Height="22" Text="{\LoomHeading}选择启动入口" />
+        <Control Id="Description" Type="Text" X="24" Y="44" Width="322" Height="18" Text="按你的习惯放置 UsageLoom，可随时取消勾选。" />
+        <Control Id="HeaderLine" Type="Line" X="24" Y="69" Width="322" Height="0" />
+        <Control Id="Desktop" Type="CheckBox" X="28" Y="82" Width="310" Height="18" Property="LOOM_DESKTOP" CheckBoxValue="1" Text="创建桌面快捷方式" />
+        <Control Id="StartMenu" Type="CheckBox" X="28" Y="108" Width="310" Height="18" Property="LOOM_STARTMENU" CheckBoxValue="1" Text="创建开始菜单入口（含卸载）" />
+        <Control Id="TaskbarTitle" Type="Text" X="28" Y="149" Width="310" Height="18" Text="{\LoomSection}固定到任务栏" />
+        <Control Id="Note" Type="Text" X="28" Y="172" Width="310" Height="32" Text="安装后启动应用，右键任务栏图标 → 固定到任务栏。此步骤需要你手动完成。" />
+        <Control Id="UninstallNote" Type="Text" X="28" Y="210" Width="310" Height="16" Text="不创建快捷方式也可通过 Windows 设置卸载。" />
+        <Control Id="FooterLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="上一步">
+          <Publish Event="NewDialog" Value="LicenseAgreementDlg" />
+        </Control>
+        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="下一步">
+          <Publish Event="NewDialog" Value="InstallDirDlg" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="取消">
+          <Publish Event="SpawnDialog" Value="CancelDlg" />
+        </Control>
+      </Dialog>
+    </UI>
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />
+    <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" Sequence="execute" />
+    <Icon Id="AppIcon" SourceFile="$(var.PublishDir)\UsageLoom.App.exe" />
+    <Property Id="ARPPRODUCTICON" Value="AppIcon" />
+    <StandardDirectory Id="ProgramFilesFolder"><Directory Id="INSTALLFOLDER" Name="UsageLoom" /></StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="LoomPrograms" Name="UsageLoom">
+        <Component Id="StartMenuEntry" Guid="*" Condition="LOOM_STARTMENU = &quot;1&quot;">
+          <Shortcut Id="StartMenuShortcut" Name="UsageLoom" Target="[INSTALLFOLDER]UsageLoom.App.exe" Arguments="--show" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+          <Shortcut Id="UninstallShortcut" Name="卸载 UsageLoom" Target="[SystemFolder]msiexec.exe" Arguments="/x [ProductCode]" />
+          <RemoveFolder Id="RemoveLoomPrograms" On="uninstall" />
+          <RegistryValue Root="HKCU" Key="Software\UsageLoom\Installer" Name="StartMenu" Value="1" Type="integer" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="DesktopFolder">
+      <Component Id="DesktopEntry" Guid="*" Condition="LOOM_DESKTOP = &quot;1&quot;">
+        <Shortcut Id="DesktopShortcut" Name="UsageLoom" Target="[INSTALLFOLDER]UsageLoom.App.exe" Arguments="--show" WorkingDirectory="INSTALLFOLDER" Icon="AppIcon" />
+        <RegistryValue Root="HKCU" Key="Software\UsageLoom\Installer" Name="Desktop" Value="1" Type="integer" KeyPath="yes" />
+      </Component>
+    </StandardDirectory>
+    <Feature Id="Main" Title="UsageLoom" Level="1"><ComponentGroupRef Id="MainFiles" /><ComponentRef Id="StartMenuEntry" /><ComponentRef Id="DesktopEntry" /></Feature>
+  </Package>
+  <Fragment>
+    <ComponentGroup Id="MainFiles" Directory="INSTALLFOLDER"><Files Include="$(var.PublishDir)\**"><Exclude Files="$(var.PublishDir)\**.pdb" /></Files></ComponentGroup>
+  </Fragment>
+</Wix>

@@ -141,7 +141,7 @@ async function loadTitles(codexHome) {
   return titles;
 }
 
-async function scanFile(filePath, titles, warnings, sessionHighWater) {
+async function scanFile(filePath, titles, warnings, sessionHighWater, sessionEvents) {
   const session = {
     id: sessionIdFromFilename(filePath),
     title: null,
@@ -160,6 +160,26 @@ async function scanFile(filePath, titles, warnings, sessionHighWater) {
   let replayBuffer = null;
   let ownerMetadataSeen = false;
   const seen = new Set();
+
+  const validUsage = (value) => Object.values(value).every(Number.isSafeInteger) &&
+    Object.values(value).every((number) => number >= 0) &&
+    value.cachedInputTokens + value.cacheWriteInputTokens <= value.inputTokens &&
+    value.reasoningOutputTokens <= value.outputTokens;
+
+  const correctClassification = (current) => {
+    const priorEvents = sessionEvents.get(session.id) || [];
+    const changes = {};
+    for (const key of Object.keys(EMPTY_USAGE)) changes[key] = current[key] - previousTotal[key];
+    if (Object.values(changes).every((value) => value === 0)) return "duplicate";
+    // 只在某个既有事件能完整承接修正时修正，不把无法确定的差值任意分摊到多模型/日期。
+    const candidates = priorEvents.map((event) => ({
+      event,
+      corrected: Object.fromEntries(Object.keys(EMPTY_USAGE).map((key) => [key, event.usage[key] + changes[key]])),
+    })).filter(({ corrected }) => validUsage(corrected));
+    if (candidates.length !== 1) return "unresolved";
+    candidates[0].event.usage = candidates[0].corrected;
+    return "corrected";
+  };
 
   const recordQuota = (row) => {
     const rateLimits = row.payload?.rate_limits;
@@ -189,12 +209,23 @@ async function scanFile(filePath, titles, warnings, sessionHighWater) {
     let dedupeKey;
     if (info.total_token_usage) {
       const currentTotal = normalizeUsage(info.total_token_usage);
+      for (const [rawKey, key] of [
+        ["cached_input_tokens", "cachedInputTokens"],
+        ["cache_write_input_tokens", "cacheWriteInputTokens"],
+        ["reasoning_output_tokens", "reasoningOutputTokens"],
+      ]) {
+        if (info.total_token_usage[rawKey] == null && info.total_token_usage[key] == null) currentTotal[key] = previousTotal[key];
+      }
+      if (!validUsage(currentTotal)) { warnings.invalidTokenCategories += 1; return; }
       if (currentTotal.totalTokens < previousTotal.totalTokens) {
         warnings.cumulativeResets += 1;
         previousTotal = { ...EMPTY_USAGE };
       } else if (currentTotal.totalTokens === previousTotal.totalTokens) {
-        warnings.duplicateRowsSkipped += 1;
-        previousTotal = currentTotal;
+        const correction = correctClassification(currentTotal);
+        if (correction === "duplicate") warnings.duplicateRowsSkipped += 1;
+        else if (correction === "corrected") warnings.classificationCorrections += 1;
+        else warnings.unresolvedClassificationCorrections += 1;
+        if (correction !== "unresolved") previousTotal = currentTotal;
         return;
       }
       usage = subtractUsage(currentTotal, previousTotal);
@@ -215,14 +246,17 @@ async function scanFile(filePath, titles, warnings, sessionHighWater) {
     }
     seen.add(dedupeKey);
     session.latestAt = timestamp;
-    session.events.push({
+    const event = {
       timestamp,
       timestampMs: eventMs,
       date: localDate(timestamp),
       model,
       usage,
       rateLimits: row.payload.rate_limits || null,
-    });
+    };
+    session.events.push(event);
+    if (!sessionEvents.has(session.id)) sessionEvents.set(session.id, []);
+    sessionEvents.get(session.id).push(event);
   };
 
   try {
@@ -321,6 +355,9 @@ export async function scanUsage({
     cumulativeResets: 0,
     lastUsageFallbackRows: 0,
     rowsWithoutUsage: 0,
+    classificationCorrections: 0,
+    unresolvedClassificationCorrections: 0,
+    invalidTokenCategories: 0,
     unreadableFiles: [],
   };
   const titles = includeTitles ? await loadTitles(codexHome) : new Map();
@@ -330,8 +367,9 @@ export async function scanUsage({
   const files = nested.flat().sort((a, b) => a.localeCompare(b));
   const sessions = [];
   const sessionHighWater = new Map();
+  const sessionEvents = new Map();
   for (const file of files) {
-    sessions.push(await scanFile(file, titles, warnings, sessionHighWater));
+    sessions.push(await scanFile(file, titles, warnings, sessionHighWater, sessionEvents));
   }
   const events = sessions.flatMap((session) =>
     session.events.map((event) => ({

@@ -19,9 +19,8 @@ export function findPrice(model) {
   const normalized = normalizeModel(model);
   if (PRICES[normalized]) return { model: normalized, rates: PRICES[normalized] };
 
-  const candidates = Object.keys(PRICES).sort((a, b) => b.length - a.length);
-  const matched = candidates.find((name) => normalized.includes(name));
-  return matched ? { model: matched, rates: PRICES[matched] } : null;
+  // 未核对的后缀或包含模型名的字符串不能自动获得价格。
+  return null;
 }
 
 export function estimateCost(model, usage) {
@@ -33,17 +32,22 @@ export function estimateCost(model, usage) {
   const cacheWrite = Math.max(0, Number(usage.cacheWriteInputTokens) || 0);
   const output = Math.max(0, Number(usage.outputTokens) || 0);
   const uncached = Math.max(0, input - cached - cacheWrite);
-  const cacheWriteRate = price.rates.cacheWrite ?? price.rates.input;
+  const missingWritePrice = cacheWrite > 0 && price.rates.cacheWrite === null;
+  if (cached + cacheWrite > input || Number(usage.reasoningOutputTokens || 0) > output) {
+    return { costUsd: null, pricedTokens: 0, pricingModel: price.model, reason: "invalid_categories" };
+  }
   const costUsd = (
     uncached * price.rates.input +
     cached * price.rates.cachedInput +
-    cacheWrite * cacheWriteRate +
+    cacheWrite * (price.rates.cacheWrite ?? 0) +
     output * price.rates.output
   ) / 1_000_000;
 
   return {
     costUsd,
-    pricedTokens: input + output,
+    pricedTokens: input + output - (missingWritePrice ? cacheWrite : 0),
+    unpricedTokens: missingWritePrice ? cacheWrite : 0,
+    reason: missingWritePrice ? "cache_write_price_missing" : null,
     pricingModel: price.model,
   };
 }
