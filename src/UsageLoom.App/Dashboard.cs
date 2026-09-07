@@ -22,8 +22,8 @@ internal sealed class Dashboard : Window
     private int historyRangeIndex=1;
     private bool updatingHistoryRangeControls;
     private readonly TextBox historySearch=new(){PlaceholderText="筛选 Session、模型、项目或 Agent",MinWidth=200};
-    private readonly CalendarDatePicker historyFrom=new(){Header="开始",PlaceholderText="开始日期"};
-    private readonly CalendarDatePicker historyThrough=new(){Header="结束",PlaceholderText="结束日期"};
+    private readonly CalendarDatePicker historyFrom=new(){Header="开始",PlaceholderText="开始日期",DateFormat="{year.full}-{month.integer(2)}-{day.integer(2)}",MinWidth=140};
+    private readonly CalendarDatePicker historyThrough=new(){Header="结束",PlaceholderText="结束日期",DateFormat="{year.full}-{month.integer(2)}-{day.integer(2)}",MinWidth=140};
     private readonly ComboBox sessionOrder=new(){ItemsSource=new[]{"用量从高到低","最近活动","Session 名称"},SelectedIndex=0,Width=180};
     private readonly StackPanel dateControls=new(){Orientation=Orientation.Horizontal,Spacing=10};
     private readonly Grid filterBar;
@@ -79,13 +79,39 @@ internal sealed class Dashboard : Window
         var root = new Grid();
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        var titlebar = new Grid { Height = 48, Padding = new Thickness(20, 0, 140, 0) };
+        var titlebar = new Grid { Height = 48, Padding = new Thickness(compact?12:20, 0, 138, 0) };
+        titlebar.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
+        titlebar.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
         var titleIdentity=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10,VerticalAlignment=VerticalAlignment.Center};
         titleIdentity.Children.Add(new TextBlock { Text = "L   UsageLoom", FontSize = 18, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center });
         var versionBadge=new Border{Padding=new Thickness(7,2,7,2),CornerRadius=new CornerRadius(7),Background=new SolidColorBrush(ColorHelper.FromArgb(28,127,132,150)),Child=new TextBlock{Text=Program.Version,FontSize=10.5,Opacity=.75,TextWrapping=TextWrapping.NoWrap,VerticalAlignment=VerticalAlignment.Center}};
         ToolTipService.SetToolTip(versionBadge,"UsageLoom "+Program.Version+" · 正式版");titleIdentity.Children.Add(versionBadge);titlebar.Children.Add(titleIdentity);
         root.Children.Add(titlebar);
-        ExtendsContentIntoTitleBar = true; SetTitleBar(titlebar);
+        ExtendsContentIntoTitleBar = true; SetTitleBar(titleIdentity);
+        if(compact)
+        {
+            titleIdentity.Spacing=6;
+            ((TextBlock)titleIdentity.Children[0]).FontSize=16;
+            var pin=new Microsoft.UI.Xaml.Controls.Primitives.ToggleButton{Content=new FontIcon{Glyph="\uE718",FontSize=12},Width=46,Height=32,Padding=new Thickness(0),VerticalAlignment=VerticalAlignment.Top,CornerRadius=new CornerRadius(0),BorderThickness=new Thickness(0)};
+            var transparent=new SolidColorBrush(Microsoft.UI.Colors.Transparent);
+            var hover=new SolidColorBrush(ColorHelper.FromArgb(24,127,132,150));
+            var pressed=new SolidColorBrush(ColorHelper.FromArgb(40,127,132,150));
+            // Match caption controls: no resting tile, including when pinned.
+            foreach(var state in new[]{"","Checked"})
+            {
+                pin.Resources["ToggleButtonBackground"+state]=transparent;
+                pin.Resources["ToggleButtonBackground"+state+"PointerOver"]=hover;
+                pin.Resources["ToggleButtonBackground"+state+"Pressed"]=pressed;
+                foreach(var interaction in new[]{"","PointerOver","Pressed"})
+                    pin.Resources["ToggleButtonBorderBrush"+state+interaction]=transparent;
+            }
+            foreach(var interaction in new[]{"","PointerOver","Pressed"})
+                pin.Resources["ToggleButtonForegroundChecked"+interaction]=accent;
+            Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(pin,"置顶");
+            ToolTipService.SetToolTip(pin,"置顶：保持在其他窗口上方，点击外部不隐藏");
+            pin.Click+=(_,_)=>{pinned=pin.IsChecked==true;if(AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)presenter.IsAlwaysOnTop=pinned;};
+            Grid.SetColumn(pin,1);titlebar.Children.Add(pin);
+        }
         var body = new Grid { Padding = compact?new Thickness(24,20,24,24):new Thickness(0,20,0,24) };
         body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
@@ -127,10 +153,6 @@ internal sealed class Dashboard : Window
         {
             actions.Spacing=6;
             actions.Children.Add(Button("详情",()=>{app.ShowDetails();if(!pinned)Hide();return Task.CompletedTask;}));
-            var pin=new Microsoft.UI.Xaml.Controls.Primitives.ToggleButton{Content="置顶",Padding=new Thickness(9,6,9,6)};
-            ToolTipService.SetToolTip(pin,"保持在其他窗口上方；点击外部不隐藏");
-            pin.Click+=(_,_)=>{pinned=pin.IsChecked==true;if(AppWindow.Presenter is Microsoft.UI.Windowing.OverlappedPresenter presenter)presenter.IsAlwaysOnTop=pinned;};
-            actions.Children.Add(pin);
         }
         else actions.Children.Add(Button("扫描本地日志",async()=>await app.ScanAsync()));
         body.Children.Add(heading);
@@ -455,11 +477,12 @@ internal sealed class Dashboard : Window
         }
         else estimates.Children.Add(new TextBlock{Text=app.WeeklyCapacityProgress,TextWrapping=TextWrapping.Wrap});
         estimates.Children.Add(new TextBlock{Text=app.CapacityCacheStatus,FontSize=12,Opacity=.65,TextWrapping=TextWrapping.Wrap});
+        estimates.Children.Add(Button("估算历史",ShowCapacityHistory));
         var calculation=new StackPanel{Spacing=10};
         calculation.Children.Add(new TextBlock{Text="Token 容量 = 配对的本机 Token 增量 ÷ 周额度消耗百分点 × 100。\n美元价值 = 同期配对的 API 等价费用增量 ÷ 周额度消耗百分点 × 100；缺价时仅显示部分估算。\n仅估算通用额度，排除已识别的 Spark 用量。结果不是官方固定上限、订阅账单或余额；其他设备用量、模型组合和额度更新延迟都会影响结果。\n样本按账号、套餐和周窗口隔离，保存到本机数据库。重启后核验并恢复有效样本，重新建立起点，不配对停机期间的消耗。套餐字段不变的扩容可手动重置；不会将全部历史 Token 当成本周用量。",TextWrapping=TextWrapping.Wrap,FontSize=12,Opacity=.7});
-        calculation.Children.Add(Button("重置估算缓存",async()=>
+        calculation.Children.Add(Button("重置当前采样",async()=>
         {
-            var dialog=new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title="重置周容量估算？",Content="仅清除估算样本并重新采样，不删除本地 Token 历史。",PrimaryButtonText="重置",CloseButtonText="取消",DefaultButton=ContentDialogButton.Close};
+            var dialog=new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title="重置当前采样？",Content="现有有效样本先存入估算历史，再重新采样；不删除估算历史或本地 Token 历史。",PrimaryButtonText="重置",CloseButtonText="取消",DefaultButton=ContentDialogButton.Close};
             if(await dialog.ShowAsync()==ContentDialogResult.Primary)await app.ResetCapacityAsync();
         }));
         estimates.Children.Add(new Expander{Header="计算说明",IsExpanded=false,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,Content=calculation});
@@ -469,6 +492,37 @@ internal sealed class Dashboard : Window
         quotaPanel.Children.Add(new TextBlock{Text=app.IsDemo?"模拟快照 · 仅用于设计预览":quota.IsLocalAccount?"在线额度不可用 · 本地统计无需登录":quota.FetchedAt is {} date?$"采集：{date:HH:mm:ss} · {(quota.Fresh?"实时读取":"已过期")}":"尚无可靠当前账号数据",Opacity=.65});
         if(!compact&&selectedPage is "overview" or "breakdown" or "sessions")RenderStats();
         } finally { rendering=false; }
+    }
+    private async Task ShowCapacityHistory()
+    {
+        var entries=new StackPanel{Spacing=12};var controls=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};
+        var content=new StackPanel{Spacing=12};var pageIndex=0;
+        content.Children.Add(new TextBlock{Text="历史仅供查看，不参与当前采样。账号、套餐、周期与算法口径分别保留；不足采样门槛的记录不是最终估算。",TextWrapping=TextWrapping.Wrap});
+        content.Children.Add(new ScrollViewer{Content=entries,MaxHeight=440,HorizontalScrollBarVisibility=ScrollBarVisibility.Disabled});content.Children.Add(controls);
+        var previous=new Button{Content="上一页",IsEnabled=false};var next=new Button{Content="下一页"};var pageLabel=new TextBlock{VerticalAlignment=VerticalAlignment.Center};
+        controls.Children.Add(previous);controls.Children.Add(pageLabel);controls.Children.Add(next);
+        async Task Load()
+        {
+            previous.IsEnabled=next.IsEnabled=false;
+            try
+            {
+                var records=await app.ReadCapacityHistoryAsync(pageIndex);entries.Children.Clear();
+                if(records.Count==0)entries.Children.Add(new TextBlock{Text="本页暂无估算历史。有效配对出现后自动保存；此前已覆盖的结果不会被凭空补算。",TextWrapping=TextWrapping.Wrap});
+                foreach(var record in records)foreach(var sample in record.Windows)
+                {
+                    var ready=sample.Percent>=5&&sample.Samples>=2;
+                    var same=record.Account==app.Quota.AccountKey;
+                    var scope=record.Version==2&&record.PricingVersion==Pricing.CatalogVersion?"当前口径":"旧口径，仅供查看";
+                    var dollars=sample.Priced>0?$"${sample.Cost*100m/(decimal)sample.Percent:N2}":"缺价，暂不可估算";
+                    entries.Children.Add(new TextBlock{Text=$"{record.SavedAt.ToLocalTime():yyyy-MM-dd HH:mm} · {(same?"当前查询账号":"其他或尚未核验账号")}\n套餐：{record.Plan} · 周重置：{sample.ResetsAt.ToLocalTime():yyyy-MM-dd HH:mm}\n{(ready?"实验估算":"采样中记录")} · {scope}（v{record.Version}）\nAPI 等价：{dollars} / 周 · Token：{UsageNumbers.Compact(sample.Tokens*100d/sample.Percent)} / 周\n覆盖率 {100d*sample.Priced/sample.Tokens:0.#}% · {sample.Samples} 段 / {sample.Percent:0.##} 个百分点 · 定价目录 {record.PricingVersion}",TextWrapping=TextWrapping.Wrap,FontSize=13});
+                }
+                previous.IsEnabled=pageIndex>0;next.IsEnabled=records.Count==20;pageLabel.Text=$"第 {pageIndex+1} 页";
+            }
+            catch(Exception ex){entries.Children.Clear();entries.Children.Add(new TextBlock{Text="历史读取失败，数据未删除："+Privacy.Redact(ex.Message),TextWrapping=TextWrapping.Wrap});previous.IsEnabled=pageIndex>0;}
+        }
+        previous.Click+=async(_,_)=>{pageIndex=Math.Max(0,pageIndex-1);await Load();};next.Click+=async(_,_)=>{pageIndex++;await Load();};
+        await Load();
+        await new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title="估算历史",Content=content,CloseButtonText="关闭"}.ShowAsync();
     }
     private static FrameworkElement PlanBadge(QuotaState quota,bool small)
     {
@@ -545,7 +599,10 @@ internal sealed class Dashboard : Window
         usage.Children.Add(tokens);Grid.SetColumn(requests,1);usage.Children.Add(requests);quotaPanel.Children.Add(CompactCard(usage));
         var estimate=quota.Fresh&&quota.HasQuotaDisplay?app.WeeklyCapacity.FirstOrDefault(e=>e.ObservedPercent>=5&&e.Samples>=2):null;
         var capacity=Label(estimate is not null?$"{estimate.DollarDisplay} · API 等价\n约 {UsageNumbers.Compact(estimate.EstimatedTokens)} Token · 覆盖 {estimate.PricingCoverage:0.#}%":quota.Fresh&&quota.PrimaryWindows.Any(window=>window.Minutes==10080)?"周额度 API 等价 · 采样中":"周额度 API 等价 · 等待在线周额度",12);
-        capacity.Opacity=.75;ToolTipService.SetToolTip(capacity,app.WeeklyCapacityProgress);quotaPanel.Children.Add(capacity);
+        // Reserve the same two-line slot in every sampling state. Otherwise the
+        // content-fitting window grows and moves when an estimate becomes ready.
+        capacity.Height=40;capacity.MaxLines=2;capacity.TextTrimming=TextTrimming.CharacterEllipsis;
+        capacity.Opacity=.75;ToolTipService.SetToolTip(capacity,capacity.Text+"\n"+app.WeeklyCapacityProgress);quotaPanel.Children.Add(capacity);
         var updated=quota.FetchedAt is {} at?$"更新 {at.ToLocalTime():HH:mm}":"尚未更新额度";
         var resets=quota.HasQuotaDisplay&&quota.ResetCount is {} count?$"可用重置 {count} 次":"重置次数暂不可用";
         quotaPanel.Children.Add(PlanBadge(quota,true));
@@ -621,8 +678,8 @@ internal sealed class Dashboard : Window
         if(rows.Count==0)statsPanel.Children.Add(Card(new TextBlock{Text=app.Events.Count==0?"暂无本地统计\n\n点击“扫描本地日志”建立用量视图。":historyRangeIndex==4&&!selectedRange.IsBounded?"请选择完整且有效的自定义开始、结束日期。":"当前筛选条件下没有记录，请调整时间范围或搜索条件。",FontSize=18,TextWrapping=TextWrapping.Wrap}));
         if(selectedPage=="overview")
         {
-            var hourly=historyRangeIndex==0;
-            var trend = UsageCharts.Trend(hourly?HistoryQuery.HourlyTrend(rows,DateOnly.FromDateTime(DateTime.Today)):HistoryQuery.Trend(rows,selectedRange),DrillIntoRange,hourly);
+            var hourly=selectedRange.IsSingleDay;
+            var trend = UsageCharts.Trend(hourly?HistoryQuery.HourlyTrend(rows,selectedRange.From!.Value):HistoryQuery.Trend(rows,selectedRange),DrillIntoRange,hourly);
             var modelPanel=new StackPanel{Spacing=12};modelPanel.Children.Add(new TextBlock{Text="模型分布",FontSize=19,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
             modelPanel.Children.Add(UsageCharts.Models(rows));
             statsPanel.Children.Add(Card(trend));
@@ -762,7 +819,7 @@ internal sealed class Dashboard : Window
         var home=new TextBox{Header="Codex Home（仅扫描 sessions 与 archived_sessions）",Text=app.IsDemo?"设计预览 · 不读取本机目录":app.Config.CodexHome,IsReadOnly=app.IsDemo};
         var auto=new ToggleSwitch{Header="自动额度刷新",IsOn=app.Config.AutoRefresh};
         var seconds=new NumberBox{Header="后台兜底周期（秒）",Minimum=30,Maximum=3600,Value=app.Config.BackgroundSeconds};
-        var foreground=new NumberBox{Header="查看面板时的轮询周期（秒）",Minimum=15,Maximum=3600,Value=app.Config.ForegroundSeconds};
+        var foreground=new NumberBox{Header="活跃用量或查看面板时的周期（秒）",Minimum=15,Maximum=3600,Value=app.Config.ForegroundSeconds};
         var low=new ToggleSwitch{Header="额度不足通知",IsOn=app.Config.LowNotify};
         var threshold=new NumberBox{Header="剩余比例阈值（%）",Minimum=1,Maximum=99,Value=app.Config.LowPercent};
         var reset=new ToggleSwitch{Header="即将重置通知",IsOn=app.Config.ResetNotify};

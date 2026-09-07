@@ -5,6 +5,7 @@ public enum HistoryRangeKind { Day, Rolling7Days, Week, Month, Custom, All }
 public sealed record HistoryDateRange(DateOnly? From,DateOnly? Through,string Label)
 {
     public bool IsBounded=>From is not null&&Through is not null;
+    public bool IsSingleDay=>IsBounded&&From==Through;
 }
 public sealed record HistoryTrendBucket(DateOnly From,DateOnly Through,string Label,long Tokens,int Requests,decimal EstimatedCost);
 public sealed record SessionSummary(string Session,string Name,string Project,long Tokens,DateTimeOffset? LastActivity,IReadOnlyList<UsageEvent> Events)

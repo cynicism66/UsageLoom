@@ -231,6 +231,26 @@ Test("历史范围区分滚动七天、本周、本月和自定义",() =>
     Check(HistoryQuery.ResolveRange(HistoryRangeKind.Month,today).From==new DateOnly(2026,9,1));
     Check(!HistoryQuery.ResolveRange(HistoryRangeKind.Custom,today,new(2026,9,9),new(2026,9,8)).IsBounded);
 });
+Test("后台活跃采样不依赖打开窗口，空闲恢复兜底周期",() =>
+{
+    var now=DateTimeOffset.Now;
+    Check(SamplingSchedule.QuotaPeriod(false,now,now.AddMinutes(-1),30,300)==30);
+    Check(SamplingSchedule.QuotaPeriod(false,now,now.AddMinutes(-5),30,300)==300);
+    Check(SamplingSchedule.QuotaPeriod(true,now,DateTimeOffset.MinValue,30,300)==30);
+    Check(SamplingSchedule.QuotaPeriod(false,now,now.AddMinutes(1),30,300)==300);
+    Check(SamplingSchedule.QuotaPeriod(false,now,now,600,300)==300);
+});
+Test("自定义单日使用所选历史日期的小时趋势",() =>
+{
+    var day=new DateOnly(2026,9,4);
+    var range=HistoryQuery.ResolveRange(HistoryRangeKind.Custom,new(2026,9,8),day,day);
+    Check(range.IsSingleDay);
+    var rows=new[]{Event("custom-hour",80,20) with{LocalDate="2026-09-04",Timestamp=new DateTimeOffset(day.ToDateTime(new TimeOnly(15,0)))}};
+    var buckets=HistoryQuery.HourlyTrend(rows,range.From!.Value);
+    Check(buckets.Count==24&&buckets[15].Tokens==100&&buckets.Sum(b=>b.Tokens)==100);
+    Check(!new HistoryDateRange(day,day.AddDays(1),"").IsSingleDay);
+    Check(!new HistoryDateRange(null,null,"").IsSingleDay);
+});
 Test("趋势补齐空日期并压缩长区间",() =>
 {
     var rows=new[]{Event("a",80,20) with{Session="one",LocalDate="2026-09-01"},Event("b",40,10) with{Session="two",LocalDate="2026-09-03"}};
@@ -473,6 +493,25 @@ Test("估算缓存跨数据库实例恢复且不配对停机用量", () =>
     {var rejected=new WeeklyCapacityEstimator();rejected.Restore(cache);Check(rejected.Observe(state,9000).Count==0);}
     var eventRow=Event("keep",80,20);store.Save(new([eventRow],1,0,DateTimeOffset.Now));store.SaveCapacity(null);
     Check(store.ReadCapacity() is null&&store.Read().Count==1,"重置缓存不能删除Token历史");
+});
+Test("估算历史独立归档、去重、跨套餐和重置保留",()=>
+{
+    var directory=Path.Combine(fixtureRoot,"capacity-archive");var store=new HistoryStore(directory);
+    var now=DateTimeOffset.Now;
+    var cache=new CapacityCache(2,"a","prolite",Pricing.CatalogVersion,now,[new("weekly","周",now.AddDays(3),20,5,1000,2,800,2,0)]);
+    store.SaveCapacity(cache);store.SaveCapacity(cache with{SavedAt=now.AddSeconds(1)});
+    Check(store.ReadCapacityHistory().Count==1,"相同采样只归档一次");
+    store.SaveCapacity(cache with{Plan="pro",Windows=[]});
+    Check(store.ReadCapacityHistory().Count==1,"空采样不能覆盖旧历史");
+    store.SaveCapacity(cache with{Plan="pro",SavedAt=now.AddMinutes(1)});
+    store.SaveCapacity(cache with{Version=1,Account="b",SavedAt=now.AddMinutes(2)});
+    store.SaveCapacity(null);
+    var reopened=new HistoryStore(directory);Check(reopened.ReadCapacity() is null);
+    Check(reopened.ReadCapacityHistory().Count==3,"重启、换套餐、换账号和旧口径都保留");
+    Check(reopened.ReadCapacityHistory(1,1).Count==1&&reopened.ReadCapacityHistory(3,1).Count==0);
+    reopened.Save(new([Event("archived-keep",80,20)],1,0,now));
+    reopened.ReplaceWithBackup(new([Event("archived-keep",80,20)],1,0,now),[]);
+    Check(reopened.ReadCapacityHistory().Count==3,"重建本地日志不删除估算历史");
 });
 Test("SQLite 重复保存不重计且修正保留日期", () =>
 {

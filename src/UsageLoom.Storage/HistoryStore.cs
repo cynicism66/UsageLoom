@@ -12,16 +12,50 @@ public sealed class HistoryStore(string dataDirectory)
         using var connection=Open();using var command=connection.CreateCommand();
         command.CommandText="SELECT value FROM metadata WHERE key='weekly_capacity_v1'";
         var json=command.ExecuteScalar() as string;
-        return json is null?null:JsonSerializer.Deserialize<CapacityCache>(json);
+        var cache=json is null?null:JsonSerializer.Deserialize<CapacityCache>(json);
+        if(cache is not null)ArchiveCapacity(connection,null,cache);
+        return cache;
+    }
+    public List<CapacityCache> ReadCapacityHistory(int page=0,int pageSize=20)
+    {
+        using var connection=Open();using var command=connection.CreateCommand();
+        command.CommandText="SELECT payload FROM capacity_history ORDER BY saved_at DESC,id DESC LIMIT $limit OFFSET $offset";
+        command.Parameters.AddWithValue("$limit",Math.Clamp(pageSize,1,100));
+        command.Parameters.AddWithValue("$offset",checked(Math.Max(0,page)*Math.Clamp(pageSize,1,100)));
+        using var rows=command.ExecuteReader();var result=new List<CapacityCache>();
+        while(rows.Read())if(JsonSerializer.Deserialize<CapacityCache>(rows.GetString(0)) is {} value)result.Add(value);
+        return result;
+    }
+    private static void ArchiveCapacity(SqliteConnection connection,SqliteTransaction? transaction,CapacityCache cache)
+    {
+        if(string.IsNullOrWhiteSpace(cache.Account)||cache.Windows is null)return;
+        foreach(var sample in cache.Windows.Where(w=>w.Samples>0&&w.Tokens>0&&double.IsFinite(w.Percent)&&w.Percent>0&&w.Percent<=100&&w.Priced>=0&&w.Priced<=w.Tokens&&w.Cost>=0))
+        {
+            var snapshot=cache with{Windows=[sample]};
+            var identity=JsonSerializer.Serialize(snapshot with{SavedAt=default});
+            var id=Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(identity)));
+            using var insert=connection.CreateCommand();insert.Transaction=transaction;
+            insert.CommandText="INSERT OR IGNORE INTO capacity_history(id,saved_at,payload) VALUES($id,$at,$payload)";
+            insert.Parameters.AddWithValue("$id",id);insert.Parameters.AddWithValue("$at",cache.SavedAt.ToUniversalTime().ToString("O"));
+            insert.Parameters.AddWithValue("$payload",JsonSerializer.Serialize(snapshot));insert.ExecuteNonQuery();
+        }
     }
     public void SaveCapacity(CapacityCache? cache)
     {
         lock(writerGate)
         {
             using var connection=Open();using var command=connection.CreateCommand();
+            using var transaction=connection.BeginTransaction();command.Transaction=transaction;
+            using(var previous=connection.CreateCommand())
+            {
+                previous.Transaction=transaction;previous.CommandText="SELECT value FROM metadata WHERE key='weekly_capacity_v1'";
+                if(previous.ExecuteScalar() is string json&&JsonSerializer.Deserialize<CapacityCache>(json) is {} old)ArchiveCapacity(connection,transaction,old);
+            }
+            if(cache is not null)ArchiveCapacity(connection,transaction,cache);
             command.CommandText=cache is null?"DELETE FROM metadata WHERE key='weekly_capacity_v1'":"INSERT INTO metadata(key,value) VALUES('weekly_capacity_v1',$value) ON CONFLICT(key) DO UPDATE SET value=excluded.value";
             if(cache is not null)command.Parameters.AddWithValue("$value",JsonSerializer.Serialize(cache));
             command.ExecuteNonQuery();
+            transaction.Commit();
         }
     }
     private string DatabasePath => Path.Combine(dataDirectory, "usage-v2.sqlite");
@@ -36,6 +70,7 @@ public sealed class HistoryStore(string dataDirectory)
             command.CommandText = """
                 PRAGMA journal_mode=WAL;
                 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS capacity_history (id TEXT PRIMARY KEY,saved_at TEXT NOT NULL,payload TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, source TEXT NOT NULL, payload TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS scan_indexes (source TEXT PRIMARY KEY, payload TEXT NOT NULL);
                 """;

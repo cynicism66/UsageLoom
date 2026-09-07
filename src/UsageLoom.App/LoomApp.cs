@@ -55,13 +55,15 @@ public sealed partial class LoomApp : Application
         Message="估算缓存已重置，重新采样；本地 Token 历史未删除";
         Program.Log.Write("INFO","CapacityCache",Message);Changed?.Invoke();return Task.CompletedTask;
     }
-    internal string CapacityCacheStatus=>capacityEstimator.RestoredAt is {} at?$"已恢复 {at.ToLocalTime():MM-dd HH:mm} 的样本 · 停机期间不参与配对":"有效样本自动保存在本机，升级或重启后可恢复";
+    internal Task<List<CapacityCache>> ReadCapacityHistoryAsync(int page)=>IsDemo?Task.FromResult(new List<CapacityCache>()):Task.Run(()=>store.ReadCapacityHistory(page));
+    internal string CapacityCacheStatus=>capacityEstimator.RestoredAt is {} at?$"已恢复 {at.ToLocalTime():MM-dd HH:mm} 的样本 · 历史独立保留":"有效样本独立归档；重置当前采样不删除估算历史";
     private bool refreshing, scanning, quitting;
     private int configurationGeneration, failures;
     private int historyRevision;
     private DateTimeOffset lastAttempt = DateTimeOffset.MinValue;
     private DateTimeOffset lastEventProbe = DateTimeOffset.MinValue;
     private DateTimeOffset lastHistoryCheck = DateTimeOffset.MinValue;
+    private DateTimeOffset lastUsageActivity = DateTimeOffset.MinValue;
     private DateTimeOffset historyChangedAt = DateTimeOffset.MinValue;
     private readonly List<FileSystemWatcher> historyWatchers = [];
     private bool historyDirty = true;
@@ -175,7 +177,7 @@ public sealed partial class LoomApp : Application
     {
         if (quitting || IsDemo) return;
         var visible = flyout?.IsPanelVisible == true || dashboard?.IsPanelVisible == true;
-        var period = visible ? Config.ForegroundSeconds : Config.BackgroundSeconds;
+        var period = SamplingSchedule.QuotaPeriod(visible,DateTimeOffset.Now,lastUsageActivity,Config.ForegroundSeconds,Config.BackgroundSeconds);
         var backoff = Math.Min(1800, period * Math.Pow(2, Math.Min(failures, 5)));
         if (Quota.Fresh && Quota.FetchedAt is {} fetched && DateTimeOffset.Now - fetched > TimeSpan.FromSeconds(Math.Max(60, period * 2)))
         {
@@ -183,7 +185,7 @@ public sealed partial class LoomApp : Application
             Changed?.Invoke();
         }
         if (Config.AutoRefresh && !Quota.IsLocalAccount && !refreshing && DateTimeOffset.Now - lastAttempt >= TimeSpan.FromSeconds(backoff)) _ = RefreshQuotaAsync(false);
-        if (!IsDemo && !scanning && (historyDirty && DateTimeOffset.Now - historyChangedAt > TimeSpan.FromSeconds(2) || DateTimeOffset.Now - lastHistoryCheck > TimeSpan.FromMinutes(2)))
+        if (!IsDemo && !scanning && (historyDirty && (DateTimeOffset.Now - historyChangedAt > TimeSpan.FromSeconds(2) || DateTimeOffset.Now - lastHistoryCheck > TimeSpan.FromSeconds(15)) || DateTimeOffset.Now - lastHistoryCheck > TimeSpan.FromMinutes(2)))
         {
             lastHistoryCheck = DateTimeOffset.Now;
             historyDirty = false;
@@ -297,7 +299,13 @@ public sealed partial class LoomApp : Application
             incremental ??= new IncrementalHistory(store);
             var indexed = await Task.Run(() => rebuild?incremental.RebuildAsync(home,lifetime.Token,progress):incremental.ScanAsync(home, lifetime.Token, progress,verifyIntegrity,accountScope), lifetime.Token);
             var report = indexed.Report;
+            var previousTokens=Events.Sum(item=>item.Tokens.Total);
             Events = await Task.Run(() => store.Read(lifetime.Token), lifetime.Token);
+            if(Events.Sum(item=>item.Tokens.Total)>previousTokens)
+            {
+                lastUsageActivity=DateTimeOffset.Now;
+                Program.Log.Write("INFO","CapacitySampling","检测到新增本地用量，后台采用活跃查询周期；无需打开面板");
+            }
             historyLoaded=true;
             capacityHistoryReady=true;
             WeeklyCapacity=ObserveCapacity(Quota);

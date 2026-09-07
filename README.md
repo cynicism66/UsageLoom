@@ -6,7 +6,7 @@ Windows 11 上的 Codex 用量与额度面板。无需登录即可统计本机 T
 
 UsageLoom 是独立开源项目，不隶属于 OpenAI。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.4.0
+## Windows 桌面版 0.4.5
 
 - 用量概览：Token、完成请求、API 等价费用与定价覆盖率；日视图按小时，较长范围按日期展示趋势。
 - 本地分析：按模型、项目和 Session 查看输入、缓存、输出及推理计数，支持日期筛选与明细。
@@ -14,7 +14,8 @@ UsageLoom 是独立开源项目，不隶属于 OpenAI。本地统计与费用估
 - 归属区分：本机全部记录、当前账号观察归属、未归属或其他账号分别列出，不将旧记录自动算给当前账号。
 - 托盘速览：K/M/B 紧凑数字、今日用量、额度摘要与刷新；可置顶，置顶时点击其他窗口不会自动隐藏。
 - 外观与提醒：深浅主题、小型套餐标识、应用图标；额度不足和即将重置通知分别开启，默认关闭。
-- 本地缓存：SQLite 索引与周容量采样持久化，MSI 和 ZIP 共用用户数据目录。
+- 本地缓存：SQLite 索引与周容量采样持久化，MSI 和 ZIP 共用用户数据目录。有效估算独立归档，可从“当前额度 → 估算历史”查看；重置当前采样不会删除历史。
+- 后台采样：开启自动刷新并保持托盘运行时，有新增用量默认每 30 秒查询额度，空闲后恢复兜底周期；不必打开面板。自定义单日趋势按小时展示。
 
 ## 实际界面
 
@@ -97,8 +98,8 @@ Windows 构建使用 .NET 10 SDK、WinUI 3 与 WiX 6：
 
 ```powershell
 ./scripts/build-windows.ps1 -Publish
-./scripts/build-msi.ps1 -Version 0.4.0
-./scripts/build-portable.ps1 -Version 0.4.0
+./scripts/build-msi.ps1 -Version 0.4.5
+./scripts/build-portable.ps1 -Version 0.4.5
 ./scripts/test-msi-package.ps1 -Version 0.4.0
 ```
 
