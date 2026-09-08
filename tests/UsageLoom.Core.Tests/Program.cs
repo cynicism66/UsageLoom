@@ -842,8 +842,47 @@ AsyncTest("索引重写检测保留旧统计，正文不进入索引",async()=>
     var store=new HistoryStore(Path.Combine(fixtureRoot,"rewrite-db"));await new IncrementalHistory(store).ScanAsync(home,default);
     Check(!JsonSerializer.Serialize(store.ReadIndexes()).Contains("PRIVATE-CONTENT-MARKER"));
     await File.WriteAllLinesAsync(file,[Meta("rewrite"),Count(8,2)]);
-    var rejected=false;try{await new IncrementalHistory(store).ScanAsync(home,default);}catch(InvalidDataException){rejected=true;}
-    Check(rejected&&store.Read().Sum(e=>e.Tokens.Total)==100);
+    await File.WriteAllLinesAsync(Path.Combine(home,"sessions","b.jsonl"),[Meta("new-session"),Count(40,10)]);
+    var preserved=await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(preserved.PreservedFiles==1&&store.Read().Sum(e=>e.Tokens.Total)==150);
+    var repeated=await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(repeated.PreservedFiles==1&&store.Read().Sum(e=>e.Tokens.Total)==150);
+});
+AsyncTest("变化来源同会话隔离，正常会话继续追加且旧索引不覆盖",async()=>
+{
+    var home=Fixture("quarantine-session");var a=Path.Combine(home,"sessions","a.jsonl");var b=Path.Combine(home,"sessions","b.jsonl");
+    await File.WriteAllLinesAsync(a,[Meta("shared"),Count(80,20)]);
+    var store=new HistoryStore(Path.Combine(fixtureRoot,"quarantine-session-db"));await new IncrementalHistory(store).ScanAsync(home,default);
+    var old=store.Read().Single();var oldIndex=store.ReadIndexes()[a];
+    await File.WriteAllLinesAsync(a,[Meta("shared"),Count(8,2)]);
+    await File.WriteAllLinesAsync(b,[Meta("shared"),Count(160,40)]);
+    var c=Path.Combine(home,"sessions","c.jsonl");await File.WriteAllLinesAsync(c,[Meta("independent"),Count(40,10)]);
+    var result=await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(result.PreservedFiles==2&&store.Read().Sum(e=>e.Tokens.Total)==150&&store.Read().Single(e=>e.Id==old.Id)==old);
+    Check(store.ReadIndexes()[a].PrefixHash==oldIndex.PrefixHash&&!store.ReadIndexes().ContainsKey(b));
+    await File.AppendAllLinesAsync(c,[Count(80,20)]);
+    await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(store.Read().Sum(e=>e.Tokens.Total)==200);
+});
+AsyncTest("分页迁移保留原明细，重定时末次快照不重计，跨重启继续增量",async()=>
+{
+    var home=Fixture("paginated-ledger");var file=Path.Combine(home,"sessions","a.jsonl");
+    string Row(long total,string time,long? ordinal=null){return JsonSerializer.Serialize(new{type="event_msg",timestamp=time,ordinal,payload=new{type="token_count",info=new{total_token_usage=new{input_tokens=total,output_tokens=0},last_token_usage=new{input_tokens=100,output_tokens=0}}}});}
+    string Header(string owner)=>JsonSerializer.Serialize(new{type="session_meta",ordinal=0,payload=new{id=owner,history_mode="paginated"}});
+    await File.WriteAllLinesAsync(file,[Meta("page"),Row(100,"2026-09-08T01:00:00Z"),Row(200,"2026-09-08T02:00:00Z")]);
+    var store=new HistoryStore(Fixture("page-db"));await new IncrementalHistory(store).ScanAsync(home,default);var original=store.Read();
+    await File.WriteAllLinesAsync(file,[Header("page"),Row(200,"2026-09-08T00:00:00Z",1)]);
+    var result=await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(result.PreservedFiles==0&&store.Read().Sum(e=>e.Tokens.Total)==200&&store.Read().Count==2);
+    Check(original.All(e=>store.Read().Single(n=>n.Id==e.Id)==e));
+    await File.AppendAllLinesAsync(file,[Row(300,"2026-09-08T03:00:00Z",2)]);
+    await new IncrementalHistory(store).ScanAsync(home,default);Check(store.Read().Sum(e=>e.Tokens.Total)==300);
+    await new IncrementalHistory(store).ScanAsync(home,default);Check(store.Read().Sum(e=>e.Tokens.Total)==300);
+    await File.WriteAllLinesAsync(file,[Header("page"),Row(300,"2026-09-08T03:00:00Z",1),Row(400,"2026-09-08T04:00:00Z",2)]);
+    Check((await new IncrementalHistory(store).ScanAsync(home,default)).PreservedFiles==0&&store.Read().Sum(e=>e.Tokens.Total)==400);
+    // A different owner is not a continuation even if all counters match.
+    await File.WriteAllLinesAsync(file,[Header("other"),Row(400,"2026-09-08T00:00:00Z",1)]);
+    Check((await new IncrementalHistory(store).ScanAsync(home,default)).PreservedFiles==1&&store.Read().Sum(e=>e.Tokens.Total)==400);
 });
 Test("索引与事件同事务回滚",()=>
 {
@@ -869,8 +908,8 @@ AsyncTest("完整校验检测保留元数据的等长重写",async()=>
     await scanner.ScanAsync(home,default);var written=File.GetLastWriteTimeUtc(file);
     var original=await File.ReadAllTextAsync(file);await File.WriteAllTextAsync(file,original.Replace("integrity","integriTy"));
     File.SetLastWriteTimeUtc(file,written);
-    var rejected=false;try{await scanner.ScanAsync(home,default,verifyIntegrity:true);}catch(InvalidDataException){rejected=true;}
-    Check(rejected&&store.Read().Sum(e=>e.Tokens.Total)==100);
+    var preserved=await scanner.ScanAsync(home,default,verifyIntegrity:true);
+    Check(preserved.PreservedFiles==1&&store.Read().Sum(e=>e.Tokens.Total)==100);
 });
 
 long BackupTotal(string path)

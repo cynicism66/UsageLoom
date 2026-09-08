@@ -32,6 +32,7 @@ public sealed partial class LoomApp : Application
     private Estimate? capacityPrice;
     private long capacityTokenTotal;
     private bool capacityHistoryReady;
+    private int preservedHistoryFiles;
     private DateTimeOffset capacityIndexedThrough;
     private readonly CapacityBatchSchedule capacityBatch=new(DateTimeOffset.UtcNow);
     private List<UsageEvent>? batchEvents;
@@ -80,7 +81,7 @@ public sealed partial class LoomApp : Application
             if(CapacityBusy)return WeeklyCapacity;
             if(!quota.Fresh||!capacityHistoryReady)
             {
-                capacityFeedback=L10n.T(!capacityHistoryReady?"capacity.waitIndex":"capacity.waitQuota");
+                capacityFeedback=preservedHistoryFiles>0?L10n.F("scan.preserved",preservedHistoryFiles):L10n.T(!capacityHistoryReady?"capacity.waitIndex":"capacity.waitQuota");
                 return WeeklyCapacity;
             }
             if(!capacityBatch.TryBegin(DateTimeOffset.UtcNow,force))return WeeklyCapacity;
@@ -229,7 +230,7 @@ public sealed partial class LoomApp : Application
     internal bool HasLoadedHistory => IsDemo||historyLoaded;
     internal IReadOnlyDictionary<string,string> SessionNames { get; private set; }=new Dictionary<string,string>();
     internal IReadOnlyList<WeeklyCapacityEstimate> WeeklyCapacity { get; private set; }=[];
-    internal string WeeklyCapacityProgress => Config.CapacityEnabled?capacityEstimator.DescribeProgress(Quota,capacityTokenTotal,capacityHistoryReady):L10n.T("s40E9A224A0E3");
+    internal string WeeklyCapacityProgress => !Config.CapacityEnabled?L10n.T("s40E9A224A0E3"):preservedHistoryFiles>0?L10n.F("scan.preserved",preservedHistoryFiles):capacityEstimator.DescribeProgress(Quota,capacityTokenTotal,capacityHistoryReady);
     internal string HistoryStatus { get; private set; } = L10n.T("sA3A08B0EC497");
     internal string Message { get; private set; } = L10n.T("s5A253CCAEBA1");
     internal event Action? Changed;
@@ -494,10 +495,12 @@ public sealed partial class LoomApp : Application
                 Program.Log.Write("INFO","CapacitySampling","检测到新增本地用量，后台采用活跃查询周期；无需打开面板");
             }
             historyLoaded=true;
-            capacityHistoryReady=true;
-            capacityIndexedThrough=report.ScannedAt;
+            preservedHistoryFiles=indexed.PreservedFiles;
+            capacityHistoryReady=indexed.PreservedFiles==0;
+            if(capacityHistoryReady)capacityIndexedThrough=report.ScannedAt;
             WeeklyCapacity=ObserveCapacity(Quota);
             Message = L10n.F("sBF8AACAC3A69", (report.UsedCache ? L10n.T("s38BE587EDD10") : L10n.T("sB164E0EDAEC8")), report.Files, indexed.BytesParsed, report.Warnings, watch.ElapsedMilliseconds);
+            if(indexed.PreservedFiles>0)Message+=" · "+L10n.F("scan.preserved",indexed.PreservedFiles);
             if(verifyIntegrity)Message=L10n.T("s1AD7D8B010C8")+Message;
             if(indexed.BackupPath is not null)Message=indexed.Migrated
                 ?L10n.F("sB389D366B4CF", (indexed.PreviousParserVersions.Contains(0)?L10n.T("sCA6ACDE43454"):L10n.T("s7B2F11B1DAF2")+string.Join(',',indexed.PreviousParserVersions)), Path.GetFileName(indexed.BackupPath), report.Warnings, indexed.DeferredFiles)

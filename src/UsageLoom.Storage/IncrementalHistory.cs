@@ -14,6 +14,7 @@ public sealed record IncrementalResult(ScanReport Report,long BytesParsed,int Fi
     public bool Migrated { get; init; }
     public IReadOnlyList<int> PreviousParserVersions { get; init; }=[];
     public int DeferredFiles { get; init; }
+    public int PreservedFiles { get; init; }
 }
 
 /// <summary>仅索引必要元数据与计数；保留半行起点，索引与派生事件同事务保存。</summary>
@@ -58,6 +59,8 @@ public sealed class IncrementalHistory(HistoryStore store)
                 rebuild=true;saved=new(StringComparer.OrdinalIgnoreCase);
             }
             var records=new Dictionary<string,IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
+            var preserved=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            void Preserve(string path,IndexedFile index){records[path]=index.Records;preserved.Add(path);}
             long bytesParsed=0;var warnings=0;
             foreach(var leaf in new[]{"sessions","archived_sessions"})
             {
@@ -71,7 +74,7 @@ public sealed class IncrementalHistory(HistoryStore store)
                         {
                             await using var verified=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete,65536,FileOptions.Asynchronous|FileOptions.SequentialScan);
                             if(await HashPrefix(verified,old.Offset,ct)!=old.PrefixHash)
-                                throw new InvalidDataException("完整校验发现历史内容变化；旧统计已保留，需要确认重建");
+                            {Preserve(path,old);continue;}
                             info.Refresh();
                             if(info.Length!=old.Length||info.LastWriteTimeUtc.Ticks!=old.Written||info.CreationTimeUtc.Ticks!=old.Created)
                                 throw new IOException("完整校验期间日志变化，本次检查暂缓");
@@ -81,15 +84,15 @@ public sealed class IncrementalHistory(HistoryStore store)
                     progress?.Report($"正在增量索引：已处理 {records.Count} 个文件");
                     await using var file=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete,65536,FileOptions.Asynchronous|FileOptions.SequentialScan);
                     var capturedLength=file.Length;var written=info.LastWriteTimeUtc.Ticks;var created=info.CreationTimeUtc.Ticks;
+                    var paginationReplay=false;
                     if(old is not null)
                     {
                         if(capturedLength<old.Length||created!=old.Created||capturedLength==old.Length&&written!=old.Written)
-                            throw new InvalidDataException("日志可能被截断、替换或重写，需要确认重建；旧统计已保留");
-                        var prefix=await HashPrefix(file,old.Offset,ct);
-                        if(prefix!=old.PrefixHash)throw new InvalidDataException("已索引的日志内容发生变化，需要确认重建；旧统计已保留");
+                            paginationReplay=true;
+                        else paginationReplay=await HashPrefix(file,old.Offset,ct)!=old.PrefixHash;
                     }
-                    file.Position=old?.Offset??0;var offset=file.Position;var buffer=new byte[65536];var line=new MemoryStream();var oversized=false;
-                    var compact=old is null?new List<string>():new List<string>(old.Records);var fileWarnings=old?.Warnings??0;var integrityWarnings=old?.IntegrityWarnings??0;
+                    file.Position=paginationReplay?0:old?.Offset??0;var offset=file.Position;var buffer=new byte[65536];var line=new MemoryStream();var oversized=false;
+                    var compact=old is null||paginationReplay?new List<string>():new List<string>(old.Records);var fileWarnings=paginationReplay?0:old?.Warnings??0;var integrityWarnings=paginationReplay?0:old?.IntegrityWarnings??0;
                     var recordAccountScope=old is not null&&!string.IsNullOrWhiteSpace(accountScope)&&previousAccount==accountScope&&string.Equals(previousHome,home,StringComparison.OrdinalIgnoreCase)&&string.Equals(old.AccountScope,accountScope,StringComparison.Ordinal)?accountScope:null;
                     DateTimeOffset? newFileSince=null;
                     if(old is null&&!rebuild&&!string.IsNullOrWhiteSpace(accountScope)&&accountScope==previousAccount&&
@@ -134,13 +137,23 @@ public sealed class IncrementalHistory(HistoryStore store)
                         await using var current=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete,65536,FileOptions.Asynchronous|FileOptions.SequentialScan);
                         if(await HashPrefix(current,offset,ct)!=hash)throw new IOException("扫描期间已读取的日志前缀发生变化，取消本次保存");
                     }
+                    if(paginationReplay)
+                    {
+                        if(integrityWarnings>0||!PaginatedContinuation.TryJoin(old!.Records,compact,out var joined)){Preserve(path,old!);continue;}
+                        compact=joined;
+                    }
                     var index=new IndexedFile(path,ParserVersion,offset,capturedLength,written,created,hash,compact,fileWarnings,string.IsNullOrWhiteSpace(accountScope)?null:accountScope,integrityWarnings);
                     updated.Add(index);records[path]=compact;warnings+=fileWarnings;
                 }
             }
             if(rebuild&&records.Count==0)throw new InvalidDataException("没有可重建的日志文件，旧统计已保留");
+            // Do not replay another physical file belonging to a quarantined session:
+            // its new baseline could otherwise replace previously recorded events.
+            var blockedOwners=preserved.Select(path=>Owner(path,saved[path].Records)).ToHashSet(StringComparer.Ordinal);
+            foreach(var index in updated.Where(i=>blockedOwners.Contains(Owner(i.Path,i.Records))).ToArray())
+            {updated.Remove(index);preserved.Add(index.Path);}
             if(updated.Count==0)
-            {var cached=store.Read(ct);completed=true;return new(new(cached,records.Count,warnings,DateTimeOffset.Now){UsedCache=true},0,0);}
+            {var cached=store.Read(ct);completed=true;return new(new(cached,records.Count,warnings+preserved.Count,DateTimeOffset.Now){UsedCache=true},0,0){PreservedFiles=preserved.Count};}
             HashSet<string>? affectedSessions=null;
             var ancestryRecords=new Dictionary<string,IReadOnlyList<string>>(records,StringComparer.OrdinalIgnoreCase);
             foreach(var index in saved.Values)
@@ -155,7 +168,7 @@ public sealed class IncrementalHistory(HistoryStore store)
             }
             var replayed=records.Values.Sum(value=>(long)value.Count);
             var report=await new HistoryScanner().ScanAsync(home,ct,progress,records,ancestryRecords);
-            report=report with{Warnings=report.Warnings+warnings};
+            report=report with{Warnings=report.Warnings+warnings+preserved.Count};
             if(rebuild)
             {
                 // Validate all captured prefixes again before replacement. A live file
@@ -178,7 +191,7 @@ public sealed class IncrementalHistory(HistoryStore store)
             }
             store.Save(report,ct,indexes:updated,replaceSessions:affectedSessions);
             completed=true;
-            return new(report,bytesParsed,updated.Count){RecordsReplayed=replayed};
+            return new(report,bytesParsed,updated.Count){RecordsReplayed=replayed,PreservedFiles=preserved.Count};
         }
         finally{if(completed&&!rebuild){observedAccount=accountScope;observedHome=home;observedAt=scanStarted;}gate.Release();}
     }
@@ -210,7 +223,7 @@ public sealed class IncrementalHistory(HistoryStore store)
             var type=root.Text("type");var minimal=new Dictionary<string,object?>();
             if(type=="session_meta")
             {
-                foreach(var key in new[]{"id","session_id","forked_from_id","parent_thread_id"})if(payload.Text(key)is{} value)minimal[key]=value;
+                foreach(var key in new[]{"id","session_id","forked_from_id","parent_thread_id","history_mode"})if(payload.Text(key)is{} value)minimal[key]=value;
                 if(payload.Text("cwd")is{} cwd)minimal["cwd"]=cwd.Replace('\\','/').TrimEnd('/').Split('/').LastOrDefault();
                 if(payload.TryGetProperty("source",out var source))
                 {var marker=source.ToString();minimal["source"]=marker.Contains("guardian",StringComparison.OrdinalIgnoreCase)?"guardian":marker.Contains("memory",StringComparison.OrdinalIgnoreCase)?"memory":marker.Contains("agent",StringComparison.OrdinalIgnoreCase)?"subagent":"main";}
@@ -234,7 +247,8 @@ public sealed class IncrementalHistory(HistoryStore store)
             }
             else return;
             if(newFileSince is {} since&&(!DateTimeOffset.TryParse(root.Text("timestamp"),out var timestamp)||timestamp<=since||timestamp>scanStarted))accountScope=null;
-            records.Add(JsonSerializer.Serialize(new{type,timestamp=root.Text("timestamp"),account_scope=accountScope,payload=minimal}));
+            long? ordinal=root.TryGetProperty("ordinal",out var sequence)&&sequence.ValueKind==JsonValueKind.Number&&sequence.TryGetInt64(out var position)?position:null;
+            records.Add(JsonSerializer.Serialize(new{type,timestamp=root.Text("timestamp"),ordinal,account_scope=accountScope,payload=minimal}));
         }
         catch(JsonException){warnings++;integrityWarnings++;}
     }
