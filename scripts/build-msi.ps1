@@ -1,8 +1,9 @@
 [CmdletBinding()]
-param([string]$Version='0.5.6')
+param([string]$Version='0.6.0')
 $ErrorActionPreference='Stop'
 $workspace=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$env:DOTNET_ROOT=Join-Path $workspace '.tools/dotnet'
+$localRuntime=Join-Path $workspace '.tools/dotnet'
+if(Test-Path (Join-Path $localRuntime 'dotnet.exe')){$env:DOTNET_ROOT=$localRuntime}
 $env:DOTNET_CLI_TELEMETRY_OPTOUT='1'
 $env:DOTNET_GENERATE_ASPNET_CERTIFICATE='false'
 $env:DOTNET_CLI_HOME=Join-Path $workspace '.tools/cli-home'

@@ -7,8 +7,9 @@ public sealed record TemporalCapacityResult(CapacityCache? Cache,List<CapacityIn
 
 public static class TemporalCapacity
 {
-    public static TemporalCapacityResult Calculate(IEnumerable<QuotaObservation> observations,IEnumerable<UsageEvent> events)
+    public static TemporalCapacityResult Calculate(IEnumerable<QuotaObservation> observations,IEnumerable<UsageEvent> events,CancellationToken cancellationToken=default)
     {
+        cancellationToken.ThrowIfCancellationRequested();
         var rows=events.Where(e=>e.Timestamp is not null&&!string.Equals(e.Model,"gpt-5.3-codex-spark",StringComparison.OrdinalIgnoreCase))
             .DistinctBy(e=>e.Id).OrderBy(e=>e.Timestamp).ToArray();
         int After(DateTimeOffset at)
@@ -24,6 +25,7 @@ public static class TemporalCapacity
         QuotaObservation? last=null;
         foreach(var o in observations.OrderBy(o=>o.At).DistinctBy(o=>o.At))
         {
+            cancellationToken.ThrowIfCancellationRequested();
             if(o.Barrier||string.IsNullOrWhiteSpace(o.Account)||string.IsNullOrWhiteSpace(o.Plan)||o.PricingVersion!=Pricing.CatalogVersion)
             {anchors.Clear();totals.Clear();last=o;continue;}
             if(last?.Account!=o.Account||last?.Plan!=o.Plan||last?.PricingVersion!=o.PricingVersion){anchors.Clear();totals.Clear();}

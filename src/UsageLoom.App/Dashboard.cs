@@ -9,6 +9,7 @@ namespace UsageLoom.App;
 internal sealed class Dashboard : Window
 {
     private readonly LoomApp app;
+    private TextBlock? capacityStatusText;
     private readonly StackPanel quotaPanel=new(){Spacing=14};
     private readonly StackPanel statsPanel=new(){Spacing=16};
     private StackPanel overviewQuota=new(){Spacing=10};
@@ -448,6 +449,7 @@ internal sealed class Dashboard : Window
         if(!DispatcherQueue.HasThreadAccess){DispatcherQueue.TryEnqueue(Render);return;}
         rendering=true;
         try {
+        if(capacityStatusText is not null)capacityStatusText.Text=app.CapacityCalculationStatus;
         if(compact){RenderCompact();return;}
         status.Text=compact||selectedPage=="quota"?app.Quota.Status:selectedPage is "overview" or "breakdown" or "sessions"?app.HistoryStatus:app.Message;
         ToolTipService.SetToolTip(status,status.Text);
@@ -538,6 +540,11 @@ internal sealed class Dashboard : Window
         else estimates.Children.Add(new TextBlock{Text=app.WeeklyCapacityProgress,TextWrapping=TextWrapping.Wrap});
         estimates.Children.Add(new TextBlock{Text=app.CapacityCacheStatus,FontSize=12,Opacity=.65,TextWrapping=TextWrapping.Wrap});
         estimates.Children.Add(Button(L10n.T("s4C6D9D73BFC8"),ShowCapacityHistory));
+        estimates.Children.Add(Button(L10n.T("capacity.calculateNow"),async()=>await app.CalculateCapacityNowAsync()));
+        capacityStatusText=new TextBlock{Text=app.CapacityCalculationStatus,TextWrapping=TextWrapping.Wrap};
+        estimates.Children.Add(capacityStatusText);
+        estimates.Children.Add(new TextBlock{Text=L10n.T("capacity.batchNote"),TextWrapping=TextWrapping.Wrap,Opacity=.65});
+        estimates.Children.Add(new TextBlock{Text=L10n.T("capacity.retentionNote"),TextWrapping=TextWrapping.Wrap,Opacity=.65});
         var calculation=new StackPanel{Spacing=10};
         calculation.Children.Add(new TextBlock{Text=L10n.T("s0F58A8B1B0E1"),TextWrapping=TextWrapping.Wrap,FontSize=12,Opacity=.7});
         calculation.Children.Add(Button(L10n.T("s89CE4722B00F"),async()=>
@@ -547,6 +554,31 @@ internal sealed class Dashboard : Window
         }));
         estimates.Children.Add(StableExpander.Configure(new Expander{Header=L10n.T("s6B5C96B6A49F"),IsExpanded=false,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,Content=calculation}));
         return StableExpander.Configure(new Expander{Header=L10n.T("sD9EBFF4C171F"),IsExpanded=false,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,Content=estimates});
+    }
+    private async Task ShowAttribution(List<UsageEvent> rows,string account)
+    {
+        var dates=rows.Where(e=>e.AccountScope is null&&e.Timestamp is not null).Select(e=>e.LocalDate).Distinct().OrderDescending().ToList();
+        var panel=new StackPanel{Spacing=12};
+        panel.Children.Add(new TextBlock{Text=L10n.T("attribution.explanation"),TextWrapping=TextWrapping.Wrap});
+        var date=new ComboBox{Header=L10n.T("attribution.date"),ItemsSource=dates,SelectedIndex=dates.Count>0?0:-1};panel.Children.Add(date);
+        var summary=new TextBlock{TextWrapping=TextWrapping.Wrap};panel.Children.Add(summary);
+        var acknowledgment=new CheckBox{Content=L10n.T("attribution.ack")};panel.Children.Add(acknowledgment);
+        var dialog=new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title=L10n.T("attribution.inspect"),Content=panel,
+            PrimaryButtonText=L10n.T("attribution.confirm"),CloseButtonText=L10n.T("s2CD0F3BE8738"),DefaultButton=ContentDialogButton.Close,IsPrimaryButtonEnabled=false};
+        List<UsageEvent> preview=[];
+        void Update()
+        {
+            preview=rows.Where(e=>e.LocalDate==date.SelectedItem as string&&e.AccountScope is null&&e.Timestamp is not null).ToList();
+            var other=rows.Where(e=>e.AccountScope is not null&&e.AccountScope!=account).Sum(e=>e.Tokens.Total);
+            var unknown=rows.Where(e=>e.AccountScope is null&&e.Timestamp is null).Sum(e=>e.Tokens.Total);
+            summary.Text=L10n.F("attribution.preview",preview.Count,UsageNumbers.Compact(preview.Sum(e=>e.Tokens.Total)),UsageNumbers.Compact(other),UsageNumbers.Compact(unknown));
+            dialog.IsPrimaryButtonEnabled=acknowledgment.IsChecked==true&&preview.Count>0&&app.Quota.Fresh&&app.Quota.AccountKey==account&&!app.IsDemo;
+        }
+        date.SelectionChanged+=(_,_)=>{acknowledgment.IsChecked=false;Update();};
+        acknowledgment.Checked+=(_,_)=>Update();acknowledgment.Unchecked+=(_,_)=>Update();Update();
+        if(await dialog.ShowAsync()!=ContentDialogResult.Primary)return;
+        try{await app.ConfirmAttributionAsync(preview,account);}
+        catch(Exception){await new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title=L10n.T("attribution.retry"),Content=L10n.T("attribution.unchanged"),CloseButtonText=L10n.T("s2CD0F3BE8738")}.ShowAsync();}
     }
     private async Task ShowCapacityHistory()
 
@@ -711,6 +743,7 @@ internal sealed class Dashboard : Window
             var remainder=Math.Max(0,total.Total-accountTotal);
             var accountCards=new[]{Metric(L10n.T("s106A6D3ED1C9"),total.Total.ToString("N0"),L10n.T("s89FA01F64D00")),Metric(L10n.T(inferredTotal>0?"restart.account":"sF866B39A1323"),accountTotal.ToString("N0"),inferredTotal>0?L10n.F("restart.note",UsageNumbers.Compact(inferredTotal)):L10n.T("s9D26E20C07EF")),Metric(L10n.T("s79420D8F355C"),remainder.ToString("N0"),L10n.T("s2544E8C23B66"))};
             statsPanel.Children.Add(Card(ResponsiveCards(accountCards,3,210)));
+            statsPanel.Children.Add(Button(L10n.T("attribution.inspect"),()=>ShowAttribution(rows.ToList(),accountKey)));
             cards=[Metric("Session",sessionCount.ToString("N0"),L10n.T("s65188C08136A")),Metric(L10n.T("s9386F02260C5"),rows.Count.ToString("N0"),L10n.T("s1C7995A11FC3")),Metric(estimate.Status,rows.Count==0?L10n.T("s497C85690C4C"):estimate.DisplayAmount,L10n.T("s479A28B8FEA5")),Metric(L10n.T("s79868BCABA0B"),total.Total>0?$"{100d*estimate.Priced/total.Total:0.#}%":"—",L10n.F("s7A93A1B1657A", estimate.Unpriced))];
         }
         else cards=[Metric(L10n.T("s52497358558A"),total.Total.ToString("N0"),L10n.T("sC9084B3EDE58")),Metric("Session",sessionCount.ToString("N0"),L10n.F("s16BF7608AEAB", rows.Count)),Metric(estimate.Status,rows.Count==0?L10n.T("s497C85690C4C"):estimate.DisplayAmount,L10n.T("s479A28B8FEA5")),Metric(L10n.T("s79868BCABA0B"),total.Total>0?$"{100d*estimate.Priced/total.Total:0.#}%":"—",L10n.F("s7A93A1B1657A", estimate.Unpriced))];

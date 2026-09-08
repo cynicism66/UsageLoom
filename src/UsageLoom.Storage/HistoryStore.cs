@@ -19,7 +19,7 @@ public sealed partial class HistoryStore(string dataDirectory)
     public List<CapacityCache> ReadCapacityHistory(int page=0,int pageSize=20)
     {
         using var connection=Open();using var command=connection.CreateCommand();
-        command.CommandText="SELECT payload FROM (SELECT id,saved_at,payload FROM capacity_history WHERE json_extract(payload,'$.Version')<>3 UNION ALL SELECT id,saved_at,payload FROM temporal_capacity_history) ORDER BY saved_at DESC,id DESC LIMIT $limit OFFSET $offset";
+        command.CommandText="SELECT payload FROM (SELECT id,saved_at,payload FROM capacity_history WHERE json_extract(payload,'$.Version')<>3 UNION ALL SELECT id,saved_at,payload FROM temporal_capacity_history UNION ALL SELECT id,saved_at,payload FROM temporal_capacity_archive) ORDER BY saved_at DESC,id DESC LIMIT $limit OFFSET $offset";
         command.Parameters.AddWithValue("$limit",Math.Clamp(pageSize,1,100));
         command.Parameters.AddWithValue("$offset",checked(Math.Max(0,page)*Math.Clamp(pageSize,1,100)));
         using var rows=command.ExecuteReader();var result=new List<CapacityCache>();
@@ -29,7 +29,7 @@ public sealed partial class HistoryStore(string dataDirectory)
     public List<CapacityCache> ReadValidCapacityHistory()
     {
         using var connection=Open();using var command=connection.CreateCommand();
-        command.CommandText="SELECT payload FROM (SELECT id,saved_at,payload FROM capacity_history WHERE json_extract(payload,'$.Version')<>3 UNION ALL SELECT id,saved_at,payload FROM temporal_capacity_history) WHERE json_extract(payload,'$.Windows[0].Percent')>=5 AND json_extract(payload,'$.Windows[0].Samples')>=2 ORDER BY saved_at DESC,id DESC";
+        command.CommandText="SELECT payload FROM (SELECT id,saved_at,payload FROM capacity_history WHERE json_extract(payload,'$.Version')<>3 UNION ALL SELECT id,saved_at,payload FROM temporal_capacity_history UNION ALL SELECT id,saved_at,payload FROM temporal_capacity_archive) WHERE json_extract(payload,'$.Windows[0].Percent')>=5 AND json_extract(payload,'$.Windows[0].Samples')>=2 ORDER BY saved_at DESC,id DESC";
         using var rows=command.ExecuteReader();var result=new List<CapacityCache>();var seen=new HashSet<(string,string,string,int,string)>();
         while(rows.Read())
             if(JsonSerializer.Deserialize<CapacityCache>(rows.GetString(0)) is {} cache&&cache.Windows.FirstOrDefault() is {} w&&seen.Add((cache.Account,cache.Plan,cache.PricingVersion,cache.Version,w.Key)))result.Add(cache);
@@ -81,7 +81,9 @@ public sealed partial class HistoryStore(string dataDirectory)
                 CREATE TABLE IF NOT EXISTS metadata (key TEXT PRIMARY KEY, value TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS capacity_history (id TEXT PRIMARY KEY,saved_at TEXT NOT NULL,payload TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS temporal_capacity_history (id TEXT PRIMARY KEY,saved_at TEXT NOT NULL,payload TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS temporal_capacity_archive (id TEXT PRIMARY KEY,saved_at TEXT NOT NULL,payload TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, source TEXT NOT NULL, payload TEXT NOT NULL);
+                CREATE TABLE IF NOT EXISTS attribution_confirmations (id TEXT PRIMARY KEY, payload TEXT NOT NULL);
                 CREATE TABLE IF NOT EXISTS scan_indexes (source TEXT PRIMARY KEY, payload TEXT NOT NULL);
                 """;
             command.ExecuteNonQuery();
@@ -201,6 +203,7 @@ public sealed partial class HistoryStore(string dataDirectory)
                 if(previous.Session==item.Session&&previous.Tokens.Total==item.Tokens.Total)
                     stored = item with { LocalDate = previous.LocalDate, AccountScope = previous.AccountScope, AccountAttribution = previous.AccountAttribution };
             }
+            stored=ApplyConfirmation(connection,transaction,stored);
             using var insert = connection.CreateCommand(); insert.Transaction = transaction;
             insert.CommandText = "INSERT INTO events(id,source,payload) VALUES($id,$source,$payload) ON CONFLICT(id) DO UPDATE SET source=excluded.source,payload=excluded.payload";
             insert.Parameters.AddWithValue("$id", stored.Id); insert.Parameters.AddWithValue("$source", stored.Source);

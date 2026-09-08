@@ -1,0 +1,41 @@
+name: Windows desktop
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  desktop:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+      - name: Core, storage, migration and recovery regression tests
+        shell: pwsh
+        run: ./scripts/build-windows.ps1 -Test
+      - name: Publish self-contained desktop
+        shell: pwsh
+        run: ./scripts/build-windows.ps1 -Publish
+      - name: Install packaging tools
+        shell: pwsh
+        run: |
+          dotnet tool install wix --tool-path .tools/wix --version 6.0.2
+          if ($LASTEXITCODE -ne 0) { throw 'WiX installation failed' }
+          ./.tools/wix/wix.exe extension add -g WixToolset.UI.wixext/6.0.2
+          if ($LASTEXITCODE -ne 0) { throw 'WiX extension installation failed' }
+      - name: Build and validate MSI and ZIP
+        shell: pwsh
+        run: |
+          ./scripts/build-msi.ps1
+          ./scripts/test-msi-package.ps1
+          ./scripts/build-portable.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-validation
+          path: |
+            artifacts/installer/*.msi
+            artifacts/portable/*.zip
+          retention-days: 7

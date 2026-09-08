@@ -32,6 +32,18 @@ public sealed partial class LoomApp : Application
     private Estimate? capacityPrice;
     private long capacityTokenTotal;
     private bool capacityHistoryReady;
+    private readonly CapacityBatchSchedule capacityBatch=new(DateTimeOffset.UtcNow);
+    private List<UsageEvent>? batchEvents;
+    private string? capacityDisplayIdentity;
+    private List<QuotaWindow> capacityDisplayWindows=[];
+    private DateTimeOffset nextCapacityCleanupCheck=DateTimeOffset.UtcNow.AddMinutes(1);
+    private readonly SemaphoreSlim capacityWorkGate=new(1,1);
+    private Task? capacityTask, cleanupTask;
+    private int capacityEpoch;
+    internal bool CapacityBusy=>capacityTask is {IsCompleted:false};
+    private DateTimeOffset? capacityLastCalculated;
+    private string capacityFeedback="";
+    internal string CapacityCalculationStatus=>capacityFeedback+"\n"+L10n.F("capacity.schedule",capacityLastCalculated?.ToLocalTime().ToString("MM-dd HH:mm:ss")??"—",capacityBatch.NextAt.ToLocalTime().ToString("HH:mm:ss"));
     private void RecordCapacityObservation(QuotaState quota,bool barrier=false)
     {
         if(IsDemo)return;
@@ -40,13 +52,41 @@ public sealed partial class LoomApp : Application
             var valid=!barrier&&Config.CapacityEnabled&&quota.Fresh&&quota.AccountKey is not null;
             store.SaveQuotaObservation(new(valid?quota.FetchedAt??DateTimeOffset.UtcNow:DateTimeOffset.UtcNow,valid?quota.AccountKey:null,valid?quota.Plan?.Trim().ToLowerInvariant():null,
                 Pricing.CatalogVersion,valid?quota.PrimaryWindows.Where(w=>w.Minutes==10080).ToList():[],!valid));
+            capacityBatch.MarkDirty();
             if(valid)Program.Log.Write("INFO","CapacityPrecision",quota.PrimaryWindows.Any(w=>w.Used!=Math.Truncate(w.Used))?"Fractional percentage observed":"This response contains integer percentages");
         }
         catch(Exception ex){Program.Log.Write("WARN","CapacityLedger",ex.Message);}
     }
-    private IReadOnlyList<WeeklyCapacityEstimate> ObserveCapacity(QuotaState quota)
+    private IReadOnlyList<WeeklyCapacityEstimate> ObserveCapacity(QuotaState quota,bool force=false)
     {
         if(!Config.CapacityEnabled)return [];
+        if(!IsDemo)
+        {
+            if(!ReferenceEquals(batchEvents,Events)){if(batchEvents is null||!batchEvents.SequenceEqual(Events))capacityBatch.MarkDirty();batchEvents=Events;}
+            if(quota.Fresh)
+            {
+                var identity=quota.AccountKey+"|"+quota.Plan+"|"+string.Join(",",quota.PrimaryWindows.Select(w=>w.Key));
+                var windows=quota.PrimaryWindows.ToList();
+                var reset=windows.Any(w=>capacityDisplayWindows.FirstOrDefault(previous=>previous.Key==w.Key) is {} old&&
+                    (w.Used<old.Used||old.ResetsAt is {} a&&w.ResetsAt is {} b&&Math.Abs((a-b).TotalMinutes)>2));
+                if(capacityDisplayIdentity!=identity||reset)
+                {
+                    capacityDisplayIdentity=identity;capacityEstimator.ApplyTemporal(quota,null,0,null);
+                    WeeklyCapacity=capacityEstimator.DisplayCurrent;
+                }
+                capacityDisplayWindows=windows;
+            }
+            if(CapacityBusy)return WeeklyCapacity;
+            if(!quota.Fresh||!capacityHistoryReady)
+            {
+                capacityFeedback=L10n.T(!capacityHistoryReady?"capacity.waitIndex":"capacity.waitQuota");
+                return WeeklyCapacity;
+            }
+            if(!capacityBatch.TryBegin(DateTimeOffset.UtcNow,force))return WeeklyCapacity;
+            capacityTask=CalculateCapacityBackgroundAsync(quota);
+            queue.TryEnqueue(()=>{if(!quitting)Changed?.Invoke();});
+            return WeeklyCapacity;
+        }
         if(!capacityHistoryReady)
         {
             if(quota.Fresh)capacityEstimator.ApplyTemporal(quota,null,0,null);
@@ -59,37 +99,74 @@ public sealed partial class LoomApp : Application
             capacityPriceAccount=quota.AccountKey;
         }
         if(!quota.Fresh)return capacityEstimator.DisplayCurrent;
-        if(IsDemo)capacityEstimator.Observe(quota,capacityTokenTotal,capacityPrice);
-        else
-        {
-            try
-            {
-                var result=TemporalCapacity.Calculate(store.ReadQuotaObservations(),Events);
-                store.SaveTemporalIntervals(result.Intervals,result.History);
-                capacityEstimator.Restore(null,store.ReadValidCapacityHistory());
-                var pending=result.PendingFrom is {} from?CapacityUsage.ForAccount(Events,quota.AccountKey).Where(e=>e.Timestamp>from).Sum(e=>e.Tokens.Total):0;
-                capacityEstimator.ApplyTemporal(quota,result.Cache,capacityTokenTotal-pending,capacityPrice);
-            }
-            catch(Exception ex){Program.Log.Write("WARN","CapacityLedger",ex.Message);return capacityEstimator.DisplayCurrent;}
-        }
-        if(!IsDemo&&quota.Fresh)
-        {
-            try{store.SaveCapacity(capacityEstimator.Export());}
-            catch(Exception ex){Program.Log.Write("WARN","CapacityCache",ex.Message);}
-        }
+        // Only synthetic preview data reaches this path; real calculations run in the worker.
+        capacityEstimator.Observe(quota,capacityTokenTotal,capacityPrice);
         return capacityEstimator.DisplayCurrent;
     }
-    internal Task ResetCapacityAsync()
+    private async Task CalculateCapacityBackgroundAsync(QuotaState quota)
     {
-        if(IsDemo){Message=L10n.T("s80323CB58044");return Task.CompletedTask;}
-        RecordCapacityObservation(Quota,true);store.SaveCapacity(null);capacityEstimator.Reset();WeeklyCapacity=[];
+        var events=Events;var epoch=capacityEpoch;var generation=configurationGeneration;
+        var stamp=new CapacityInputStamp(events,epoch,generation,quota.AccountKey,quota.Plan,quota.FetchedAt);
+        capacityFeedback=L10n.T("capacity.running");
+        var watch=Stopwatch.StartNew();
+        bool Current()=>stamp.Matches(Events,capacityEpoch,configurationGeneration,Quota,Config.CapacityEnabled,quitting);
+        try
+        {
+            await capacityWorkGate.WaitAsync(lifetime.Token);
+            try
+            {
+            var output=await Task.Run(()=>
+                {
+                    lifetime.Token.ThrowIfCancellationRequested();
+                    var result=TemporalCapacity.Calculate(store.ReadQuotaObservations(),events,lifetime.Token);
+                    var general=CapacityUsage.ForAccount(events,quota.AccountKey).ToList();
+                    var price=Pricing.Summarize(general);
+                    var pending=result.PendingFrom is {} from?general.Where(e=>e.Timestamp>from).Sum(e=>e.Tokens.Total):0;
+                    lifetime.Token.ThrowIfCancellationRequested();
+                    return (result,price,total:general.Sum(e=>e.Tokens.Total)-pending);
+            },lifetime.Token);
+            if(!Current()){capacityBatch.MarkDirty();capacityFeedback=L10n.T("capacity.changed");return;}
+            // Validate the immutable snapshot on the UI thread before persisting.
+            var history=await Task.Run(()=>
+            {
+                    store.SaveTemporalIntervals(output.result.Intervals,output.result.History);
+                    return store.ReadValidCapacityHistory();
+            },lifetime.Token);
+            if(!Current()){capacityBatch.MarkDirty();capacityFeedback=L10n.T("capacity.changed");return;}
+            capacityEstimator.Restore(null,history);
+            capacityEstimator.ApplyTemporal(quota,output.result.Cache,output.total,output.price);
+            WeeklyCapacity=capacityEstimator.DisplayCurrent;
+            capacityLastCalculated=DateTimeOffset.Now;
+            capacityFeedback=L10n.T("capacity.done")+" · "+WeeklyCapacityProgress;
+            var cache=capacityEstimator.Export();
+            await Task.Run(()=>store.SaveCapacity(cache),lifetime.Token);
+            Program.Log.Write("INFO","CapacityBatch",$"Completed in {watch.ElapsedMilliseconds} ms; intervals={output.result.Intervals.Count}");
+            }
+            finally{capacityWorkGate.Release();}
+        }
+        catch(OperationCanceledException){}
+        catch(Exception ex){capacityBatch.MarkDirty();capacityFeedback=L10n.T("capacity.failed");Program.Log.Write("WARN","CapacityBatch",ex.Message);}
+        finally{if(!quitting)Changed?.Invoke();}
+    }
+    internal async Task CalculateCapacityNowAsync()
+    {
+        if(!Config.CapacityEnabled)capacityFeedback=L10n.T("capacity.disabled");
+        else WeeklyCapacity=ObserveCapacity(Quota,true);
+        Changed?.Invoke();
+        if(capacityTask is {} work)await work;
+    }
+    internal async Task ResetCapacityAsync()
+    {
+        if(IsDemo){Message=L10n.T("s80323CB58044");return;}
+        capacityEpoch++;if(capacityTask is {} work)await work;
+        RecordCapacityObservation(Quota,true);await Task.Run(()=>store.SaveCapacity(null));capacityEstimator.Reset();capacityDisplayIdentity=null;WeeklyCapacity=[];
         if(historyLoaded&&Quota.Fresh)WeeklyCapacity=ObserveCapacity(Quota);
         Message=L10n.T("sE8381D29D4E7");
-        Program.Log.Write("INFO","CapacityCache",Message);Changed?.Invoke();return Task.CompletedTask;
+        Program.Log.Write("INFO","CapacityCache",Message);Changed?.Invoke();
     }
     internal Task SetCapacityEnabledAsync(bool enabled)
     {
-        Config.CapacityEnabled=enabled;
+        capacityEpoch++;Config.CapacityEnabled=enabled;
         RecordCapacityObservation(Quota,true);
         if(!IsDemo)Config.Save();
         capacityEstimator.Reset();WeeklyCapacity=[];
@@ -98,7 +175,29 @@ public sealed partial class LoomApp : Application
         Changed?.Invoke();return Task.CompletedTask;
     }
     internal Task<List<CapacityCache>> ReadCapacityHistoryAsync(int page)=>IsDemo?Task.FromResult(new List<CapacityCache>()):Task.Run(()=>store.ReadCapacityHistory(page));
-    private void RestoreCapacity()=>capacityEstimator.Restore(store.ReadCapacity(),store.ReadValidCapacityHistory());
+    private Task? attributionTask;
+    internal Task ConfirmAttributionAsync(IReadOnlyList<UsageEvent> preview,string account)
+    {
+        if(attributionBusy)throw new InvalidOperationException(L10n.T("attribution.retry"));
+        attributionTask=ConfirmAttributionCoreAsync(preview,account);return attributionTask;
+    }
+    private async Task ConfirmAttributionCoreAsync(IReadOnlyList<UsageEvent> preview,string account)
+    {
+        if(IsDemo||!Quota.Fresh||Quota.AccountKey!=account||scanning||refreshing||attributionBusy)
+            throw new InvalidOperationException(L10n.T("attribution.retry"));
+        attributionBusy=true;capacityEpoch++;
+        try
+        {
+            if(capacityTask is {} work)await work;
+            if(!Quota.Fresh||Quota.AccountKey!=account)throw new InvalidOperationException(L10n.T("attribution.retry"));
+            await Task.Run(()=>store.ConfirmAttribution(preview,account),lifetime.Token);
+            Events=await Task.Run(()=>store.Read(lifetime.Token),lifetime.Token);
+            capacityBatch.MarkDirty();Message=L10n.T("attribution.done");
+        }
+        finally{attributionBusy=false;if(!quitting)Changed?.Invoke();}
+    }
+    private bool attributionBusy;
+    private void RestoreCapacity(){capacityDisplayIdentity=null;capacityBatch.MarkDirty();capacityEstimator.Restore(store.ReadCapacity(),store.ReadValidCapacityHistory());}
     internal string CapacityCacheStatus=>capacityEstimator.RestoredAt is {} at?L10n.F("s477716960258", at.ToLocalTime()):L10n.T("sFE6B9AB0A2C3");
     private bool refreshing, scanning, quitting;
     private int configurationGeneration, failures;
@@ -225,6 +324,11 @@ public sealed partial class LoomApp : Application
     }
     private void Tick()
     {
+        if(!IsDemo&&DateTimeOffset.UtcNow>=nextCapacityCleanupCheck)
+        {
+            nextCapacityCleanupCheck=DateTimeOffset.UtcNow.AddHours(1);
+            if(cleanupTask is null||cleanupTask.IsCompleted)cleanupTask=CleanupCapacityAsync();
+        }
         if (quitting || IsDemo) return;
         var visible = flyout?.IsPanelVisible == true || dashboard?.IsPanelVisible == true;
         var period = SamplingSchedule.QuotaPeriod(visible,DateTimeOffset.Now,lastUsageActivity,Config.ForegroundSeconds,Config.BackgroundSeconds);
@@ -241,7 +345,27 @@ public sealed partial class LoomApp : Application
             historyDirty = false;
             _ = ScanAsync();
         }
+        if(!IsDemo&&!scanning&&!refreshing&&Config.CapacityEnabled&&capacityBatch.Dirty&&DateTimeOffset.UtcNow>=capacityBatch.NextAt)
+        {
+            var before=WeeklyCapacity;WeeklyCapacity=ObserveCapacity(Quota);
+            if(!ReferenceEquals(before,WeeklyCapacity))Changed?.Invoke();
+        }
         EvaluateNotifications();
+    }
+    private async Task CleanupCapacityAsync()
+    {
+        try
+        {
+            await capacityWorkGate.WaitAsync(lifetime.Token);
+            try
+            {
+                var cleaned=await Task.Run(()=>store.CleanupCapacity(DateTimeOffset.UtcNow),lifetime.Token);
+                if(cleaned.Ran)Program.Log.Write("INFO","CapacityCleanup",$"Retention 30 days; removed snapshots={cleaned.Observations}, intervals={cleaned.Intervals}; estimates retained");
+            }
+            finally{capacityWorkGate.Release();}
+        }
+        catch(OperationCanceledException){}
+        catch(Exception ex){Program.Log.Write("WARN","CapacityCleanup",ex.Message);}
     }
     private void WatchHistory()
     {
@@ -270,7 +394,7 @@ public sealed partial class LoomApp : Application
     internal Task RefreshQuotaAsync(bool manual)
     {
         if(IsDemo){Message=L10n.T("s987E3F3AAADE");Changed?.Invoke();return Task.CompletedTask;}
-        if (quitting || Authorizing || refreshing || (!manual && !Config.AutoRefresh)) return quotaTask ?? Task.CompletedTask;
+        if (quitting || attributionBusy || Authorizing || refreshing || (!manual && !Config.AutoRefresh)) return quotaTask ?? Task.CompletedTask;
         refreshing = true; lastAttempt = DateTimeOffset.Now;
         Quota=Quota.ClearUnverifiedSnapshot(L10n.T("s5FFA5AB58038"));
         var epoch = configurationGeneration;
@@ -331,7 +455,7 @@ public sealed partial class LoomApp : Application
     {
         if(IsDemo){Message=L10n.T("s04AC6333CEB4");Changed?.Invoke();return Task.CompletedTask;}
         if(rebuild&&scanning){Message=L10n.T("s3706DC826F7D");Changed?.Invoke();return Task.CompletedTask;}
-        if (quitting || scanning) return scanTask ?? Task.CompletedTask;
+        if (quitting || scanning || attributionBusy) return scanTask ?? Task.CompletedTask;
         scanning = true;
         historyRevision++;
         var home = Config.CodexHome;
@@ -438,6 +562,9 @@ public sealed partial class LoomApp : Application
         if (quotaTask is not null) await quotaTask;
         if (authorizationTask is not null) await authorizationTask;
         if (scanTask is not null) await scanTask;
+        if (capacityTask is not null) await capacityTask;
+        if (cleanupTask is not null) await cleanupTask;
+        if (attributionTask is not null){try{await attributionTask;}catch(Exception ex){Program.Log.Write("WARN","Attribution",ex.Message);}}
         if(!IsDemo&&Quota.Fresh)
         {
             try{incremental?.SaveExitCheckpoint(Quota.AccountKey,Config.CodexHome,DateTimeOffset.UtcNow);}

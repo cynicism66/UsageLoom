@@ -188,6 +188,32 @@ Test("时间配对断开账号套餐重置缺价口径和关闭边界",() =>
     Check(valid.Cache!.Windows.Single().Tokens==100&&valid.Cache.Windows.Single().Priced==0);
     Check(TemporalCapacity.Calculate([O(0,10),O(1,20)],[row with{Timestamp=null}]).Cache!.Windows.Count==0);
 });
+Test("周估算五分钟批量门控，空闲跳过且手动可立即计算",() =>
+{
+    var at=DateTimeOffset.UtcNow;var schedule=new CapacityBatchSchedule(at);
+    Check(!schedule.TryBegin(at)&&!schedule.TryBegin(at.AddMinutes(4)));
+    schedule.MarkDirty();Check(schedule.TryBegin(at.AddMinutes(5))&&!schedule.Dirty);
+    Check(!schedule.TryBegin(at.AddMinutes(20)));schedule.MarkDirty();Check(schedule.TryBegin(at.AddMinutes(20)));
+    schedule.MarkDirty();Check(!schedule.TryBegin(at.AddMinutes(21)));Check(schedule.TryBegin(at.AddMinutes(21),true));
+    Check(!schedule.TryBegin(at.AddMinutes(25)));schedule.MarkDirty();Check(schedule.TryBegin(at.AddMinutes(26)));
+});
+Test("后台估算拒绝旧扫描、账号套餐快照和设置世代",() =>
+{
+    var events=new object();var at=DateTimeOffset.UtcNow;
+    var quota=new QuotaState([],null,at,"ok",true,"a") with{Plan="pro"};
+    var stamp=new CapacityInputStamp(events,1,2,"a","pro",at);
+    Check(stamp.Matches(events,1,2,quota,true,false));
+    Check(!stamp.Matches(new object(),1,2,quota,true,false));
+    Check(!stamp.Matches(events,2,2,quota,true,false)&&!stamp.Matches(events,1,3,quota,true,false));
+    foreach(var changed in new[]{quota with{AccountKey="b"},quota with{Plan="prolite"},quota with{Fresh=false},quota with{FetchedAt=at.AddSeconds(1)}})
+        Check(!stamp.Matches(events,1,2,changed,true,false));
+    Check(!stamp.Matches(events,1,2,quota,false,false)&&!stamp.Matches(events,1,2,quota,true,true));
+});
+Test("已取消批量计算不产出结果",() =>
+{
+    using var cancellation=new CancellationTokenSource();cancellation.Cancel();
+    var canceled=false;try{TemporalCapacity.Calculate([],[],cancellation.Token);}catch(OperationCanceledException){canceled=true;}Check(canceled);
+});
 Test("额度变化没有本机 Token 增量时不伪造周容量",() =>
 {
     var tracker=new WeeklyCapacityEstimator();var reset=DateTimeOffset.Now.AddDays(3);
@@ -402,6 +428,31 @@ string Count(long input, long output, long? cached = null, string timestamp = "2
     type = "event_msg", timestamp,
     payload = new { type = "token_count", info = new { total_token_usage = new { input_tokens = input, output_tokens = output, cached_input_tokens = cached } } }
 });
+Test("归属确认备份、重复拒绝、重建保留且不覆盖其他账号",() =>
+{
+    var root=Fixture("confirmed-attribution");var store=new HistoryStore(root);var at=DateTimeOffset.UtcNow;
+    var one=new UsageEvent("e1","s","p","unknown","main",at,"2026-09-08",new(100)){Source="source"};
+    var other=one with{Id="e2",AccountScope="b"};
+    store.Save(new([one,other],1,0,at));
+    var backup=store.ConfirmAttribution([one],"a");Check(File.Exists(backup));
+    Check(store.Read().Single(e=>e.Id==one.Id).AccountAttribution=="user-confirmed");
+    var rejected=false;try{store.ConfirmAttribution([one],"b");}catch(InvalidOperationException){rejected=true;}Check(rejected);
+    rejected=false;try{store.ConfirmAttribution([other],"a");}catch(InvalidOperationException){rejected=true;}Check(rejected);
+    store.ReplaceWithBackup(new([one,other],1,0,at),[]);
+    Check(store.Read().Single(e=>e.Id==one.Id).AccountScope=="a");
+    Check(store.Read().Single(e=>e.Id==other.Id).AccountScope=="b");
+});
+Test("归属预览改变拒绝事务，缺时间不合并",() =>
+{
+    var store=new HistoryStore(Fixture("confirmation-conflict"));var at=DateTimeOffset.UtcNow;
+    var one=new UsageEvent("e","s","p","unknown","main",at,"2026-09-08",new(100));
+    store.Save(new([one],1,0,at));
+    foreach(var wrong in new[]{one with{Tokens=new(101)},one with{Timestamp=null}})
+    {
+        var rejected=false;try{store.ConfirmAttribution([wrong],"a");}catch(InvalidOperationException){rejected=true;}
+        Check(rejected&&store.Read().Single().AccountScope is null);
+    }
+});
 Test("本地账户指纹稳定隔离且不保存邮箱",() =>
 {
     var path=Path.Combine(Fixture("fingerprint"),"account-fingerprint.key");
@@ -432,6 +483,22 @@ Test("扫描未完成也可按已核实账号回显历史但不产生新样本",
     tracker.ApplyTemporal(quota,null,0,null);
     Check(tracker.DisplayCurrent.Single().HistoricalAt is not null&&tracker.Current.Count==0);
     tracker.ApplyTemporal(quota with{AccountKey="b"},null,0,null);Check(tracker.DisplayCurrent.Count==0);
+});
+Test("每天清理过期额度明细并保留完整周期和估算归档",() =>
+{
+    var store=new HistoryStore(Fixture("retention"));var now=DateTimeOffset.UtcNow;var start=now.AddDays(-50);
+    QuotaObservation O(int day,double used)=>new(start.AddDays(day),"a","prolite",Pricing.CatalogVersion,[new("codex:weekly","weekly",used,10080,start.AddDays(day<7?7:day<14?14:day<21?21:day<28?28:56))]);
+    foreach(var o in new[]{O(0,0),O(1,3),O(2,6),O(7,0),O(8,3),O(9,6),O(14,0),O(15,3),O(21,0),O(28,0),O(49,4)})store.SaveQuotaObservation(o);
+    var archived=new CapacityCache(3,"a","prolite",Pricing.CatalogVersion,start.AddDays(2),[new("codex:weekly","weekly",start.AddDays(7),6,6,100,1,100,2,0)]);
+    store.SaveTemporalIntervals([], [archived]);store.SaveCapacity(archived);
+    var beforeRecent=store.ReadQuotaObservations().Where(o=>o.At>=start.AddDays(14)).ToList();
+    var result=store.CleanupCapacity(now);
+    Check(result.Ran&&result.Cutoff==start.AddDays(14)&&result.Observations==6);
+    Check(store.ReadQuotaObservations().Select(o=>o.At).SequenceEqual(beforeRecent.Select(o=>o.At)));
+    Check(store.ReadCapacityHistory().Single().Windows.Single().Tokens==100);
+    store.SaveTemporalIntervals([],[]);Check(store.ReadValidCapacityHistory().Single().Windows.Single().Tokens==100);
+    Check(!store.CleanupCapacity(now.AddHours(1)).Ran&&store.CleanupCapacity(now.AddDays(1)).Ran);
+    Check(store.ReadCapacity()!.Windows.Single().Tokens==100);
 });
 Test("时间快照跨重启持久化并保留原始小数与区间替换",() =>
 {
