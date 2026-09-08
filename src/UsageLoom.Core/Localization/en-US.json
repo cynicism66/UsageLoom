@@ -1,4 +1,11 @@
 {
+"capacity.mature":"More observations (not an accuracy guarantee)",
+"capacity.developing":"Accumulating observations",
+"capacity.preliminary":"Preliminary observations",
+"capacity.range":"Reference range: ${0:N2}–${1:N2} / week (minimum–maximum of confirmed blocks; not a confidence interval)",
+"capacity.rangePending":"Reference range: requires at least 3 priced, confirmed blocks under the new method.",
+"capacity.stableProgress":"Confirmed: {0:0.#}/6 percentage points, {1}/2 blocks. Each block needs at least 3 points and later quota and log confirmation (at least 2 minutes).",
+"capacity.stableNote":"v4: pair non-overlapping blocks of at least 3 percentage points; confirm endpoints using later quota and an index scan at least 2 minutes later. Weekly API-equivalent value = total priced cost × 100 / total paired percentage points. Late logs replace the affected blocks. Account, plan, pricing and reset boundaries remain separate. The reference range describes block variability, not official dollar credit or a statistical confidence interval; it may widen as usage changes. Old results remain historical references until two new blocks are ready.",
 "capacity.schedule":"Last calculation: {0} · Next batch check: {1} (requires enabled estimates, fresh quota and loaded index)",
 "capacity.waitIndex":"Waiting for the local index; previous estimates are retained.",
 "capacity.waitQuota":"Waiting for a verified quota snapshot. Refresh quota first.",

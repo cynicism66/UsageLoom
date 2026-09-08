@@ -45,7 +45,7 @@ public sealed partial class HistoryStore
                 command.CommandText="DELETE FROM capacity_intervals WHERE julianday(json_extract(payload,'$.To'))<julianday($cutoff)";removedIntervals=command.ExecuteNonQuery();
                 command.CommandText="DELETE FROM temporal_capacity_history WHERE saved_at<$cutoff";command.ExecuteNonQuery();
                 // v3 duplicate export snapshots are not used by the history UI; final results above are retained.
-                command.CommandText="DELETE FROM capacity_history WHERE json_extract(payload,'$.Version')=3 AND saved_at<$cutoff";command.ExecuteNonQuery();
+                command.CommandText="DELETE FROM capacity_history WHERE json_extract(payload,'$.Version') IN (3,4) AND saved_at<$cutoff";command.ExecuteNonQuery();
             }
             command.Parameters.Clear();command.CommandText="INSERT INTO metadata(key,value) VALUES('capacity_cleanup_at',$at) ON CONFLICT(key) DO UPDATE SET value=excluded.value";
             command.Parameters.AddWithValue("$at",now.ToUniversalTime().ToString("O"));command.ExecuteNonQuery();tx.Commit();

@@ -21,7 +21,7 @@ public sealed partial class HistoryStore
         while(reader.Read())if(JsonSerializer.Deserialize<QuotaObservation>(reader.GetString(0)) is {} o)result.Add(o);
         return result;
     }
-    public void SaveTemporalIntervals(IReadOnlyList<CapacityInterval> intervals,IReadOnlyList<CapacityCache>? history=null)
+    public void SaveTemporalIntervals(IReadOnlyList<CapacityInterval> intervals,IReadOnlyList<CapacityCache>? history=null,int algorithmVersion=3)
     {
         lock(writerGate)
         {
@@ -40,6 +40,11 @@ public sealed partial class HistoryStore
             foreach(var id in existing.Keys){command.Parameters.Clear();command.Parameters.AddWithValue("$id",id);command.ExecuteNonQuery();}
             if(history is not null)
             {
+                // Retain the previous algorithm's final results before rebuilding with larger blocks.
+                if(algorithmVersion==4)
+                {
+                    command.Parameters.Clear();command.CommandText="INSERT OR IGNORE INTO temporal_capacity_archive(id,saved_at,payload) SELECT 'legacy-v3-' || saved_at || '-' || id,saved_at,payload FROM temporal_capacity_history WHERE json_extract(payload,'$.Version')=3";command.ExecuteNonQuery();
+                }
                 command.Parameters.Clear();command.CommandText="DELETE FROM temporal_capacity_history";command.ExecuteNonQuery();
                 command.CommandText="INSERT INTO temporal_capacity_history(id,saved_at,payload) VALUES($id,$at,$payload)";
                 for(var i=0;i<history.Count;i++)

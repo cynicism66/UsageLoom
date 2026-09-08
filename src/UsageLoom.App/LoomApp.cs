@@ -32,6 +32,7 @@ public sealed partial class LoomApp : Application
     private Estimate? capacityPrice;
     private long capacityTokenTotal;
     private bool capacityHistoryReady;
+    private DateTimeOffset capacityIndexedThrough;
     private readonly CapacityBatchSchedule capacityBatch=new(DateTimeOffset.UtcNow);
     private List<UsageEvent>? batchEvents;
     private string? capacityDisplayIdentity;
@@ -105,7 +106,7 @@ public sealed partial class LoomApp : Application
     }
     private async Task CalculateCapacityBackgroundAsync(QuotaState quota)
     {
-        var events=Events;var epoch=capacityEpoch;var generation=configurationGeneration;
+        var events=Events;var epoch=capacityEpoch;var generation=configurationGeneration;var indexedThrough=capacityIndexedThrough;
         var stamp=new CapacityInputStamp(events,epoch,generation,quota.AccountKey,quota.Plan,quota.FetchedAt);
         capacityFeedback=L10n.T("capacity.running");
         var watch=Stopwatch.StartNew();
@@ -118,7 +119,7 @@ public sealed partial class LoomApp : Application
             var output=await Task.Run(()=>
                 {
                     lifetime.Token.ThrowIfCancellationRequested();
-                    var result=TemporalCapacity.Calculate(store.ReadQuotaObservations(),events,lifetime.Token);
+                    var result=TemporalCapacity.CalculateStable(store.ReadQuotaObservations(),events,indexedThrough,lifetime.Token);
                     var general=CapacityUsage.ForAccount(events,quota.AccountKey).ToList();
                     var price=Pricing.Summarize(general);
                     var pending=result.PendingFrom is {} from?general.Where(e=>e.Timestamp>from).Sum(e=>e.Tokens.Total):0;
@@ -129,7 +130,7 @@ public sealed partial class LoomApp : Application
             // Validate the immutable snapshot on the UI thread before persisting.
             var history=await Task.Run(()=>
             {
-                    store.SaveTemporalIntervals(output.result.Intervals,output.result.History);
+                    store.SaveTemporalIntervals(output.result.Intervals,output.result.History,4);
                     return store.ReadValidCapacityHistory();
             },lifetime.Token);
             if(!Current()){capacityBatch.MarkDirty();capacityFeedback=L10n.T("capacity.changed");return;}
@@ -494,6 +495,7 @@ public sealed partial class LoomApp : Application
             }
             historyLoaded=true;
             capacityHistoryReady=true;
+            capacityIndexedThrough=report.ScannedAt;
             WeeklyCapacity=ObserveCapacity(Quota);
             Message = L10n.F("sBF8AACAC3A69", (report.UsedCache ? L10n.T("s38BE587EDD10") : L10n.T("sB164E0EDAEC8")), report.Files, indexed.BytesParsed, report.Warnings, watch.ElapsedMilliseconds);
             if(verifyIntegrity)Message=L10n.T("s1AD7D8B010C8")+Message;

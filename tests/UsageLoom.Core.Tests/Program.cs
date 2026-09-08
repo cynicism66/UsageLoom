@@ -188,6 +188,25 @@ Test("时间配对断开账号套餐重置缺价口径和关闭边界",() =>
     Check(valid.Cache!.Windows.Single().Tokens==100&&valid.Cache.Windows.Single().Priced==0);
     Check(TemporalCapacity.Calculate([O(0,10),O(1,20)],[row with{Timestamp=null}]).Cache!.Windows.Count==0);
 });
+Test("稳定估算合并区间、延迟确认、累计加权和迟到重算",() =>
+{
+    var at=DateTimeOffset.UtcNow;var reset=at.AddDays(7);
+    QuotaObservation O(int m,double used)=>new(at.AddMinutes(m),"a","prolite",Pricing.CatalogVersion,[new("codex:weekly","weekly",used,10080,reset)]);
+    UsageEvent E(string id,int m,long tokens)=>new(id,"s","p","gpt-5.4","main",at.AddMinutes(m),"2026-09-08",new(tokens)){AccountScope="a"};
+    var observations=new[]{O(0,0),O(1,1),O(3,3),O(6,8),O(9,11),O(12,11)};
+    var events=new[]{E("a",1,300),E("b",5,1000),E("c",8,900)};
+    Check(TemporalCapacity.CalculateStable(observations[..3],events,at.AddMinutes(12)).Intervals.Count==0);
+    Check(TemporalCapacity.CalculateStable(observations,events,at.AddMinutes(4)).Intervals.Count==0);
+    var result=TemporalCapacity.CalculateStable(observations,events,at.AddMinutes(12));var sample=result.Cache!.Windows.Single();
+    Check(result.Cache.Version==4&&sample.Percent==11&&sample.Tokens==2200&&sample.Samples==3&&sample.RangeSamples==3);
+    Check(sample.DollarLow<sample.Cost*100m/11&&sample.DollarHigh>sample.Cost*100m/11);
+    var updated=TemporalCapacity.CalculateStable(observations,events.Append(E("late",2,100)),at.AddMinutes(12));
+    Check(updated.Intervals.Count==3&&updated.Cache!.Windows.Single().Tokens==2300);
+    var dip=TemporalCapacity.CalculateStable([O(0,0),O(1,2),O(2,1),O(5,4),O(8,4)],[E("old",1,999),E("new",4,100)],at.AddMinutes(8));
+    Check(dip.Cache!.Windows.Single().Tokens==100);
+    foreach(var barrier in new[]{O(4,3) with{Account="b"},O(4,3) with{Plan="pro"},O(4,3) with{Barrier=true},O(4,3) with{Windows=[]}})
+        Check(TemporalCapacity.CalculateStable([O(0,0),O(3,3),barrier],events,at.AddMinutes(12)).Intervals.Count==0);
+});
 Test("周估算五分钟批量门控，空闲跳过且手动可立即计算",() =>
 {
     var at=DateTimeOffset.UtcNow;var schedule=new CapacityBatchSchedule(at);
@@ -514,6 +533,17 @@ Test("时间快照跨重启持久化并保留原始小数与区间替换",() =>
     Check(store.ReadCapacityHistory().Single().Windows.Single().Tokens==200);
     using var c=new Microsoft.Data.Sqlite.SqliteConnection("Data Source="+Path.Combine(folder,"usage-v2.sqlite"));c.Open();using var command=c.CreateCommand();command.CommandText="SELECT count(*) FROM capacity_intervals";
     Check(Convert.ToInt32(command.ExecuteScalar())==1);
+});
+Test("新算法历史迁移与参考范围持久化不重复",() =>
+{
+    var store=new HistoryStore(Fixture("stable-capacity"));var at=DateTimeOffset.UtcNow;
+    var sample=new CapacitySample("codex:weekly","weekly",at.AddDays(7),10,9,2200,22,2200,3,0){DollarLow=200,DollarHigh=400,RangeSamples=3};
+    var legacy=new CapacityCache(3,"a","prolite",Pricing.CatalogVersion,at,[sample]);
+    store.SaveTemporalIntervals([],[legacy]);store.SaveTemporalIntervals([],[],4);
+    Check(store.ReadCapacityHistory().Single().Version==3);
+    var current=legacy with{Version=4};store.SaveTemporalIntervals([],[current],4);store.SaveCapacity(current);
+    Check(store.ReadCapacityHistory().Count(c=>c.Version==4)==1);
+    Check(store.ReadCapacity()!.Windows.Single().DollarHigh==400);
 });
 AsyncTest("重复扫描、累计去重与分类修正", async () =>
 {

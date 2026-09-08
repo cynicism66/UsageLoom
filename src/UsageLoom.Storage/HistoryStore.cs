@@ -19,7 +19,7 @@ public sealed partial class HistoryStore(string dataDirectory)
     public List<CapacityCache> ReadCapacityHistory(int page=0,int pageSize=20)
     {
         using var connection=Open();using var command=connection.CreateCommand();
-        command.CommandText="SELECT payload FROM (SELECT id,saved_at,payload FROM capacity_history WHERE json_extract(payload,'$.Version')<>3 UNION ALL SELECT id,saved_at,payload FROM temporal_capacity_history UNION ALL SELECT id,saved_at,payload FROM temporal_capacity_archive) ORDER BY saved_at DESC,id DESC LIMIT $limit OFFSET $offset";
+        command.CommandText="SELECT payload FROM (SELECT id,saved_at,payload FROM capacity_history WHERE json_extract(payload,'$.Version') NOT IN (3,4) UNION ALL SELECT id,saved_at,payload FROM temporal_capacity_history UNION ALL SELECT id,saved_at,payload FROM temporal_capacity_archive) ORDER BY saved_at DESC,id DESC LIMIT $limit OFFSET $offset";
         command.Parameters.AddWithValue("$limit",Math.Clamp(pageSize,1,100));
         command.Parameters.AddWithValue("$offset",checked(Math.Max(0,page)*Math.Clamp(pageSize,1,100)));
         using var rows=command.ExecuteReader();var result=new List<CapacityCache>();
@@ -29,7 +29,7 @@ public sealed partial class HistoryStore(string dataDirectory)
     public List<CapacityCache> ReadValidCapacityHistory()
     {
         using var connection=Open();using var command=connection.CreateCommand();
-        command.CommandText="SELECT payload FROM (SELECT id,saved_at,payload FROM capacity_history WHERE json_extract(payload,'$.Version')<>3 UNION ALL SELECT id,saved_at,payload FROM temporal_capacity_history UNION ALL SELECT id,saved_at,payload FROM temporal_capacity_archive) WHERE json_extract(payload,'$.Windows[0].Percent')>=5 AND json_extract(payload,'$.Windows[0].Samples')>=2 ORDER BY saved_at DESC,id DESC";
+        command.CommandText="SELECT payload FROM (SELECT id,saved_at,payload FROM capacity_history WHERE json_extract(payload,'$.Version') NOT IN (3,4) UNION ALL SELECT id,saved_at,payload FROM temporal_capacity_history UNION ALL SELECT id,saved_at,payload FROM temporal_capacity_archive) WHERE json_extract(payload,'$.Windows[0].Percent')>=5 AND json_extract(payload,'$.Windows[0].Samples')>=2 ORDER BY saved_at DESC,id DESC";
         using var rows=command.ExecuteReader();var result=new List<CapacityCache>();var seen=new HashSet<(string,string,string,int,string)>();
         while(rows.Read())
             if(JsonSerializer.Deserialize<CapacityCache>(rows.GetString(0)) is {} cache&&cache.Windows.FirstOrDefault() is {} w&&seen.Add((cache.Account,cache.Plan,cache.PricingVersion,cache.Version,w.Key)))result.Add(cache);
