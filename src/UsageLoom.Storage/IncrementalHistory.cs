@@ -19,7 +19,7 @@ public sealed record IncrementalResult(ScanReport Report,long BytesParsed,int Fi
 /// <summary>仅索引必要元数据与计数；保留半行起点，索引与派生事件同事务保存。</summary>
 public sealed class IncrementalHistory(HistoryStore store)
 {
-    public const int ParserVersion=5;
+    public const int ParserVersion=7;
     private readonly SemaphoreSlim gate=new(1,1);
     private string? observedAccount,observedHome;
     private DateTimeOffset observedAt;
@@ -142,6 +142,9 @@ public sealed class IncrementalHistory(HistoryStore store)
             if(updated.Count==0)
             {var cached=store.Read(ct);completed=true;return new(new(cached,records.Count,warnings,DateTimeOffset.Now){UsedCache=true},0,0);}
             HashSet<string>? affectedSessions=null;
+            var ancestryRecords=new Dictionary<string,IReadOnlyList<string>>(records,StringComparer.OrdinalIgnoreCase);
+            foreach(var index in saved.Values)
+                if(index.Version==ParserVersion)ancestryRecords.TryAdd(index.Path,index.Records);
             if(!rebuild)
             {
                 // Recompute only affected sessions, retaining their cross-file and removed-file prefix.
@@ -151,7 +154,7 @@ public sealed class IncrementalHistory(HistoryStore store)
                     if(!records.ContainsKey(index.Path)&&index.Version==ParserVersion&&affectedSessions.Contains(Owner(index.Path,index.Records)))records[index.Path]=index.Records;
             }
             var replayed=records.Values.Sum(value=>(long)value.Count);
-            var report=await new HistoryScanner().ScanAsync(home,ct,progress,records);
+            var report=await new HistoryScanner().ScanAsync(home,ct,progress,records,ancestryRecords);
             report=report with{Warnings=report.Warnings+warnings};
             if(rebuild)
             {

@@ -18,14 +18,16 @@ internal static class UsageCharts
         var root=new StackPanel{Spacing=12};var header=new Grid{ColumnSpacing=16,RowSpacing=8};
         header.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});header.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
         header.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});header.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+        header.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
         header.Children.Add(new TextBlock{Text=L10n.T("s1BB33A9E6313"),FontSize=19,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,VerticalAlignment=VerticalAlignment.Center});
         var headerRight=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8,HorizontalAlignment=HorizontalAlignment.Right};Grid.SetColumn(headerRight,1);header.Children.Add(headerRight);
         var totalText=new TextBlock{FontSize=18,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,Foreground=new SolidColorBrush(Colorset[0]),VerticalAlignment=VerticalAlignment.Center,Margin=new Thickness(0,0,4,0)};headerRight.Children.Add(totalText);
+        var metricButtons=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};headerRight.Children.Add(metricButtons);
         var buttons=new Dictionary<TrendMetric,Button>();
         foreach(var (metric,label) in new[]{(TrendMetric.Tokens,L10n.T("s9638021CAEE5")),(TrendMetric.Requests,L10n.T("s855754C132F3")),(TrendMetric.Cost,L10n.T("sB8D69B30E00B"))})
         {
             var button=new Button{Content=label,Padding=new Thickness(11,6,11,6),CornerRadius=new CornerRadius(8),FontSize=12};
-            buttons[metric]=button;headerRight.Children.Add(button);
+            buttons[metric]=button;metricButtons.Children.Add(button);
         }
         var caption=new TextBlock{Text=(hourly?L10n.T("s3A3C6EC37497"):L10n.T("s18A912CFCF51"))+L10n.T("s94186ECB2771"),FontSize=11,Opacity=.62,TextWrapping=TextWrapping.Wrap};Grid.SetRow(caption,1);Grid.SetColumnSpan(caption,2);header.Children.Add(caption);
         root.Children.Add(header);
@@ -107,7 +109,12 @@ internal static class UsageCharts
         canvas.PointerPressed+=(_,e)=>{if(hourly||currentPoints.Length==0)return;var index=Nearest(e.GetCurrentPoint(canvas).Position.X);select(buckets[index].From,buckets[index].Through);};
         header.SizeChanged+=(_,e)=>
         {
-            var narrow=e.NewSize.Width<700;Grid.SetColumn(headerRight,narrow?0:1);Grid.SetRow(headerRight,narrow?1:0);Grid.SetColumnSpan(headerRight,narrow?2:1);headerRight.HorizontalAlignment=narrow?HorizontalAlignment.Left:HorizontalAlignment.Right;headerRight.Orientation=narrow?Orientation.Horizontal:Orientation.Horizontal;
+            var narrow=e.NewSize.Width<700;
+            Grid.SetColumn(headerRight,narrow?0:1);Grid.SetRow(headerRight,narrow?1:0);Grid.SetColumnSpan(headerRight,narrow?2:1);
+            // Controls and wrapped caption must never occupy the same auto-sized row.
+            Grid.SetRow(caption,narrow?2:1);
+            headerRight.HorizontalAlignment=narrow?HorizontalAlignment.Left:HorizontalAlignment.Right;
+            headerRight.Orientation=e.NewSize.Width<480?Orientation.Vertical:Orientation.Horizontal;
         };
         canvas.SizeChanged+=(_,e)=>{if(e.NewSize.Width>1&&Math.Abs(e.NewSize.Width-currentWidth)>.5)Draw();};
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(canvas,L10n.T("sDE3A2D3FA72A"));Draw();return root;

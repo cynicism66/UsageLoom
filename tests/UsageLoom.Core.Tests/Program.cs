@@ -599,6 +599,95 @@ AsyncTest("fork 父前缀未完成不得记给子任务", async () =>
     await File.AppendAllLinesAsync(file, ["{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"turn_id\":\"019ffaca-cac2-7122-bd5c-e30f9b7c3715\"}}", Model(), Count(280, 70)]);
     Check((await new HistoryScanner().ScanAsync(home, default)).Total.Total == 50);
 });
+AsyncTest("父会话重复标记不重置累计基线，跨重启追加不重复计费",async()=>
+{
+    var home=Fixture("repeated-parent");var file=Path.Combine(home,"sessions","a.jsonl");
+    var lines=new List<string>{Meta("child","parent"),Model(),Count(100,0),Meta("parent"),Count(110,0)};
+    for(var i=1;i<=172;i++){lines.Add(Meta("parent"));lines.Add(Count(110+i*10,0));}
+    await File.WriteAllLinesAsync(file,lines);
+    var store=new HistoryStore(Path.Combine(home,"data"));
+    var first=await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(first.Report.Total.Total==1730&&first.Report.Events.All(e=>e.Tokens.Total==10));
+    await File.AppendAllLinesAsync(file,[Meta("parent"),Count(1850,0)]);
+    await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(store.Read().Sum(e=>e.Tokens.Total)==1750);
+    var old=store.ReadIndexes().Values.Select(i=>i with{Version=5}).ToList();
+    store.Save(new(store.Read(),1,0,DateTimeOffset.Now),indexes:old);
+    var migrated=await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(migrated.Migrated&&migrated.BackupPath is not null&&File.Exists(migrated.BackupPath));
+    Check(store.Read().Sum(e=>e.Tokens.Total)==1750);
+});
+AsyncTest("现代 fork 已进入子任务后父标记不得退回旧前缀",async()=>
+{
+    var home=Fixture("modern-repeated-parent");var file=Path.Combine(home,"sessions","a.jsonl");
+    const string child="019ffaca-c65e-78a3-8383-70d9d427eaf3";
+    await File.WriteAllLinesAsync(file,[Meta(child,"parent"),Model(),Count(100,0),"{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_started\",\"turn_id\":\"019ffaca-cac2-7122-bd5c-e30f9b7c3715\"}}",Count(110,0),Meta("parent"),Count(120,0)]);
+    Check((await new HistoryScanner().ScanAsync(home,default)).Total.Total==20);
+});
+AsyncTest("父子连续历史前缀按关系去重且保留分叉后新用量",async()=>
+{
+    var home=Fixture("inherited-sequence");var child=Path.Combine(home,"sessions","a-child.jsonl");var parent=Path.Combine(home,"sessions","z-parent.jsonl");
+    await File.WriteAllLinesAsync(parent,[Meta("parent"),Model(),Count(100,0),Count(200,0),Count(300,0)]);
+    await File.WriteAllLinesAsync(child,[Meta("child","parent"),Model(),Count(100,0,timestamp:"2026-09-06T01:00:00Z"),Meta("parent"),Count(200,0,timestamp:"2026-09-06T01:00:00Z"),Count(300,0,timestamp:"2026-09-06T01:00:00Z"),Count(450,0,timestamp:"2026-09-06T01:01:00Z")]);
+    var store=new HistoryStore(Path.Combine(home,"data"));await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(store.Read().Where(e=>e.Session=="child").Sum(e=>e.Tokens.Total)==150);
+    Check(store.Read().Sum(e=>e.Tokens.Total)==450);
+    await File.AppendAllLinesAsync(child,[Count(500,0,timestamp:"2026-09-06T01:02:00Z")]);
+    await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(store.Read().Sum(e=>e.Tokens.Total)==500,"增量扫描必须保留父会话证据");
+});
+AsyncTest("序列匹配不越过未确认子任务边界，不跨中断拼接",async()=>
+{
+    foreach(var started in new[]{false,true})
+    {
+        var home=Fixture("prefix-boundary-"+started);
+        await File.WriteAllLinesAsync(Path.Combine(home,"sessions","parent.jsonl"),[Meta("parent"),Model(),Count(100,0),Count(200,0),Count(300,0)]);
+        var lines=started?new[]{Meta("child","parent"),Model(),Count(100,0),Meta("parent"),Count(250,0),Count(300,0)}:
+            new[]{Meta("child","parent"),Meta("parent"),Model(),Count(100,0),Count(200,0),Count(300,0),Count(400,0)};
+        await File.WriteAllLinesAsync(Path.Combine(home,"sessions","child.jsonl"),lines);
+        Check((await new HistoryScanner().ScanAsync(home,default)).Events.Where(e=>e.Session=="child").Sum(e=>e.Tokens.Total)==(started?200:0));
+    }
+});
+AsyncTest("相同异常计数仅作为序列证据不计费，异常字段不同即中断",async()=>
+{
+    foreach(var identical in new[]{true,false})
+    {
+        var home=Fixture("invalid-prefix-"+identical);
+        string Bad(int n)=>$"{{\"type\":\"event_msg\",\"timestamp\":\"2026-09-05T01:00:00Z\",\"payload\":{{\"type\":\"token_count\",\"info\":{{\"total_token_usage\":{{\"input_tokens\":150,\"output_tokens\":0,\"total_tokens\":{n}}}}}}}}}";
+        await File.WriteAllLinesAsync(Path.Combine(home,"sessions","p.jsonl"),[Meta("parent"),Model(),Count(100,0),Bad(999),Count(200,0),Count(300,0)]);
+        await File.WriteAllLinesAsync(Path.Combine(home,"sessions","c.jsonl"),[Meta("child","parent"),Model(),Count(100,0),Meta("parent"),Bad(identical?999:888),Count(200,0),Count(300,0),Count(400,0)]);
+        var result=await new HistoryScanner().ScanAsync(home,default);
+        Check(result.Events.Where(e=>e.Session=="child").Sum(e=>e.Tokens.Total)==(identical?100:300));
+        Check(result.Warnings>=2);
+    }
+});
+AsyncTest("循环父子关系不作为继承证据",async()=>
+{
+    var home=Fixture("cyclic-parent");
+    foreach(var pair in new[]{("a","b"),("b","a")})
+        await File.WriteAllLinesAsync(Path.Combine(home,"sessions",pair.Item1+".jsonl"),[Meta(pair.Item1,pair.Item2),Model(),Count(100,0),Meta(pair.Item2),Count(200,0),Count(300,0)]);
+    Check((await new HistoryScanner().ScanAsync(home,default)).Total.Total==400);
+});
+AsyncTest("循环父子关系不作为继承证据",async()=>
+{
+    var home=Fixture("cyclic-parent");
+    foreach(var pair in new[]{("a","b"),("b","a")})
+        await File.WriteAllLinesAsync(Path.Combine(home,"sessions",pair.Item1+".jsonl"),[Meta(pair.Item1,pair.Item2),Model(),Count(100,0),Meta(pair.Item2),Count(200,0),Count(300,0)]);
+    Check((await new HistoryScanner().ScanAsync(home,default)).Total.Total==400);
+});
+AsyncTest("相同计数无父子关系不去重，短序列和未来父记录不推定",async()=>
+{
+    foreach(var scenario in new[]{"unrelated","short","future"})
+    {
+        var home=Fixture("sequence-"+scenario);var later=scenario=="future"?"2026-09-07T01:00:00Z":"2026-09-05T01:00:00Z";
+        await File.WriteAllLinesAsync(Path.Combine(home,"sessions","parent.jsonl"),[Meta("parent"),Model(),Count(100,0,timestamp:later),Count(200,0,timestamp:later),Count(300,0,timestamp:later)]);
+        var rows=new List<string>{Meta("child",scenario=="unrelated"?null:"parent"),Model(),Count(100,0),Meta("parent"),Count(200,0)};
+        if(scenario!="short")rows.Add(Count(300,0));
+        await File.WriteAllLinesAsync(Path.Combine(home,"sessions","child.jsonl"),rows);
+        var report=await new HistoryScanner().ScanAsync(home,default);
+        Check(report.Events.Where(e=>e.Session=="child").Sum(e=>e.Tokens.Total)==(scenario=="unrelated"?300:scenario=="short"?100:200));
+    }
+});
 AsyncTest("超大行不会阻止后续有效记录", async () =>
 {
     var home = Fixture("large"); var file = Path.Combine(home, "sessions", "a.jsonl");

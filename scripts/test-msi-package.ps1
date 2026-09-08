@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Version='0.6.0')
+param([string]$Version='0.6.3')
 $ErrorActionPreference='Stop'
 $workspace=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $installer=New-Object -ComObject WindowsInstaller.Installer

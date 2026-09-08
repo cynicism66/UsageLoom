@@ -50,8 +50,9 @@ public sealed class HistoryScanner
         return files;
     }
     public async Task<ScanReport> ScanAsync(string home,CancellationToken cancellationToken,IProgress<string>? progress=null,
-        IReadOnlyDictionary<string,IReadOnlyList<string>>? indexedRecords=null)
+        IReadOnlyDictionary<string,IReadOnlyList<string>>? indexedRecords=null,IReadOnlyDictionary<string,IReadOnlyList<string>>? ancestryRecords=null)
     {
+        var inherited=await InheritedUsage.Prefixes(home,cancellationToken,ancestryRecords??indexedRecords);
         var events=new List<UsageEvent>();var highWater=new Dictionary<string,TokenUsage>();var seen=new HashSet<string>();
         var segments=new Dictionary<string,int>();var snapshots=new HashSet<string>();
         var warnings=0;var files=0;var sources=new List<string>();
@@ -68,7 +69,7 @@ public sealed class HistoryScanner
                 if(files%20==0)progress?.Report($"已读取 {files} 个日志文件");
                 var session=Path.GetFileNameWithoutExtension(file);var model="unknown";var project="(未知项目)";var agent="主任务";
                 var cumulative=new TokenUsage();string? parent=null;var ownerSeen=false;var forkPending=false;var replay=new TokenUsage();
-                var segment=0;
+                var segment=0;var tokenOrdinal=0;var inheritedCount=inherited.GetValueOrDefault(file);
                 try
                 {
                     await foreach(var line in indexedRecords is null?ReadRecords(file,cancellationToken):Replay(indexedRecords.GetValueOrDefault(file)??[],cancellationToken))
@@ -90,7 +91,9 @@ public sealed class HistoryScanner
                                     cumulative=highWater.GetValueOrDefault(session)??new();
                                     segment=segments.GetValueOrDefault(session);
                                 }
-                                else if(ownerId==parent && replay.Total>0){cumulative=replay;forkPending=false;}
+                                // The parent boundary is a one-time handoff, not a reset command.
+                                // Resumed/forked rollouts may repeat this metadata many times.
+                                else if(forkPending && ownerId==parent && replay.Total>0){cumulative=replay;forkPending=false;}
                                 continue;
                             }
                             if(type=="turn_context"){model=payload.Text("model")??model;continue;}
@@ -102,9 +105,15 @@ public sealed class HistoryScanner
                                 continue;
                             }
                             if(payload.Text("type")!="token_count"||!payload.TryGetProperty("info",out var info)||info.ValueKind!=JsonValueKind.Object)continue;
+                            tokenOrdinal++;
                             var total=info.TryGetProperty("total_token_usage",out var totalJson)&&totalJson.ValueKind==JsonValueKind.Object?TokenUsage.Parse(totalJson,cumulative):null;
                             var lastUsage=info.TryGetProperty("last_token_usage",out var lastJson)&&lastJson.ValueKind==JsonValueKind.Object?TokenUsage.Parse(lastJson):null;
                             if(forkPending){if(total is not null)replay=total;continue;}
+                            if(tokenOrdinal<=inheritedCount)
+                            {
+                                if(total is not null)cumulative=total;
+                                continue;
+                            }
                             var snapshotKey=$"{session}|{row.Text("timestamp")}|{model}|{info.GetRawText()}";
                             if(!snapshots.Add(snapshotKey))continue;
                             string? quality=null;

@@ -30,5 +30,6 @@ foreach($scenario in $scenarios){
         throw "UI smoke test failed: $scenario, exit=$($testProcess.ExitCode)"
     }
     if($Personalization -and !($lines -match 'Theme controls and language restart boundary passed')){throw 'Personalization control check did not complete'}
+    if($Personalization -and !($lines -match 'Trend header 380/520/900 DIP resize geometry passed')){throw 'Responsive trend header check did not complete'}
     Write-Output "PASS UI startup: $scenario"
 }

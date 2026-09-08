@@ -282,6 +282,24 @@ internal sealed class Dashboard : Window
             if(app.Config.Language==active||L10n.Language!=active)throw new InvalidOperationException("Language restart boundary failed");
             language.SelectedIndex=active=="en-US"?1:0;
             Program.Log.Write("INFO","PersonalizationTest","Theme controls and language restart boundary passed");
+            var date=new DateOnly(2026,9,8);
+            var trend=UsageCharts.Trend([new(date,date,"12:00",154650000,1234,178.9078m)],(_,_)=>{},true);
+            var settings=(StackPanel)scrollContent.Content;settings.Children.Add(trend);
+            try
+            {
+                foreach(var width in new[]{380d,520d,900d,520d,380d})
+                {
+                    trend.Width=width;trend.UpdateLayout();await Task.Delay(60);trend.UpdateLayout();
+                    var header=(Grid)((StackPanel)trend).Children[0];
+                    var controls=(StackPanel)header.Children[1];var caption=(TextBlock)header.Children[2];
+                    var controlBottom=controls.TransformToVisual(header).TransformPoint(new Windows.Foundation.Point(0,controls.ActualHeight)).Y;
+                    var captionTop=caption.TransformToVisual(header).TransformPoint(new Windows.Foundation.Point()).Y;
+                    if(captionTop<controlBottom+7||controls.ActualWidth>header.ActualWidth+.5)
+                        throw new InvalidOperationException($"Trend header overlap at {width} DIP");
+                }
+                Program.Log.Write("INFO","PersonalizationTest","Trend header 380/520/900 DIP resize geometry passed");
+            }
+            finally{settings.Children.Remove(trend);}
         }
         catch(Exception ex){Program.Log.Write("ERROR","PersonalizationTest",ex.ToString());}
     }
