@@ -46,12 +46,12 @@ public sealed class NotificationPolicy
             else if (reset > state.CycleEnd) state = state with { CycleEnd = reset };
             if (options.LowEnabled && !state.LowSent && window.Remaining <= options.LowPercent)
             {
-                result.Add(new(key + ":low", "额度不足", $"{window.Label}剩余 {window.Remaining:0.#}%"));
+                result.Add(new(key + ":low", L10n.T("s29699203C5E8"), L10n.F("sF046F7443A51", window.Label, window.Remaining)));
                 state = state with { LowSent = true };
             }
             if (options.ResetEnabled && !state.ResetSent && reset - now <= TimeSpan.FromMinutes(options.ResetMinutes))
             {
-                result.Add(new(key + ":reset", "额度即将重置", $"{window.Label}预计将在 {reset.ToLocalTime():HH:mm} 重置"));
+                result.Add(new(key + ":reset", L10n.T("s128BCFD4AA85"), L10n.F("s947E67403276", window.Label, reset.ToLocalTime())));
                 state = state with { ResetSent = true };
             }
             windows[key] = state;

@@ -23,6 +23,8 @@ public sealed partial class LoomApp : Application
     private readonly HistoryStore store = new(Program.DataPath);
     private readonly HistoryScanner scanner = new();
     private IncrementalHistory? incremental;
+    private readonly DateTimeOffset openedAt=DateTimeOffset.UtcNow;
+    private RestartCheckpoint? restartCheckpoint;
     private readonly NotificationPolicy notifications = new();
     private readonly WeeklyCapacityEstimator capacityEstimator = new();
     private List<UsageEvent>? capacityPriceEvents;
@@ -30,33 +32,74 @@ public sealed partial class LoomApp : Application
     private Estimate? capacityPrice;
     private long capacityTokenTotal;
     private bool capacityHistoryReady;
+    private void RecordCapacityObservation(QuotaState quota,bool barrier=false)
+    {
+        if(IsDemo)return;
+        try
+        {
+            var valid=!barrier&&Config.CapacityEnabled&&quota.Fresh&&quota.AccountKey is not null;
+            store.SaveQuotaObservation(new(valid?quota.FetchedAt??DateTimeOffset.UtcNow:DateTimeOffset.UtcNow,valid?quota.AccountKey:null,valid?quota.Plan?.Trim().ToLowerInvariant():null,
+                Pricing.CatalogVersion,valid?quota.PrimaryWindows.Where(w=>w.Minutes==10080).ToList():[],!valid));
+            if(valid)Program.Log.Write("INFO","CapacityPrecision",quota.PrimaryWindows.Any(w=>w.Used!=Math.Truncate(w.Used))?"Fractional percentage observed":"This response contains integer percentages");
+        }
+        catch(Exception ex){Program.Log.Write("WARN","CapacityLedger",ex.Message);}
+    }
     private IReadOnlyList<WeeklyCapacityEstimate> ObserveCapacity(QuotaState quota)
     {
-        if(!capacityHistoryReady)return capacityEstimator.Current;
+        if(!Config.CapacityEnabled)return [];
+        if(!capacityHistoryReady)
+        {
+            if(quota.Fresh)capacityEstimator.ApplyTemporal(quota,null,0,null);
+            return capacityEstimator.DisplayCurrent;
+        }
         if(!ReferenceEquals(capacityPriceEvents,Events)||capacityPriceAccount!=quota.AccountKey)
         {
             var general=CapacityUsage.ForAccount(Events,quota.AccountKey);
             capacityPrice=Pricing.Summarize(general);capacityTokenTotal=general.Sum(item=>item.Tokens.Total);capacityPriceEvents=Events;
             capacityPriceAccount=quota.AccountKey;
         }
-        var result=capacityEstimator.Observe(quota,capacityTokenTotal,capacityPrice);
+        if(!quota.Fresh)return capacityEstimator.DisplayCurrent;
+        if(IsDemo)capacityEstimator.Observe(quota,capacityTokenTotal,capacityPrice);
+        else
+        {
+            try
+            {
+                var result=TemporalCapacity.Calculate(store.ReadQuotaObservations(),Events);
+                store.SaveTemporalIntervals(result.Intervals,result.History);
+                capacityEstimator.Restore(null,store.ReadValidCapacityHistory());
+                var pending=result.PendingFrom is {} from?CapacityUsage.ForAccount(Events,quota.AccountKey).Where(e=>e.Timestamp>from).Sum(e=>e.Tokens.Total):0;
+                capacityEstimator.ApplyTemporal(quota,result.Cache,capacityTokenTotal-pending,capacityPrice);
+            }
+            catch(Exception ex){Program.Log.Write("WARN","CapacityLedger",ex.Message);return capacityEstimator.DisplayCurrent;}
+        }
         if(!IsDemo&&quota.Fresh)
         {
             try{store.SaveCapacity(capacityEstimator.Export());}
             catch(Exception ex){Program.Log.Write("WARN","CapacityCache",ex.Message);}
         }
-        return result;
+        return capacityEstimator.DisplayCurrent;
     }
     internal Task ResetCapacityAsync()
     {
-        if(IsDemo){Message="模拟模式不修改缓存";return Task.CompletedTask;}
-        store.SaveCapacity(null);capacityEstimator.Reset();WeeklyCapacity=[];
+        if(IsDemo){Message=L10n.T("s80323CB58044");return Task.CompletedTask;}
+        RecordCapacityObservation(Quota,true);store.SaveCapacity(null);capacityEstimator.Reset();WeeklyCapacity=[];
         if(historyLoaded&&Quota.Fresh)WeeklyCapacity=ObserveCapacity(Quota);
-        Message="估算缓存已重置，重新采样；本地 Token 历史未删除";
+        Message=L10n.T("sE8381D29D4E7");
         Program.Log.Write("INFO","CapacityCache",Message);Changed?.Invoke();return Task.CompletedTask;
     }
+    internal Task SetCapacityEnabledAsync(bool enabled)
+    {
+        Config.CapacityEnabled=enabled;
+        RecordCapacityObservation(Quota,true);
+        if(!IsDemo)Config.Save();
+        capacityEstimator.Reset();WeeklyCapacity=[];
+        if(enabled&&!IsDemo)RestoreCapacity();
+        if(enabled&&historyLoaded&&Quota.Fresh)WeeklyCapacity=ObserveCapacity(Quota);
+        Changed?.Invoke();return Task.CompletedTask;
+    }
     internal Task<List<CapacityCache>> ReadCapacityHistoryAsync(int page)=>IsDemo?Task.FromResult(new List<CapacityCache>()):Task.Run(()=>store.ReadCapacityHistory(page));
-    internal string CapacityCacheStatus=>capacityEstimator.RestoredAt is {} at?$"已恢复 {at.ToLocalTime():MM-dd HH:mm} 的样本 · 历史独立保留":"有效样本独立归档；重置当前采样不删除估算历史";
+    private void RestoreCapacity()=>capacityEstimator.Restore(store.ReadCapacity(),store.ReadValidCapacityHistory());
+    internal string CapacityCacheStatus=>capacityEstimator.RestoredAt is {} at?L10n.F("s477716960258", at.ToLocalTime()):L10n.T("sFE6B9AB0A2C3");
     private bool refreshing, scanning, quitting;
     private int configurationGeneration, failures;
     private int historyRevision;
@@ -80,16 +123,17 @@ public sealed partial class LoomApp : Application
     internal bool PreviewWide=>IsDemo&&args.Contains("--preview-wide");
     internal bool PreviewHourly=>IsDemo&&args.Contains("--preview-single-day");
     internal bool NavigationCheck=>IsDemo&&args.Contains("--navigation-check");
-    internal QuotaState Quota { get; private set; } = new([], null, null, "本地账户 · 本机 Token 统计无需登录；在线额度尚未查询", false);
+    internal bool PersonalizationCheck=>IsDemo&&args.Contains("--personalization-check");
+    internal QuotaState Quota { get; private set; } = new([], null, null, L10n.T("s68C78EBE89A8"), false);
     internal List<UsageEvent> Events { get; private set; } = [];
     internal bool HasLoadedHistory => IsDemo||historyLoaded;
     internal IReadOnlyDictionary<string,string> SessionNames { get; private set; }=new Dictionary<string,string>();
     internal IReadOnlyList<WeeklyCapacityEstimate> WeeklyCapacity { get; private set; }=[];
-    internal string WeeklyCapacityProgress => capacityEstimator.DescribeProgress(Quota,capacityTokenTotal,capacityHistoryReady);
-    internal string HistoryStatus { get; private set; } = "本地 Token 统计 · 无需登录";
-    internal string Message { get; private set; } = "正式版 · 不读取凭据、不上传本地数据";
+    internal string WeeklyCapacityProgress => Config.CapacityEnabled?capacityEstimator.DescribeProgress(Quota,capacityTokenTotal,capacityHistoryReady):L10n.T("s40E9A224A0E3");
+    internal string HistoryStatus { get; private set; } = L10n.T("sA3A08B0EC497");
+    internal string Message { get; private set; } = L10n.T("s5A253CCAEBA1");
     internal event Action? Changed;
-    internal string DiagnosticSummary => Privacy.Redact($"UsageLoom {Program.Version}\n模式：{(Config.AuthorizedAccount?"UsageLoom 独立授权":Config.ReuseBackend?"复用现有后端（实验）":"本机已有缓存（独立进程）")}\n阶段：{client.LastStage}\n登录检测：{client.AccountObservation}\n额度：{Quota.Status}\n事件记录：{Events.Count}\n自动刷新：{Config.AutoRefresh}\nRPC 连接：{client.IsConnected}\n{Message}");
+    internal string DiagnosticSummary => Privacy.Redact(L10n.F("s85D27251E958", Program.Version, (Config.AuthorizedAccount?L10n.T("sC830712A7378"):Config.ReuseBackend?L10n.T("sF95B8B03421E"):L10n.T("s7AE987981F59")), client.LastStage, client.AccountObservation, Quota.Status, Events.Count, Config.AutoRefresh, client.IsConnected, Message));
     public LoomApp(string[] args)
     {
         this.args = args;
@@ -98,11 +142,15 @@ public sealed partial class LoomApp : Application
     }
     protected override void OnLaunched(LaunchActivatedEventArgs args)
     {
+        if(this.args.Contains("--preview-english"))Config.Language="en-US";
+        L10n.Language=Config.Language;
         DispatcherShutdownMode = DispatcherShutdownMode.OnExplicitShutdown;
         queue = DispatcherQueue.GetForCurrentThread();
         if(!IsDemo)
         {
-            try{capacityEstimator.Restore(store.ReadCapacity());Program.Log.Write("INFO","CapacityCache","缓存已读取，等待账号、套餐和周窗口核验");}
+            try{restartCheckpoint=store.TakeRestartCheckpoint();}
+            catch(Exception ex){Program.Log.Write("WARN","Attribution",ex.Message);}
+            try{RestoreCapacity();Program.Log.Write("INFO","CapacityCache","缓存已读取，等待账号、套餐和周窗口核验");}
             catch(Exception ex){Program.Log.Write("WARN","CapacityCache",ex.Message);}
         }
         notifications.Restore(Config.NotificationWindows, DateTimeOffset.Now);
@@ -110,10 +158,12 @@ public sealed partial class LoomApp : Application
         client.AccountInvalidated += () => queue.TryEnqueue(() =>
         {
             if (quitting) return;
+            restartCheckpoint=null;
+            RecordCapacityObservation(Quota,true);
             capacityEstimator.Reset();WeeklyCapacity=[];
-            try{capacityEstimator.Restore(store.ReadCapacity());}
+            try{RestoreCapacity();}
             catch(Exception ex){Program.Log.Write("WARN","CapacityCache",ex.Message);}
-            Quota = new([], null, null, "账号状态待确认，已撤下旧数据", false);
+            Quota = new([], null, null, L10n.T("s62896AA1C5E5"), false);
             Changed?.Invoke();
         });
         // 事件目前只用于触发经完整身份校验的读取，防止缺失身份/字段的事件直接污染当前快照。
@@ -132,10 +182,10 @@ public sealed partial class LoomApp : Application
             Config.AutoRefresh = false;
             Config.LowNotify = false;
             Config.ResetNotify = false;
-            Quota = new([new("codex:primary", "模拟 · 5 小时额度", 42, 300, DateTimeOffset.Now.AddHours(2)), new("codex:weekly", "模拟 · 每周额度", 18, 10080, DateTimeOffset.Now.AddDays(3))], 2, DateTimeOffset.Now, "模拟数据，仅用于界面验证", true);
+            Quota = new([new("codex:primary", L10n.T("sFDC11436C31D"), 42, 300, DateTimeOffset.Now.AddHours(2)), new("codex:weekly", L10n.T("sCE5334E5C266"), 18, 10080, DateTimeOffset.Now.AddDays(3))], 2, DateTimeOffset.Now, L10n.T("s060C4C3C9C70"), true);
             Events = Enumerable.Range(0, 7).Select(day => {
                 var at=DateTimeOffset.Now.AddDays(-day); var input=new long[]{48200,36100,62800,24500,56300,41000,18700}[day];
-                return new UsageEvent("demo-"+day,"模拟会话 "+(day+1),day%2==0?"示例项目 · Studio":"示例项目 · Notes",day%2==0?"gpt-5.4-mini":"gpt-5.4","主任务",at,at.ToString("yyyy-MM-dd"),new(input,input/3,0,input/5,input/20));
+                return new UsageEvent("demo-"+day,L10n.T("s718E2B63A78A")+(day+1),day%2==0?L10n.T("s9722F7C17917"):L10n.T("sAD316B8625B7"),day%2==0?"gpt-5.4-mini":"gpt-5.4",L10n.T("s95CB8B370EBC"),at,at.ToString("yyyy-MM-dd"),new(input,input/3,0,input/5,input/20));
             }).ToList();
             if(this.args.Contains("--preview-session-stress"))
             {
@@ -143,14 +193,14 @@ public sealed partial class LoomApp : Application
                 {
                     var group=index<27?0:index<34?1:2;var at=DateTimeOffset.Now.AddMinutes(-index*9);
                     var input=new long[]{18400,9200,3100}[group]+index*37;
-                    return new UsageEvent("stress-"+index,"布局压力 Session "+(group+1),"示例项目 · "+(group==0?"长记录":group==1?"中记录":"短记录"),group==2?"gpt-5.4-mini":"gpt-5.4","主任务",at,at.ToString("yyyy-MM-dd"),new(input,input/3,0,input/5,input/20));
+                    return new UsageEvent("stress-"+index,L10n.T("s239B9A6BB3B3")+(group+1),L10n.T("s0A482A3494C9")+(group==0?L10n.T("sD034CC438F1C"):group==1?L10n.T("s19724E06CB20"):L10n.T("s996593E720D7")),group==2?"gpt-5.4-mini":"gpt-5.4",L10n.T("s95CB8B370EBC"),at,at.ToString("yyyy-MM-dd"),new(input,input/3,0,input/5,input/20));
                 }).ToList();
             }
             if(this.args.Contains("--preview-single-day"))Events=Events.Select(item=>item with{LocalDate=DateTime.Today.ToString("yyyy-MM-dd"),Timestamp=DateTimeOffset.Now}).ToList();
             if(this.args.Contains("--preview-empty")){Events=[];Quota=QuotaState.LocalAccount;}
-            if(this.args.Contains("--preview-weekly"))Quota=new([new("codex:weekly","每周额度",18,10080,DateTimeOffset.Now.AddDays(3))],2,DateTimeOffset.Now,"模拟：仅周窗口",true,"demo","pro");
-            if(this.args.Contains("--preview-weekly"))WeeklyCapacity=[new("codex:weekly","每周额度",12800000,1280000,10,3,0,"较高",DateTimeOffset.Now.AddDays(3))];
-            Message = "设计预览 · 所有数字均为模拟数据，不连接账号";
+            if(this.args.Contains("--preview-weekly"))Quota=new([new("codex:weekly",L10n.T("s475811D50FA9"),18,10080,DateTimeOffset.Now.AddDays(3))],2,DateTimeOffset.Now,L10n.T("sB82002E0639F"),true,"demo","pro");
+            if(this.args.Contains("--preview-weekly"))WeeklyCapacity=[new("codex:weekly",L10n.T("s475811D50FA9"),12800000,1280000,10,3,0,L10n.T("sDFBAD24E7F4A"),DateTimeOffset.Now.AddDays(3))];
+            Message = L10n.T("sEFF3B8AB8B40");
         }
         else
         {
@@ -181,7 +231,7 @@ public sealed partial class LoomApp : Application
         var backoff = Math.Min(1800, period * Math.Pow(2, Math.Min(failures, 5)));
         if (Quota.Fresh && Quota.FetchedAt is {} fetched && DateTimeOffset.Now - fetched > TimeSpan.FromSeconds(Math.Max(60, period * 2)))
         {
-            Quota = Quota.SnapshotOnly?Quota.ClearUnverifiedSnapshot("本次额度已过期，请刷新；未沿用旧数值"):Quota with { Fresh = false, Status = "额度快照已过期" };
+            Quota = Quota.SnapshotOnly?Quota.ClearUnverifiedSnapshot(L10n.T("s1F868CB03F9A")):Quota with { Fresh = false, Status = L10n.T("s90968417D7AC") };
             Changed?.Invoke();
         }
         if (Config.AutoRefresh && !Quota.IsLocalAccount && !refreshing && DateTimeOffset.Now - lastAttempt >= TimeSpan.FromSeconds(backoff)) _ = RefreshQuotaAsync(false);
@@ -219,10 +269,10 @@ public sealed partial class LoomApp : Application
     internal void ShowDetails() { dashboard ??= new Dashboard(this, false); dashboard.ShowPanel(); }
     internal Task RefreshQuotaAsync(bool manual)
     {
-        if(IsDemo){Message="设计预览不执行真实查询，展示的是模拟数据。";Changed?.Invoke();return Task.CompletedTask;}
+        if(IsDemo){Message=L10n.T("s987E3F3AAADE");Changed?.Invoke();return Task.CompletedTask;}
         if (quitting || Authorizing || refreshing || (!manual && !Config.AutoRefresh)) return quotaTask ?? Task.CompletedTask;
         refreshing = true; lastAttempt = DateTimeOffset.Now;
-        Quota=Quota.ClearUnverifiedSnapshot("正在重新核对本机账号和额度；已撤下上次快照");
+        Quota=Quota.ClearUnverifiedSnapshot(L10n.T("s5FFA5AB58038"));
         var epoch = configurationGeneration;
         var ct = quotaCancellation.Token;
         quotaTask = RefreshCoreAsync(epoch, ct);
@@ -231,29 +281,34 @@ public sealed partial class LoomApp : Application
     private async Task RefreshCoreAsync(int epoch, CancellationToken ct)
     {
         var watch = Stopwatch.StartNew();
-        Message = "正在只读查询当前 CLI 额度…"; Changed?.Invoke();
+        Message = L10n.T("s1EA00D373811"); Changed?.Invoke();
         try
         {
             var result = await client.ReadAsync(Config.CliPath, Config.AuthorizedAccount?AuthorizedHome:Config.CodexHome, ct,Config.ReuseBackend&&!Config.AuthorizedAccount,Config.AuthorizedAccount);
+            if(!result.Fresh||result.AccountKey is null)restartCheckpoint=null;
+            else if(restartCheckpoint is not null)historyDirty=true;
             if (quitting || epoch != configurationGeneration || ct.IsCancellationRequested) return;
             Quota = result; failures = result.Fresh ? 0 : failures + 1;
+            RecordCapacityObservation(result);
             SessionNames=new Dictionary<string,string>(client.ThreadNames,StringComparer.Ordinal);
-            if(historyLoaded)WeeklyCapacity=ObserveCapacity(result);
-            Message = result.IsLocalAccount ? "本地账户 · Token 统计正常可用；登录后可手动检查额度" : $"额度检查完成 · {watch.ElapsedMilliseconds} ms";
+            WeeklyCapacity=ObserveCapacity(result);
+            Message = result.IsLocalAccount ? L10n.T("s175D58D46FAC") : L10n.F("s0AB524CB61AE", watch.ElapsedMilliseconds);
             Program.Log.Write(result.Fresh || result.IsLocalAccount ? "INFO" : "WARN", "Quota", $"{result.Status} elapsedMs={watch.ElapsedMilliseconds}");
             if(result.IsLocalAccount)await client.StopAsync();
             EvaluateNotifications();
         }
-        catch (OperationCanceledException) { if (epoch == configurationGeneration) Message = "额度查询已取消"; }
+        catch (OperationCanceledException) { if (epoch == configurationGeneration) Message = L10n.T("sFC3D9710C01E"); }
         catch (Exception ex)
         {
             if (epoch != configurationGeneration || quitting) return;
+            restartCheckpoint=null;
             failures++;
-            var status=Config.ReuseBackend?"现有后端连接未成功；未回退到独立 CLI，本地统计仍可用":
-                ex is CodexRpcException rpc&&rpc.Kind==RpcFailureKind.Authentication?"已识别 ChatGPT 登录，但现有登录缓存已失效；本地 Token 统计仍可用":
-                ex is CodexRpcException?"额度查询未完成，登录状态待确认；本地 Token 统计仍可用":
-                "查询失败，账号状态待确认";
+            var status=Config.ReuseBackend?L10n.T("s236AB20594D6"):
+                ex is CodexRpcException rpc&&rpc.Kind==RpcFailureKind.Authentication?L10n.T("s0F3153A9971E"):
+                ex is CodexRpcException?L10n.T("s4D8B77CAC03C"):
+                L10n.T("sBF248948A756");
             Quota = new([], null, null, status, false);
+            RecordCapacityObservation(Quota,true);
             Message = Privacy.Redact(ex.Message);
             Program.Log.Write("WARN", "Quota", ex.Message);
             await client.StopAsync();
@@ -274,8 +329,8 @@ public sealed partial class LoomApp : Application
     }
     internal Task ScanAsync(bool verifyIntegrity=false,bool rebuild=false)
     {
-        if(IsDemo){Message="设计预览不扫描本机日志，展示的是模拟数据。";Changed?.Invoke();return Task.CompletedTask;}
-        if(rebuild&&scanning){Message="已有扫描正在运行，请完成后再重建。";Changed?.Invoke();return Task.CompletedTask;}
+        if(IsDemo){Message=L10n.T("s04AC6333CEB4");Changed?.Invoke();return Task.CompletedTask;}
+        if(rebuild&&scanning){Message=L10n.T("s3706DC826F7D");Changed?.Invoke();return Task.CompletedTask;}
         if (quitting || scanning) return scanTask ?? Task.CompletedTask;
         scanning = true;
         historyRevision++;
@@ -289,16 +344,23 @@ public sealed partial class LoomApp : Application
         var watch = Stopwatch.StartNew();
         try
         {
-            Message = "扫描本机日志中；不会读取标题索引或凭据。"; Changed?.Invoke();
+            Message = L10n.T("s31C4D1614F44"); Changed?.Invoke();
             if(!Directory.Exists(home)&&!rebuild&&!verifyIntegrity)
             {
-                Message="尚未发现本地日志目录；可在设置中选择日志位置。已有统计会保留，无需登录。";
+                Message=L10n.T("sE5936C9E629D");
                 Program.Log.Write("INFO","Scan",Message);return;
             }
             var progress = new Progress<string>(text => { if (!quitting) { Message = text; Changed?.Invoke(); } });
             incremental ??= new IncrementalHistory(store);
             var indexed = await Task.Run(() => rebuild?incremental.RebuildAsync(home,lifetime.Token,progress):incremental.ScanAsync(home, lifetime.Token, progress,verifyIntegrity,accountScope), lifetime.Token);
             var report = indexed.Report;
+            if(rebuild)restartCheckpoint=null;
+            if(restartCheckpoint is {} pending&&Quota.Fresh&&Quota.AccountKey is {} currentAccount)
+            {
+                var inferred=await Task.Run(()=>store.AttributeRestartGap(pending,currentAccount,home,openedAt,lifetime.Token),lifetime.Token);
+                restartCheckpoint=null;
+                Program.Log.Write("INFO","Attribution",$"Restart inference completed: {inferred} records; excluded from capacity sampling");
+            }
             var previousTokens=Events.Sum(item=>item.Tokens.Total);
             Events = await Task.Run(() => store.Read(lifetime.Token), lifetime.Token);
             if(Events.Sum(item=>item.Tokens.Total)>previousTokens)
@@ -309,20 +371,35 @@ public sealed partial class LoomApp : Application
             historyLoaded=true;
             capacityHistoryReady=true;
             WeeklyCapacity=ObserveCapacity(Quota);
-            Message = $"{(report.UsedCache ? "文件无变化，使用持久化索引" : "增量索引完成")}：{report.Files} 文件，本次解析 {indexed.BytesParsed:N0} 字节，{report.Warnings} 项警告 · {watch.ElapsedMilliseconds} ms";
-            if(verifyIntegrity)Message="历史前缀完整校验通过 · "+Message;
+            Message = L10n.F("sBF8AACAC3A69", (report.UsedCache ? L10n.T("s38BE587EDD10") : L10n.T("sB164E0EDAEC8")), report.Files, indexed.BytesParsed, report.Warnings, watch.ElapsedMilliseconds);
+            if(verifyIntegrity)Message=L10n.T("s1AD7D8B010C8")+Message;
             if(indexed.BackupPath is not null)Message=indexed.Migrated
-                ?$"{(indexed.PreviousParserVersions.Contains(0)?"未版本化历史":"旧索引 v"+string.Join(',',indexed.PreviousParserVersions))}已安全迁移；已从原始日志重建，旧统计备份为 backups / {Path.GetFileName(indexed.BackupPath)}。{report.Warnings} 项数据质量提示未阻断可恢复记录；{indexed.DeferredFiles} 个活动文件的尾部将在下次增量补齐。"
-                :$"重建完成；旧统计已备份到应用数据目录 backups / {Path.GetFileName(indexed.BackupPath)}。{report.Warnings} 项数据质量提示未阻断可恢复记录；{indexed.DeferredFiles} 个活动文件的尾部将在下次增量补齐。";
+                ?L10n.F("sB389D366B4CF", (indexed.PreviousParserVersions.Contains(0)?L10n.T("sCA6ACDE43454"):L10n.T("s7B2F11B1DAF2")+string.Join(',',indexed.PreviousParserVersions)), Path.GetFileName(indexed.BackupPath), report.Warnings, indexed.DeferredFiles)
+                :L10n.F("sBAC47EE47B83", Path.GetFileName(indexed.BackupPath), report.Warnings, indexed.DeferredFiles);
             Program.Log.Write("INFO", "Scan", Message);
         }
-        catch (OperationCanceledException) { Message = "扫描已取消"; }
+        catch (OperationCanceledException) { Message = L10n.T("s0E17A03E2816"); }
         catch (Exception ex) { scanner.InvalidateCache(); Message = Privacy.Redact(ex.Message); Program.Log.Write("ERROR", "Scan", ex.Message); }
         finally { HistoryStatus=Message;scanning = false; if (!quitting) Changed?.Invoke(); }
     }
+    internal void SetTheme(string theme)
+    {
+        Config.Theme=theme;Config.AppearanceConfigured=true;
+        if(!IsDemo)Config.Save();
+        dashboard?.ApplyTheme();flyout?.ApplyTheme();
+    }
+    internal void SetLanguage(string language)
+    {
+        Config.Language=language;
+        if(!IsDemo)Config.Save();
+        Message=L10n.T("s1D102BCFB482");
+        Changed?.Invoke();
+    }
     internal async Task SaveSettingsAsync()
     {
-        if(Authorizing)throw new InvalidOperationException("请先完成或取消浏览器授权");
+        restartCheckpoint=null;
+        RecordCapacityObservation(Quota,true);
+        if(Authorizing)throw new InvalidOperationException(L10n.T("s3B5CB5F80AA4"));
         capacityEstimator.Reset();WeeklyCapacity=[];SessionNames=new Dictionary<string,string>();
         Config.Save(); configurationGeneration++;
         quotaCancellation.Cancel();
@@ -330,10 +407,11 @@ public sealed partial class LoomApp : Application
         quotaCancellation.Dispose(); quotaCancellation = new();
         await client.StopAsync();
         WatchHistory();historyDirty=true;lastHistoryCheck=DateTimeOffset.MinValue;
-        Quota = new([], null, null, "设置已保存；等待当前账号查询", false);
+        if(Config.CapacityEnabled&&!IsDemo)RestoreCapacity();
+        Quota = new([], null, null, L10n.T("s2A585008799C"), false);
         failures = 0; lastAttempt = DateTimeOffset.MinValue;
         dashboard?.ApplyTheme(); flyout?.ApplyTheme();
-        Message = "设置已保存"; Changed?.Invoke();
+        Message = L10n.T("sBD03C0AAD701"); Changed?.Invoke();
         if (Config.AutoRefresh) await RefreshQuotaAsync(false);
     }
     private void EvaluateNotifications()
@@ -360,6 +438,11 @@ public sealed partial class LoomApp : Application
         if (quotaTask is not null) await quotaTask;
         if (authorizationTask is not null) await authorizationTask;
         if (scanTask is not null) await scanTask;
+        if(!IsDemo&&Quota.Fresh)
+        {
+            try{incremental?.SaveExitCheckpoint(Quota.AccountKey,Config.CodexHome,DateTimeOffset.UtcNow);}
+            catch(Exception ex){Program.Log.Write("WARN","Attribution",ex.Message);}
+        }
         await client.DisposeAsync();
         tray?.Dispose(); tray = null;
         Program.Log.Write("INFO", "App", "正常退出，托盘已清理");
@@ -368,9 +451,9 @@ public sealed partial class LoomApp : Application
     internal void CancelAuthorization()=>authorizationCancellation?.Cancel();
     internal async Task UseCachedLoginAsync(string executable,string home)
     {
-        if(IsDemo){Message="模拟模式不检查真实登录缓存";Changed?.Invoke();return;}
-        if(Authorizing)throw new InvalidOperationException("请先取消或完成当前授权");
-        if(!Path.IsPathFullyQualified(home))throw new ArgumentException("请填写本机 Codex Home 完整目录");
+        if(IsDemo){Message=L10n.T("s70344027B536");Changed?.Invoke();return;}
+        if(Authorizing)throw new InvalidOperationException(L10n.T("s77DDD463240B"));
+        if(!Path.IsPathFullyQualified(home))throw new ArgumentException(L10n.T("sA279FE7C2774"));
         Config.CliPath=executable;Config.CodexHome=home;
         Config.AuthorizedAccount=false;Config.ReuseBackend=false;
         capacityEstimator.Reset();WeeklyCapacity=[];SessionNames=new Dictionary<string,string>();
@@ -379,7 +462,7 @@ public sealed partial class LoomApp : Application
     }
     internal Task AuthorizeAsync(bool logout=false)
     {
-        if(IsDemo){Message="模拟预览不登录或退出账号";Changed?.Invoke();return Task.CompletedTask;}
+        if(IsDemo){Message=L10n.T("s8253A60AB040");Changed?.Invoke();return Task.CompletedTask;}
         if(Authorizing||quitting)return authorizationTask??Task.CompletedTask;
         Authorizing=true;
         authorizationCancellation=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
@@ -396,16 +479,16 @@ public sealed partial class LoomApp : Application
             await client.StopAsync();
             Config.AuthorizedAccount=true;Config.ReuseBackend=false;Config.Save();
             capacityEstimator.Reset();WeeklyCapacity=[];SessionNames=new Dictionary<string,string>();
-            Quota=new([],null,null,logout?"正在退出 UsageLoom 授权账号":"请在浏览器完成官方授权，本地统计不受影响",false);
+            Quota=new([],null,null,logout?L10n.T("sFD38695BC486"):L10n.T("sC125127F9996"),false);
             Message=Quota.Status;Changed?.Invoke();
             if(logout)await client.LogoutAuthorizedAsync(Config.CliPath,AuthorizedHome,ct);
             else await client.LoginAsync(Config.CliPath,AuthorizedHome,uri=>Windows.System.Launcher.LaunchUriAsync(uri).AsTask(),ct);
             succeeded=true;
             Quota=QuotaState.LocalAccount;
-            Message=logout?"已退出 UsageLoom 专用授权，不影响桌面 App 登录":"官方登录完成，正在检查授权账号额度";
+            Message=logout?L10n.T("sC1DF91681D20"):L10n.T("sC0197453392D");
         }
-        catch(OperationCanceledException){Message="授权已取消或超时；未改变本地统计";}
-        catch(Exception){Message="官方授权未完成；请核对后端路径及浏览器授权结果。诊断仅记录失败阶段。";Program.Log.Write("WARN","Login",client.LastStage);}
+        catch(OperationCanceledException){Message=L10n.T("s7A52D6684EBC");}
+        catch(Exception){Message=L10n.T("s4A7579E47EC3");Program.Log.Write("WARN","Login",client.LastStage);}
         finally
         {
             Authorizing=false;authorizationCancellation?.Dispose();authorizationCancellation=null;

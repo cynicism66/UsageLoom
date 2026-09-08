@@ -18,13 +18,13 @@ public static class HistoryQuery
     {
         return kind switch
         {
-            HistoryRangeKind.Day=>new(today,today,"今天"),
-            HistoryRangeKind.Rolling7Days=>new(today.AddDays(-6),today,"近 7 天"),
-            HistoryRangeKind.Week=>new(today.AddDays(-(((int)today.DayOfWeek+6)%7)),today,"本周"),
-            HistoryRangeKind.Month=>new(new DateOnly(today.Year,today.Month,1),today,"本月"),
-            HistoryRangeKind.Custom when customFrom is {} from&&customThrough is {} through&&from<=through=>new(from,through,$"{from:yyyy-MM-dd} 至 {through:yyyy-MM-dd}"),
-            HistoryRangeKind.Custom=>new(null,null,"自定义范围待选择"),
-            _=>new(null,null,"全部历史")
+            HistoryRangeKind.Day=>new(today,today,L10n.T("sD5F5A7A01073")),
+            HistoryRangeKind.Rolling7Days=>new(today.AddDays(-6),today,L10n.T("s2261B06712A3")),
+            HistoryRangeKind.Week=>new(today.AddDays(-(((int)today.DayOfWeek+6)%7)),today,L10n.T("sB4C6C3EB0BCE")),
+            HistoryRangeKind.Month=>new(new DateOnly(today.Year,today.Month,1),today,L10n.T("s0EEECD26F2BA")),
+            HistoryRangeKind.Custom when customFrom is {} from&&customThrough is {} through&&from<=through=>new(from,through,L10n.F("s614210C5CD54", from, through)),
+            HistoryRangeKind.Custom=>new(null,null,L10n.T("s62B0452FA255")),
+            _=>new(null,null,L10n.T("s9713A5277376"))
         };
     }
     public static List<HistoryTrendBucket> HourlyTrend(IEnumerable<UsageEvent> events,DateOnly day)
@@ -36,7 +36,7 @@ public static class HistoryQuery
         foreach(var hour in Enumerable.Range(0,24).Concat(grouped.ContainsKey(-1)?new[]{-1}:Array.Empty<int>()))
         {
             var items=grouped.GetValueOrDefault(hour)??[];
-            buckets.Add(new(day,day,hour<0?"时间未知":$"{hour:00}:00",items.Sum(item=>item.Tokens.Total),items.Count,Pricing.Summarize(items).Cost));
+            buckets.Add(new(day,day,hour<0?L10n.T("s664939A1FA2E"):$"{hour:00}:00",items.Sum(item=>item.Tokens.Total),items.Count,Pricing.Summarize(items).Cost));
         }
         return buckets;
     }
@@ -66,7 +66,7 @@ public static class HistoryQuery
     public static string SessionName(string session,IReadOnlyDictionary<string,string>? names)
     {
         if(names is not null&&names.TryGetValue(session,out var title)&&!string.IsNullOrWhiteSpace(title))return title;
-        return Guid.TryParse(session,out _)||session.Length>24?"未命名会话":session;
+        return Guid.TryParse(session,out _)||session.Length>24?L10n.T("sA91AE6035092"):session;
     }
     public static List<UsageEvent> Filter(IEnumerable<UsageEvent> events,HistoryFilter filter,IReadOnlyDictionary<string,string>? names=null)
     {

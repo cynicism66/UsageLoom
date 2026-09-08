@@ -6,7 +6,7 @@ using UsageLoom.Core;
 namespace UsageLoom.Storage;
 
 public sealed record IndexedFile(string Path,int Version,long Offset,long Length,long Written,long Created,
-    string PrefixHash,List<string> Records,int Warnings,string? AccountScope=null,int IntegrityWarnings=0);
+    string PrefixHash,[property: System.Text.Json.Serialization.JsonConverter(typeof(IndexRecordsConverter))] List<string> Records,int Warnings,string? AccountScope=null,int IntegrityWarnings=0);
 public sealed record IncrementalResult(ScanReport Report,long BytesParsed,int FilesUpdated)
 {
     public string? BackupPath { get; init; }
@@ -21,6 +21,15 @@ public sealed class IncrementalHistory(HistoryStore store)
 {
     public const int ParserVersion=5;
     private readonly SemaphoreSlim gate=new(1,1);
+    private string? observedAccount,observedHome;
+    private DateTimeOffset observedAt;
+    public void SaveExitCheckpoint(string? account,string home,DateTimeOffset closedAt)
+    {
+        if(string.IsNullOrWhiteSpace(account)||account!=observedAccount||
+           !string.Equals(Path.GetFullPath(home),observedHome,StringComparison.OrdinalIgnoreCase)||
+           closedAt<observedAt||closedAt-observedAt>TimeSpan.FromMinutes(5))return;
+        store.SaveRestartCheckpoint(account,home,observedAt,closedAt);
+    }
     public Task<IncrementalResult> ScanAsync(string home,CancellationToken ct,IProgress<string>? progress=null,bool verifyIntegrity=false,string? accountScope=null)
         =>ScanCoreAsync(home,ct,progress,verifyIntegrity,false,accountScope);
     public Task<IncrementalResult> RebuildAsync(string home,CancellationToken ct,IProgress<string>? progress=null)
@@ -28,6 +37,9 @@ public sealed class IncrementalHistory(HistoryStore store)
     private async Task<IncrementalResult> ScanCoreAsync(string home,CancellationToken ct,IProgress<string>? progress,bool verifyIntegrity,bool rebuild,string? accountScope)
     {
         await gate.WaitAsync(ct);
+        var scanStarted=DateTimeOffset.UtcNow;var completed=false;
+        var previousAccount=observedAccount;var previousHome=observedHome;var previousAt=observedAt;
+        observedAccount=null; // Failed scans and restarts cannot establish continuity.
         try
         {
             home=System.IO.Path.GetFullPath(home);
@@ -78,7 +90,12 @@ public sealed class IncrementalHistory(HistoryStore store)
                     }
                     file.Position=old?.Offset??0;var offset=file.Position;var buffer=new byte[65536];var line=new MemoryStream();var oversized=false;
                     var compact=old is null?new List<string>():new List<string>(old.Records);var fileWarnings=old?.Warnings??0;var integrityWarnings=old?.IntegrityWarnings??0;
-                    var recordAccountScope=old is not null&&!string.IsNullOrWhiteSpace(accountScope)&&string.Equals(old.AccountScope,accountScope,StringComparison.Ordinal)?accountScope:null;
+                    var recordAccountScope=old is not null&&!string.IsNullOrWhiteSpace(accountScope)&&previousAccount==accountScope&&string.Equals(previousHome,home,StringComparison.OrdinalIgnoreCase)&&string.Equals(old.AccountScope,accountScope,StringComparison.Ordinal)?accountScope:null;
+                    DateTimeOffset? newFileSince=null;
+                    if(old is null&&!rebuild&&!string.IsNullOrWhiteSpace(accountScope)&&accountScope==previousAccount&&
+                        string.Equals(home,previousHome,StringComparison.OrdinalIgnoreCase)&&scanStarted>=previousAt&&
+                        info.CreationTimeUtc>previousAt.UtcDateTime&&info.CreationTimeUtc<=scanStarted.UtcDateTime)
+                    {recordAccountScope=accountScope;newFileSince=previousAt;}
                     while(file.Position<capturedLength)
                     {
                         var read=await file.ReadAsync(buffer.AsMemory(0,(int)Math.Min(buffer.Length,capturedLength-file.Position)),ct);
@@ -89,7 +106,7 @@ public sealed class IncrementalHistory(HistoryStore store)
                             if(buffer[i]==(byte)'\n')
                             {
                                 if(oversized)fileWarnings++;
-                                else Compact(line.ToArray(),compact,ref fileWarnings,ref integrityWarnings,recordAccountScope);
+                                else Compact(line.ToArray(),compact,ref fileWarnings,ref integrityWarnings,recordAccountScope,newFileSince,scanStarted);
                                 line.SetLength(0);oversized=false;offset=blockStart+i+1;
                             }
                             else if(!oversized)
@@ -102,7 +119,7 @@ public sealed class IncrementalHistory(HistoryStore store)
                     {
                         var complete=false;
                         try{using var tail=JsonDocument.Parse(Encoding.UTF8.GetString(line.ToArray()).TrimStart('\uFEFF'));complete=true;}catch(JsonException){}
-                        if(complete){Compact(line.ToArray(),compact,ref fileWarnings,ref integrityWarnings,recordAccountScope);offset=capturedLength;}
+                        if(complete){Compact(line.ToArray(),compact,ref fileWarnings,ref integrityWarnings,recordAccountScope,newFileSince,scanStarted);offset=capturedLength;}
                     }
                     // 只有不完整末行回退到行首；下次追加从该字节位置重读。
                     line.Dispose();
@@ -123,7 +140,7 @@ public sealed class IncrementalHistory(HistoryStore store)
             }
             if(rebuild&&records.Count==0)throw new InvalidDataException("没有可重建的日志文件，旧统计已保留");
             if(updated.Count==0)
-                return new(new(store.Read(ct),records.Count,warnings,DateTimeOffset.Now){UsedCache=true},0,0);
+            {var cached=store.Read(ct);completed=true;return new(new(cached,records.Count,warnings,DateTimeOffset.Now){UsedCache=true},0,0);}
             HashSet<string>? affectedSessions=null;
             if(!rebuild)
             {
@@ -157,9 +174,10 @@ public sealed class IncrementalHistory(HistoryStore store)
                 return new(report,bytesParsed,updated.Count){BackupPath=backup,RecordsReplayed=replayed,Migrated=migrating,PreviousParserVersions=previousParserVersions,DeferredFiles=deferredFiles};
             }
             store.Save(report,ct,indexes:updated,replaceSessions:affectedSessions);
+            completed=true;
             return new(report,bytesParsed,updated.Count){RecordsReplayed=replayed};
         }
-        finally{gate.Release();}
+        finally{if(completed&&!rebuild){observedAccount=accountScope;observedHome=home;observedAt=scanStarted;}gate.Release();}
     }
     private static string Owner(string path,IReadOnlyList<string> records)
     {
@@ -177,7 +195,7 @@ public sealed class IncrementalHistory(HistoryStore store)
         while(consumed<length){var read=await file.ReadAsync(buffer.AsMemory(0,(int)Math.Min(buffer.Length,length-consumed)),ct);if(read==0)throw new IOException("索引前缀缺失");hash.AppendData(buffer,0,read);consumed+=read;}
         return Convert.ToHexString(hash.GetHashAndReset());
     }
-    private static void Compact(byte[] bytes,List<string> records,ref int warnings,ref int integrityWarnings,string? accountScope)
+    private static void Compact(byte[] bytes,List<string> records,ref int warnings,ref int integrityWarnings,string? accountScope,DateTimeOffset? newFileSince=null,DateTimeOffset scanStarted=default)
     {
         if(bytes.Length==0)return;
         try
@@ -212,6 +230,7 @@ public sealed class IncrementalHistory(HistoryStore store)
                 minimal["type"]="token_count";minimal["info"]=counters;
             }
             else return;
+            if(newFileSince is {} since&&(!DateTimeOffset.TryParse(root.Text("timestamp"),out var timestamp)||timestamp<=since||timestamp>scanStarted))accountScope=null;
             records.Add(JsonSerializer.Serialize(new{type,timestamp=root.Text("timestamp"),account_scope=accountScope,payload=minimal}));
         }
         catch(JsonException){warnings++;integrityWarnings++;}

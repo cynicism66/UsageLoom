@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using UsageLoom.Core;
 
 namespace UsageLoom.App;
 
@@ -15,9 +16,9 @@ internal sealed class TrayIcon : IDisposable
         (this.show, this.details, this.refresh, this.exit) = (show, details, refresh, exit);
         callback = OnMessage;
         var cls = new Native.WindowClass { size = (uint)Marshal.SizeOf<Native.WindowClass>(), procedure = callback, instance = Native.GetModuleHandle(null), className = "UsageLoom.TrayHost" };
-        if (Native.RegisterClassEx(ref cls) == 0) throw new InvalidOperationException("托盘窗口类注册失败");
+        if (Native.RegisterClassEx(ref cls) == 0) throw new InvalidOperationException(L10n.T("sFEFC45E665BA"));
         hwnd = Native.CreateWindowEx(0, cls.className, "UsageLoom", 0, 0, 0, 0, 0, 0, 0, cls.instance, 0);
-        if (hwnd == 0) throw new InvalidOperationException("托盘窗口创建失败");
+        if (hwnd == 0) throw new InvalidOperationException(L10n.T("s2FCDBA60F66B"));
         var pixels = new byte[32 * 32 * 4];
         for (var y = 0; y < 32; y++) for (var x = 0; x < 32; x++)
         {
@@ -28,7 +29,7 @@ internal sealed class TrayIcon : IDisposable
         }
         icon = Native.LoadImage(0,Path.Combine(AppContext.BaseDirectory,"UsageLoom.ico"),1,32,32,0x10);
         if(icon==0)icon = Native.CreateIcon(0, 32, 32, 1, 32, new byte[128], pixels);
-        data = new Native.NotifyData { size = (uint)Marshal.SizeOf<Native.NotifyData>(), window = hwnd, id = 1, flags = 7, callback = 0x8001, icon = icon, tip = "UsageLoom · 本地用量与额度", info = "", title = "" };
+        data = new Native.NotifyData { size = (uint)Marshal.SizeOf<Native.NotifyData>(), window = hwnd, id = 1, flags = 7, callback = 0x8001, icon = icon, tip = L10n.T("sD3ECED23109C"), info = "", title = "" };
         Add();
     }
     private void Add() { if (!Native.Shell_NotifyIcon(0, ref data)) Program.Log.Write("WARN", "Tray", "图标添加失败，等待 Explorer 恢复"); else Program.Log.Write("INFO", "Tray", "托盘图标已创建"); }
@@ -59,7 +60,7 @@ internal sealed class TrayIcon : IDisposable
         var menu = Native.CreatePopupMenu();
         try
         {
-            Native.AppendMenu(menu, 0, 1, "额度面板"); Native.AppendMenu(menu, 0, 2, "详细统计与设置"); Native.AppendMenu(menu, 0, 3, "立即刷新"); Native.AppendMenu(menu, 0x800, 0, ""); Native.AppendMenu(menu, 0, 4, "退出 UsageLoom");
+            Native.AppendMenu(menu, 0, 1, L10n.T("s6ED9D8BDE086")); Native.AppendMenu(menu, 0, 2, L10n.T("s8EAC23D893FB")); Native.AppendMenu(menu, 0, 3, L10n.T("s130123E01753")); Native.AppendMenu(menu, 0x800, 0, ""); Native.AppendMenu(menu, 0, 4, L10n.T("s1CA553FD86AE"));
             Native.GetCursorPos(out var p); Native.SetForegroundWindow(hwnd);
             switch (Native.TrackPopupMenu(menu, 0x100 | 0x2, p.x, p.y, 0, hwnd, 0)) { case 1: show(); break; case 2: details(); break; case 3: refresh(); break; case 4: exit(); break; }
             Native.PostMessage(hwnd, 0, 0, 0);

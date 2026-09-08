@@ -12,16 +12,16 @@ public sealed record TokenUsage(long Input = 0, long Cached = 0, long CacheWrite
     {
         long Read(string key, long fallback = 0)
         {
-            if (e.ValueKind != JsonValueKind.Object) throw new JsonException("Token 记录不是对象");
+            if (e.ValueKind != JsonValueKind.Object) throw new JsonException(L10n.T("s46DED4B259CF"));
             if (!e.TryGetProperty(key, out var value) || value.ValueKind == JsonValueKind.Null) return fallback;
-            if (!value.TryLong(out var number) || number < 0) throw new JsonException("Token 分类必须为非负整数");
+            if (!value.TryLong(out var number) || number < 0) throw new JsonException(L10n.T("s454F0C311E2E"));
             return number;
         }
         var usage = new TokenUsage(Read("input_tokens"), Read("cached_input_tokens", previous?.Cached ?? 0),
             Read("cache_write_input_tokens", previous?.CacheWrite ?? 0), Read("output_tokens"), Read("reasoning_output_tokens", previous?.Reasoning ?? 0));
-        if (!usage.Valid) throw new JsonException("Token 分类关系无效");
+        if (!usage.Valid) throw new JsonException(L10n.T("s67F4E4082B46"));
         if (e.TryGetProperty("total_tokens", out var total) && total.ValueKind != JsonValueKind.Null &&
-            (!total.TryLong(out var declared) || declared != usage.Total)) throw new JsonException("Token 总量与分类不一致");
+            (!total.TryLong(out var declared) || declared != usage.Total)) throw new JsonException(L10n.T("sAA365478E46B"));
         return usage;
     }
 }
@@ -30,6 +30,7 @@ public sealed record UsageEvent(string Id, string Session, string Project, strin
     public int Segment { get; init; }
     public string? QualityNote { get; init; }
     public string? AccountScope { get; init; }
+    public string? AccountAttribution { get; init; }
 }
 public sealed record ScanReport(List<UsageEvent> Events, int Files, int Warnings, DateTimeOffset ScannedAt)
 {
@@ -45,12 +46,12 @@ public sealed record QuotaWindow(string Key, string Label, double Used, int Minu
     public string RemainingText => Remaining>99.9&&Remaining<100?">99.9%":Remaining>0&&Remaining<.1?"<0.1%":$"{Remaining:0.#}%";
     public string ResetCountdown(DateTimeOffset now)
     {
-        if(ResetsAt is not {} at)return "重置时间暂不可用";
+        if(ResetsAt is not {} at)return L10n.T("sFB4EF6852264");
         var left=at-now;
-        if(left<=TimeSpan.Zero)return "已到重置时间，等待刷新确认";
+        if(left<=TimeSpan.Zero)return L10n.T("s8149D5B6846D");
         var minutes=(long)Math.Ceiling(left.TotalMinutes);
         var days=minutes/1440;var hours=minutes%1440/60;var rest=minutes%60;
-        return "距离重置 "+(days>0?$"{days} 天 ":"")+(hours>0?$"{hours} 小时 ":"")+(rest>0?$"{rest} 分钟":"").TrimEnd();
+        return L10n.T("s407FA6B07943")+(days>0?L10n.F("s658760D2AB1E", days):"")+(hours>0?L10n.F("s470A7C92EF5A", hours):"")+(rest>0?L10n.F("sC65627EAD130", rest):"").TrimEnd();
     }
 }
 public sealed record QuotaState(List<QuotaWindow> Windows, int? ResetCount, DateTimeOffset? FetchedAt, string Status, bool Fresh, string? AccountKey = null, string? Plan = null)
@@ -63,10 +64,10 @@ public sealed record QuotaState(List<QuotaWindow> Windows, int? ResetCount, Date
     public IEnumerable<QuotaWindow> PrimaryWindows => Windows.Where(window=>window.IsPrimary);
     public IEnumerable<QuotaWindow> OtherWindows => Windows.Where(window=>!window.IsPrimary);
     public QuotaState ClearUnverifiedSnapshot(string status)=>SnapshotOnly?this with{Windows=[],ResetCount=null,FetchedAt=null,Fresh=false,Status=status}:this;
-    public string AccountLabel => IsAuthorizedAccount?"UsageLoom 授权账号":IsCachedAccount?"本机缓存账号":AccountKey is null ? "本地账户" : "当前查询账户";
-    public string PlanDisplay => IsLocalAccount?"本地模式 · 无在线套餐":string.IsNullOrWhiteSpace(Plan)?"套餐暂不可用":
-        "套餐："+(Plan.Trim().ToLowerInvariant() switch{"free"=>"Free","plus"=>"Plus","prolite"=>"Pro 5X","pro"=>"Pro 20X","team"=>"Team","business"=>"Business","enterprise"=>"Enterprise","edu"=>"Edu",_=>Plan.Trim()+"（后端标识）"})+(Fresh?"":" · 待刷新确认");
-    public static QuotaState LocalAccount => new([],null,null,"本地账户 · 未登录，仍可统计本机 Token；在线额度与重置次数暂不可用",false){IsLocalAccount=true};
+    public string AccountLabel => IsAuthorizedAccount?L10n.T("s7FA72B2E0D53"):IsCachedAccount?L10n.T("s4D9071E7F3DD"):AccountKey is null ? L10n.T("s99D2089F4407") : L10n.T("s1ECA54C16740");
+    public string PlanDisplay => IsLocalAccount?L10n.T("sE4174722F2CB"):string.IsNullOrWhiteSpace(Plan)?L10n.T("s0607D6675FE0"):
+        L10n.T("s63F426BC249E")+(Plan.Trim().ToLowerInvariant() switch{"free"=>"Free","plus"=>"Plus","prolite"=>"Pro 5X","pro"=>"Pro 20X","team"=>"Team","business"=>"Business","enterprise"=>"Enterprise","edu"=>"Edu",_=>Plan.Trim()+L10n.T("s93D0582816C8")})+(Fresh?"":L10n.T("s5B8BFF4DF405"));
+    public static QuotaState LocalAccount => new([],null,null,L10n.T("s3EC630C3E092"),false){IsLocalAccount=true};
 }
 
 public static class JsonFields
@@ -87,7 +88,7 @@ public static class QuotaParser
     public static QuotaState Parse(JsonElement result, DateTimeOffset now, string? accountKey, string? plan)
     {
         var windows=new List<QuotaWindow>();
-        if(result.ValueKind!=JsonValueKind.Object)return new([],null,null,"额度响应格式无效",false);
+        if(result.ValueKind!=JsonValueKind.Object)return new([],null,null,L10n.T("s0F0DAC9297DD"),false);
         void ReadBucket(string id,JsonElement bucket)
         {
             if(bucket.ValueKind!=JsonValueKind.Object)return;
@@ -96,12 +97,12 @@ public static class QuotaParser
                 var e=property.Value;
                 if(e.ValueKind!=JsonValueKind.Object || !e.TryGetProperty("usedPercent",out var used)||used.ValueKind!=JsonValueKind.Number||!used.TryGetDouble(out var percent)||!double.IsFinite(percent)||percent<0||percent>100)continue;
                 var duration=e.NullableNumber("windowDurationMins");if(duration is null or <=0 or >int.MaxValue)continue;
-                var label=duration switch{300=>"5 小时额度",10080=>"每周额度",1440=>"每日额度",_=>$"{duration} 分钟额度"};
+                var label=duration switch{300=>L10n.T("sEE0C10BF45F6"),10080=>L10n.T("s475811D50FA9"),1440=>L10n.T("sDDEA7144CA0D"),_=>L10n.F("sB1294AF90CCA", duration)};
                 var name=bucket.Text("limitName");
                 // Confirmed by official account/rateLimits/read: this ID names Spark.
                 var spark=string.Equals(name,"GPT-5.3-Codex-Spark",StringComparison.OrdinalIgnoreCase)
                     ||string.IsNullOrWhiteSpace(name)&&id=="codex_bengalfox";
-                var group=string.IsNullOrWhiteSpace(name)?id+"（用途未确认）":name+"（"+id+"）";
+                var group=string.IsNullOrWhiteSpace(name)?id+L10n.T("sD06DFAAB2A0F"):name+"（"+id+"）";
                 windows.Add(new(id+":"+property.Name, id=="codex"||spark?label:group+" · "+label,Math.Clamp(percent,0,100),(int)duration,e.Epoch("resetsAt")){IsSpark=spark&&id!="codex"});
             }
         }
@@ -111,6 +112,6 @@ public static class QuotaParser
         int? count=null;
         if(result.TryGetProperty("rateLimitResetCredits",out var resets)&&resets.ValueKind==JsonValueKind.Object&&resets.NullableNumber("availableCount") is >=0 and <=int.MaxValue)
             count=(int)resets.Number("availableCount");
-        return new(windows,count,now,windows.Count==0?"服务端未提供额度窗口":"当前 CLI 查询成功",windows.Count>0,accountKey,plan);
+        return new(windows,count,now,windows.Count==0?L10n.T("sBB0A9BCC61AF"):L10n.T("s3153571BC640"),windows.Count>0,accountKey,plan);
     }
 }

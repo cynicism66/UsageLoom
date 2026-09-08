@@ -139,6 +139,55 @@ Test("周容量只用同窗口成对增量并公开可信度",() =>
     Check(Math.Abs(second.EstimatedTokens-10_000_000)<1&&second.Samples==2&&second.Confidence=="中");
     Check(tracker.Observe(State(1,at.AddDays(7)),1_700_000).Count==0,"新周窗口必须重新采样");
 });
+Test("重置后展示上次有效估算但新样本独立，跨重启套餐账号隔离",() =>
+{
+    var reset=DateTimeOffset.Now.AddDays(5);var tracker=new WeeklyCapacityEstimator();
+    QuotaState State(double used,DateTimeOffset at)=>new QuotaState([new("codex:weekly","每周额度",used,10080,at)],null,DateTimeOffset.Now,"ok",true,"account"){Plan="prolite"};
+    tracker.Observe(State(10,reset),1000);tracker.Observe(State(12,reset),1200);tracker.Observe(State(16,reset),1600);
+    var saved=tracker.Export()!;Check(saved.Windows.Single().Percent==6);
+    tracker.Observe(State(1,reset.AddDays(7)),9000);
+    Check(tracker.Current.Count==0&&tracker.Export()!.Windows.Count==0);
+    Check(tracker.DisplayCurrent.Single().HistoricalAt is not null&&tracker.DisplayCurrent.Single().EstimatedTokens==10000);
+    tracker.Observe(State(3,reset.AddDays(7)),9400);Check(tracker.DisplayCurrent.Single().HistoricalAt is not null);
+    tracker.Observe(State(6,reset.AddDays(7)),10000);
+    Check(tracker.DisplayCurrent.Single().HistoricalAt is null&&tracker.DisplayCurrent.Single().EstimatedTokens==20000);
+    var restarted=new WeeklyCapacityEstimator();restarted.Restore(new(2,"account","prolite",Pricing.CatalogVersion,DateTimeOffset.Now,[]),[saved]);
+    restarted.Observe(State(0,reset.AddDays(7)),50000);Check(restarted.DisplayCurrent.Single().HistoricalAt is not null&&restarted.Export()!.Windows.Count==0);
+    restarted.Observe(State(0,reset.AddDays(7)) with{Plan="pro"},50000);Check(restarted.DisplayCurrent.Count==0);
+    restarted.Observe(State(0,reset.AddDays(7)) with{AccountKey="other"},50000);Check(restarted.DisplayCurrent.Count==0);
+    restarted.Restore(saved);restarted.Observe(State(1,reset),60000);Check(restarted.DisplayCurrent.Single().HistoricalAt is not null&&restarted.Current.Count==0);
+});
+Test("时间配对保留小数平台与端点，确认补归属和迟到日志替换样本",() =>
+{
+    var at=DateTimeOffset.UtcNow;var reset=at.AddDays(7);
+    QuotaObservation O(int minute,double used)=>new(at.AddMinutes(minute),"a","prolite",Pricing.CatalogVersion,[new("codex:weekly","weekly",used,10080,reset)]);
+    UsageEvent E(string id,int minute,long tokens,string? scope="a")=>new(id,"s","p","gpt-5.4","main",at.AddMinutes(minute),"2026-09-08",new(tokens),Source:"source"){AccountScope=scope};
+    var observations=new[]{O(0,1.25),O(1,1.25),O(3,3.75),O(5,6.25)};
+    var events=new[]{E("lower",0,999),E("a",1,100),E("b",3,200,null),E("c",5,300),E("future",6,999)};
+    var first=TemporalCapacity.Calculate(observations,events);
+    Check(first.Cache!.Windows.Single().Tokens==300&&first.Intervals.Count==2&&first.Intervals[0].Exclusion=="unverified-ownership");
+    events[2]=events[2] with{AccountScope="a",AccountAttribution="user-confirmed"};
+    var corrected=TemporalCapacity.Calculate(observations,events);
+    Check(corrected.Cache!.Version==3&&corrected.Cache.Windows.Single().Tokens==600&&corrected.Cache.Windows.Single().Percent==5);
+    Check(corrected.Intervals[0].EventIds.SequenceEqual(new[]{"a","b"}));
+    var late=TemporalCapacity.Calculate(observations,events.Append(E("late",2,50)));
+    Check(late.Cache!.Windows.Single().Tokens==650&&late.Intervals.Count==2);
+    Check(TemporalCapacity.Calculate(observations,events).Cache!.Windows.Single().Tokens==600);
+    events[2]=events[2] with{AccountAttribution="restart-inferred"};
+    Check(TemporalCapacity.Calculate(observations,events).Cache!.Windows.Single().Tokens==300);
+});
+Test("时间配对断开账号套餐重置缺价口径和关闭边界",() =>
+{
+    var at=DateTimeOffset.UtcNow;var reset=at.AddDays(1);
+    QuotaObservation O(int min,double used)=>new(at.AddMinutes(min),"a","prolite",Pricing.CatalogVersion,[new("codex:weekly","weekly",used,10080,reset)]);
+    var row=new UsageEvent("e","s","p","unknown","main",at.AddSeconds(30),"2026-09-08",new(100)){AccountScope="a",AccountAttribution="user-confirmed"};
+    foreach(var end in new[]{O(1,20) with{Account="b"},O(1,20) with{Plan="pro"},O(1,20) with{PricingVersion="different"},O(1,0),O(1,20) with{Windows=[new("codex:weekly","weekly",20,10080,reset.AddDays(7))]}})
+        Check(TemporalCapacity.Calculate([O(0,10),end],[row]).Intervals.Count==0);
+    Check(TemporalCapacity.Calculate([O(0,10),new(at.AddSeconds(10),null,null,Pricing.CatalogVersion,[],true),O(1,20)],[row]).Intervals.Count==0);
+    var valid=TemporalCapacity.Calculate([O(0,10),O(1,20)],[row]);
+    Check(valid.Cache!.Windows.Single().Tokens==100&&valid.Cache.Windows.Single().Priced==0);
+    Check(TemporalCapacity.Calculate([O(0,10),O(1,20)],[row with{Timestamp=null}]).Cache!.Windows.Count==0);
+});
 Test("额度变化没有本机 Token 增量时不伪造周容量",() =>
 {
     var tracker=new WeeklyCapacityEstimator();var reset=DateTimeOffset.Now.AddDays(3);
@@ -363,6 +412,41 @@ Test("本地账户指纹稳定隔离且不保存邮箱",() =>
     Check(first==same&&first!=other&&first is not null&&!first.Contains("example",StringComparison.OrdinalIgnoreCase));
     Check(File.ReadAllBytes(path).Length==32&&!File.ReadAllText(path).Contains("test@example.com",StringComparison.OrdinalIgnoreCase));
     Check(new LocalAccountFingerprint(path).Create("email","test@example.com")==first);
+});
+Test("修复工具对象索引兼容保留归属和64位时间，其他损坏仍拒绝",() =>
+{
+    var json="""{"Path":"test","Version":5,"Offset":0,"Length":0,"Written":639000000000000001,"Created":639000000000000003,"PrefixHash":"","Records":[{"type":"event_msg","account_attribution":"user-confirmed","account_scope":"a","payload":{"type":"token_count"}}],"Warnings":0}""";
+    var index=JsonSerializer.Deserialize<IndexedFile>(json)!;
+    Check(index.Written==639000000000000001&&index.Created==639000000000000003);
+    Check(Json(index.Records.Single()).GetProperty("account_scope").GetString()=="a");
+    var normalized=JsonSerializer.Serialize(index);Check(Json(normalized).GetProperty("Records")[0].ValueKind==JsonValueKind.String);
+    Check(JsonSerializer.Deserialize<IndexedFile>(normalized)!.Written==index.Written);
+    var rejected=false;try{JsonSerializer.Deserialize<IndexedFile>(json.Replace("user-confirmed","unexpected"));}catch(JsonException){rejected=true;}Check(rejected);
+});
+Test("扫描未完成也可按已核实账号回显历史但不产生新样本",() =>
+{
+    var at=DateTimeOffset.Now;var tracker=new WeeklyCapacityEstimator();
+    var cache=new CapacityCache(2,"a","prolite",Pricing.CatalogVersion,at.AddHours(-1),[new("codex:weekly","weekly",at.AddDays(7),15,13,10000,10m,8000,13,0)]);
+    tracker.Restore(cache);
+    var quota=new QuotaState([new("codex:weekly","weekly",18,10080,at.AddDays(7))],null,at,"ok",true,"a","prolite");
+    tracker.ApplyTemporal(quota,null,0,null);
+    Check(tracker.DisplayCurrent.Single().HistoricalAt is not null&&tracker.Current.Count==0);
+    tracker.ApplyTemporal(quota with{AccountKey="b"},null,0,null);Check(tracker.DisplayCurrent.Count==0);
+});
+Test("时间快照跨重启持久化并保留原始小数与区间替换",() =>
+{
+    var folder=Fixture("temporal-store");var store=new HistoryStore(folder);var at=DateTimeOffset.UtcNow;
+    var o=new QuotaObservation(at,"a","prolite",Pricing.CatalogVersion,[new("codex:weekly","weekly",12.3456789,10080,at.AddDays(7))]);
+    store.SaveQuotaObservation(o);store.SaveQuotaObservation(o);
+    var loaded=new HistoryStore(folder).ReadQuotaObservations();Check(loaded.Count==1&&loaded[0].Windows.Single().Used==12.3456789&&loaded[0].At==at);
+    var end=o with{At=at.AddMinutes(1),Windows=[o.Windows[0] with{Used=15.3456789}]};store.SaveQuotaObservation(end);
+    var e=new UsageEvent("e","s","p","unknown","main",at.AddSeconds(20),"2026-09-08",new(100)){AccountScope="a",AccountAttribution="user-confirmed"};
+    var result=TemporalCapacity.Calculate(store.ReadQuotaObservations(),[e]);store.SaveTemporalIntervals(result.Intervals,result.History);store.SaveTemporalIntervals(result.Intervals,result.History);
+    Check(store.ReadCapacityHistory().Single().Windows.Single().Tokens==100);
+    var repaired=TemporalCapacity.Calculate(store.ReadQuotaObservations(),[e with{Tokens=new(200)}]);store.SaveTemporalIntervals(repaired.Intervals,repaired.History);
+    Check(store.ReadCapacityHistory().Single().Windows.Single().Tokens==200);
+    using var c=new Microsoft.Data.Sqlite.SqliteConnection("Data Source="+Path.Combine(folder,"usage-v2.sqlite"));c.Open();using var command=c.CreateCommand();command.CommandText="SELECT count(*) FROM capacity_intervals";
+    Check(Convert.ToInt32(command.ExecuteScalar())==1);
 });
 AsyncTest("重复扫描、累计去重与分类修正", async () =>
 {
@@ -775,6 +859,28 @@ AsyncTest("账号用量只归属连续稳定登录后的增量",async()=>
     Check(rows.Where(item=>item.AccountScope=="local-v1:A").Sum(item=>item.Tokens.Total)==100);
     Check(rows.Where(item=>item.AccountScope=="local-v1:B").Sum(item=>item.Tokens.Total)==100);
 });
+AsyncTest("新会话首次扫描仅归属连续账号观察期间的新增记录",async()=>
+{
+    var home=Fixture("new-session-account");var store=new HistoryStore(Path.Combine(home,"data"));var scanner=new IncrementalHistory(store);
+    await scanner.ScanAsync(home,default,accountScope:"A");
+    // Windows creation timestamps can have coarser precision than UtcNow.
+    // Keep this positive-case fixture away from the conservative boundary.
+    await Task.Delay(50);
+    var file=Path.Combine(home,"sessions","fresh.jsonl");
+    await File.WriteAllLinesAsync(file,[Meta("fresh"),Model(),Count(80,20,timestamp:DateTimeOffset.UtcNow.ToString("O"))]);
+    await scanner.ScanAsync(home,default,accountScope:"A");
+    Check(store.Read().Single().AccountScope=="A","fresh scope missing");
+    await File.WriteAllLinesAsync(Path.Combine(home,"sessions","import.jsonl"),[Meta("import"),Model(),Count(80,20)]);
+    await scanner.ScanAsync(home,default,accountScope:"A");
+    Check(store.Read().Single(e=>e.Session=="import").AccountScope is null,"import scope leaked");
+    await File.WriteAllLinesAsync(Path.Combine(home,"sessions","switch.jsonl"),[Meta("switch"),Model(),Count(80,20,timestamp:DateTimeOffset.UtcNow.ToString("O"))]);
+    await scanner.ScanAsync(home,default,accountScope:"B");
+    Check(store.Read().Single(e=>e.Session=="switch").AccountScope is null);
+    var restarted=new IncrementalHistory(store);
+    await File.WriteAllLinesAsync(Path.Combine(home,"sessions","restart.jsonl"),[Meta("restart"),Model(),Count(80,20,timestamp:DateTimeOffset.UtcNow.ToString("O"))]);
+    await restarted.ScanAsync(home,default,accountScope:"B");
+    Check(store.Read().Single(e=>e.Session=="restart").AccountScope is null);
+});
 AsyncTest("两万条事件性能样例与跨重启追加一致性",async()=>
 {
     var home=Fixture("scale");const int files=200,rows=100;
@@ -977,6 +1083,71 @@ Test("周容量不混入其他账号和未归属历史",()=>
     var spark=own with {Model="gpt-5.3-codex-spark"};
     Check(CapacityUsage.ForAccount([own,other,unknown,spark],"a").Count==1);
     Check(CapacityUsage.ForAccount([own,other,unknown],null).Count==0);
+});
+AsyncTest("跨重启只推定同账号边界内新记录并持久保留标记",async()=>
+{
+    var home=Fixture("restart-inference");var file=Path.Combine(home,"sessions","existing.jsonl");
+    var store=new HistoryStore(Path.Combine(home,"data"));var scanner=new IncrementalHistory(store);
+    await File.WriteAllLinesAsync(file,[Meta("existing"),Model(),Count(80,20)]);
+    await scanner.ScanAsync(home,default,accountScope:"A");
+    scanner.SaveExitCheckpoint("A",home,DateTimeOffset.UtcNow);
+    var checkpoint=store.TakeRestartCheckpoint()!;Check(checkpoint is not null);Check(store.TakeRestartCheckpoint() is null);
+    await Task.Delay(50);
+    await File.AppendAllTextAsync(file,Count(160,40,timestamp:DateTimeOffset.UtcNow.ToString("O"))+"\n");
+    await File.WriteAllLinesAsync(Path.Combine(home,"sessions","new.jsonl"),[Meta("new"),Model(),Count(80,20,timestamp:DateTimeOffset.UtcNow.ToString("O"))]);
+    await File.WriteAllLinesAsync(Path.Combine(home,"sessions","import.jsonl"),[Meta("import"),Model(),Count(80,20)]);
+    await File.WriteAllLinesAsync(Path.Combine(home,"sessions","unknown.jsonl"),[Meta("unknown"),Model(),Count(80,20,timestamp:"invalid")]);
+    await File.WriteAllLinesAsync(Path.Combine(home,"sessions","future.jsonl"),[Meta("future"),Model(),Count(80,20,timestamp:DateTimeOffset.UtcNow.AddHours(1).ToString("O"))]);
+    var opened=DateTimeOffset.UtcNow;var restarted=new IncrementalHistory(store);
+    await restarted.ScanAsync(home,default,accountScope:"A");
+    var before=store.Read().Sum(e=>e.Tokens.Total);var created=store.ReadIndexes().ToDictionary(p=>p.Key,p=>(p.Value.Created,p.Value.Written));
+    Check(store.AttributeRestartGap(checkpoint!,"B",home,opened)==0);
+    Check(store.AttributeRestartGap(checkpoint!,"A",home,checkpoint!.ClosedAt.AddSeconds(-1))==0);
+    using(var canceled=new CancellationTokenSource())
+    {
+        canceled.Cancel();try{store.AttributeRestartGap(checkpoint!,"A",home,opened,canceled.Token);throw new Exception("Expected cancellation");}catch(OperationCanceledException){}
+    }
+    Check(store.Read().All(e=>e.AccountScope is null));
+    Check(store.AttributeRestartGap(checkpoint!,"A",home,opened)==2);
+    var after=store.Read();Check(after.Sum(e=>e.Tokens.Total)==before);
+    Check(after.Where(e=>e.AccountAttribution=="restart-inferred").Sum(e=>e.Tokens.Total)==200);
+    Check(CapacityUsage.ForAccount(after,"A").Count==0);
+    Check(after.Where(e=>e.Session is "import" or "unknown" or "future").All(e=>e.AccountScope is null));
+    foreach(var (key,index) in store.ReadIndexes())Check(created[key]==(index.Created,index.Written));
+    Check(store.AttributeRestartGap(checkpoint!,"A",home,opened)==0);
+    await File.AppendAllTextAsync(file,Count(240,60,timestamp:DateTimeOffset.UtcNow.ToString("O"))+"\n");
+    await restarted.ScanAsync(home,default,accountScope:"A");
+    Check(store.Read().Count(e=>e.AccountAttribution=="restart-inferred")==2);
+    Check(CapacityUsage.ForAccount(store.Read(),"A").Sum(e=>e.Tokens.Total)==100);
+});
+Test("双语资源键与格式占位符完整一致",()=>
+{
+    var assembly=typeof(L10n).Assembly;
+    Dictionary<string,string> Read(string language){using var stream=assembly.GetManifestResourceStream($"UsageLoom.Core.Localization.{language}.json")!;return JsonSerializer.Deserialize<Dictionary<string,string>>(stream)!;}
+    var zh=Read("zh-CN");var en=Read("en-US");
+    Check(zh.Count>=446&&zh.Keys.Order().SequenceEqual(en.Keys.Order()));
+    foreach(var key in zh.Keys)
+    {
+        Check(!System.Text.RegularExpressions.Regex.IsMatch(en[key],"[\\u4e00-\\u9fff]"),key);
+        Check(System.Text.CompositeFormat.Parse(zh[key]).MinimumArgumentCount==System.Text.CompositeFormat.Parse(en[key]).MinimumArgumentCount,key);
+        string[] Fields(string text)=>System.Text.RegularExpressions.Regex.Matches(text,@"\{\d+(?:,[^}:]+)?(?::[^}]+)?\}").Select(m=>m.Value).Order().ToArray();
+        Check(Fields(zh[key]).SequenceEqual(Fields(en[key])),key);
+    }
+});
+Test("语言仅改变展示且不改变账号窗口与计价",()=>
+{
+    var before=L10n.Language;
+    try
+    {
+        var data=Event("language",100,20);var cost=Pricing.Summarize([data]).Cost;
+        L10n.Language="en-US";
+        Check(L10n.T("sDF3D58C7D84B")=="Settings");
+        Check(QuotaState.LocalAccount.AccountLabel=="Local account");
+        Check(HistoryQuery.ResolveRange(HistoryRangeKind.Day,DateOnly.FromDateTime(DateTime.Today)).Label=="Today");
+        Check(Pricing.Summarize([data]).Cost==cost);
+        Check(L10n.F("s1F2CD6B8A261",338.7m).Contains("week"));
+    }
+    finally{L10n.Language=before;}
 });
 try
 {

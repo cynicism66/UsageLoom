@@ -18,22 +18,22 @@ internal static class UsageCharts
         var root=new StackPanel{Spacing=12};var header=new Grid{ColumnSpacing=16,RowSpacing=8};
         header.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});header.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
         header.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});header.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
-        header.Children.Add(new TextBlock{Text="历史趋势",FontSize=19,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,VerticalAlignment=VerticalAlignment.Center});
+        header.Children.Add(new TextBlock{Text=L10n.T("s1BB33A9E6313"),FontSize=19,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,VerticalAlignment=VerticalAlignment.Center});
         var headerRight=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8,HorizontalAlignment=HorizontalAlignment.Right};Grid.SetColumn(headerRight,1);header.Children.Add(headerRight);
         var totalText=new TextBlock{FontSize=18,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,Foreground=new SolidColorBrush(Colorset[0]),VerticalAlignment=VerticalAlignment.Center,Margin=new Thickness(0,0,4,0)};headerRight.Children.Add(totalText);
         var buttons=new Dictionary<TrendMetric,Button>();
-        foreach(var (metric,label) in new[]{(TrendMetric.Tokens,"总 Token"),(TrendMetric.Requests,"请求数"),(TrendMetric.Cost,"估算价值")})
+        foreach(var (metric,label) in new[]{(TrendMetric.Tokens,L10n.T("s9638021CAEE5")),(TrendMetric.Requests,L10n.T("s855754C132F3")),(TrendMetric.Cost,L10n.T("sB8D69B30E00B"))})
         {
             var button=new Button{Content=label,Padding=new Thickness(11,6,11,6),CornerRadius=new CornerRadius(8),FontSize=12};
             buttons[metric]=button;headerRight.Children.Add(button);
         }
-        var caption=new TextBlock{Text=(hourly?"按本地时间逐小时聚合 · 悬停查看小时明细；缺失时间单独列出":"按本地日志聚合 · 点击数据点进入对应日期")+" · 请求数仅含带 Token 的完成请求，不含失败、取消与零 Token 尝试",FontSize=11,Opacity=.62,TextWrapping=TextWrapping.Wrap};Grid.SetRow(caption,1);Grid.SetColumnSpan(caption,2);header.Children.Add(caption);
+        var caption=new TextBlock{Text=(hourly?L10n.T("s3A3C6EC37497"):L10n.T("s18A912CFCF51"))+L10n.T("s94186ECB2771"),FontSize=11,Opacity=.62,TextWrapping=TextWrapping.Wrap};Grid.SetRow(caption,1);Grid.SetColumnSpan(caption,2);header.Children.Add(caption);
         root.Children.Add(header);
         var chartHost=new Grid{Height=292,MinWidth=0};
         var canvas=new Canvas{Height=height,HorizontalAlignment=HorizontalAlignment.Stretch,VerticalAlignment=VerticalAlignment.Stretch,Background=new SolidColorBrush(Colors.Transparent)};chartHost.Children.Add(canvas);root.Children.Add(chartHost);
         if(buckets.Count==0)
         {
-            chartHost.Children.Clear();chartHost.Children.Add(new TextBlock{Text="所选时间范围暂无本地用量",FontSize=15,Opacity=.65,TextAlignment=TextAlignment.Center,HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center});
+            chartHost.Children.Clear();chartHost.Children.Add(new TextBlock{Text=L10n.T("s6518A3BADD61"),FontSize=15,Opacity=.65,TextAlignment=TextAlignment.Center,HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center});
             totalText.Text="—";foreach(var button in buttons.Values)button.IsEnabled=false;return root;
         }
         var metricValue=TrendMetric.Tokens;
@@ -41,7 +41,7 @@ internal static class UsageCharts
         static string FormatCost(double value)=>value<=0?"$0":value<.01?$"${value:0.0000}":$"${value:0.##}";
         string Format(double value)=>metricValue switch{TrendMetric.Requests=>$"{value:0}",TrendMetric.Cost=>FormatCost(value),_=>FormatNumber(value)};
         double Value(HistoryTrendBucket bucket)=>metricValue switch{TrendMetric.Requests=>bucket.Requests,TrendMetric.Cost=>(double)bucket.EstimatedCost,_=>bucket.Tokens};
-        string Exact(HistoryTrendBucket bucket)=>metricValue switch{TrendMetric.Requests=>$"{bucket.Requests:N0} 次",TrendMetric.Cost=>$"${bucket.EstimatedCost:N4}",_=>$"{bucket.Tokens:N0} Token"};
+        string Exact(HistoryTrendBucket bucket)=>metricValue switch{TrendMetric.Requests=>L10n.F("s6E078A45FC35", bucket.Requests),TrendMetric.Cost=>$"${bucket.EstimatedCost:N4}",_=>$"{bucket.Tokens:N0} Token"};
         var accent=new SolidColorBrush(Colorset[0]);var gridBrush=new SolidColorBrush(ColorHelper.FromArgb(46,127,132,150));var baselineBrush=new SolidColorBrush(ColorHelper.FromArgb(86,127,132,150));
         var currentWidth=960d;var plotWidth=currentWidth-left-right;var plotHeight=height-top-bottom;Point[] currentPoints=[];Line? indicator=null;Border? tooltip=null;TextBlock? tooltipText=null;
         void Draw()
@@ -100,7 +100,7 @@ internal static class UsageCharts
         {
             if(currentPoints.Length==0||indicator is null||tooltip is null||tooltipText is null)return;
             var index=Nearest(e.GetCurrentPoint(canvas).Position.X);indicator.X1=indicator.X2=currentPoints[index].X;indicator.Visibility=Visibility.Visible;
-            tooltipText.Text=$"{buckets[index].From:yyyy-MM-dd}"+(hourly?$" · {buckets[index].Label}":buckets[index].From==buckets[index].Through?"":$" 至 {buckets[index].Through:yyyy-MM-dd}")+$"\nToken  {buckets[index].Tokens:N0}\n完成请求  {buckets[index].Requests:N0}\n估算价值  ${buckets[index].EstimatedCost:N4}";
+            tooltipText.Text=$"{buckets[index].From:yyyy-MM-dd}"+(hourly?$" · {buckets[index].Label}":buckets[index].From==buckets[index].Through?"":L10n.F("sBB1DCF021E6A", buckets[index].Through))+L10n.F("s0B429D8FF175", buckets[index].Tokens, buckets[index].Requests, buckets[index].EstimatedCost);
             Canvas.SetLeft(tooltip,Math.Clamp(currentPoints[index].X-102,8,currentWidth-212));Canvas.SetTop(tooltip,8);tooltip.Visibility=Visibility.Visible;
         };
         canvas.PointerExited+=(_,_)=>{if(indicator is not null)indicator.Visibility=Visibility.Collapsed;if(tooltip is not null)tooltip.Visibility=Visibility.Collapsed;};
@@ -110,12 +110,12 @@ internal static class UsageCharts
             var narrow=e.NewSize.Width<700;Grid.SetColumn(headerRight,narrow?0:1);Grid.SetRow(headerRight,narrow?1:0);Grid.SetColumnSpan(headerRight,narrow?2:1);headerRight.HorizontalAlignment=narrow?HorizontalAlignment.Left:HorizontalAlignment.Right;headerRight.Orientation=narrow?Orientation.Horizontal:Orientation.Horizontal;
         };
         canvas.SizeChanged+=(_,e)=>{if(e.NewSize.Width>1&&Math.Abs(e.NewSize.Width-currentWidth)>.5)Draw();};
-        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(canvas,"本地用量历史趋势图");Draw();return root;
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(canvas,L10n.T("sDE3A2D3FA72A"));Draw();return root;
     }
     internal static FrameworkElement Bars(IReadOnlyList<(string Day,long Total)> days,Action<string> select)
     {
         var grid=new Grid{Height=190,ColumnSpacing=8,Margin=new Thickness(0,8,0,0)};
-        if(days.Count==0){grid.Children.Add(new TextBlock{Text="暂无每日记录",VerticalAlignment=VerticalAlignment.Center,HorizontalAlignment=HorizontalAlignment.Center,Opacity=.65});return grid;}
+        if(days.Count==0){grid.Children.Add(new TextBlock{Text=L10n.T("s26FDD367E960"),VerticalAlignment=VerticalAlignment.Center,HorizontalAlignment=HorizontalAlignment.Center,Opacity=.65});return grid;}
         var maximum=Math.Max(1,days.Max(d=>d.Total));
         for(var i=0;i<days.Count;i++)
         {
@@ -128,7 +128,7 @@ internal static class UsageCharts
             var rectangle=new Border{Width=48,Height=Math.Max(day.Total>0?3:0,140d*day.Total/maximum),HorizontalAlignment=HorizontalAlignment.Center,Background=new SolidColorBrush(Colorset[0]),CornerRadius=new CornerRadius(4,4,0,0),Margin=new Thickness(5,0,5,0)};
             bar.Children.Add(rectangle);column.Children.Add(bar);
             var button=new Button{Content=day.Day.Length==10?day.Day[5..]:day.Day,Padding=new Thickness(2),FontSize=11,HorizontalAlignment=HorizontalAlignment.Stretch,Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent),BorderThickness=new Thickness(0)};
-            button.Click+=(_,_)=>select(day.Day);ToolTipService.SetToolTip(button,$"{day.Day} · {day.Total:N0} Token · 点击查看明细");
+            button.Click+=(_,_)=>select(day.Day);ToolTipService.SetToolTip(button,L10n.F("sF43D590F6A4C", day.Day, day.Total));
             Grid.SetRow(button,1);column.Children.Add(button);Grid.SetColumn(column,i);grid.Children.Add(column);
         }
         return grid;
@@ -136,7 +136,7 @@ internal static class UsageCharts
     internal static FrameworkElement Models(IEnumerable<UsageEvent> events)
     {
         var groups=events.GroupBy(e=>e.Model).Select(g=>(Name:g.Key,Total:g.Sum(e=>e.Tokens.Total))).OrderByDescending(g=>g.Total).ToList();
-        if(groups.Count>5){var rest=groups.Skip(5).Sum(g=>g.Total);groups=groups.Take(5).Append((Name:"其他模型",Total:rest)).ToList();}
+        if(groups.Count>5){var rest=groups.Skip(5).Sum(g=>g.Total);groups=groups.Take(5).Append((Name:L10n.T("sE010BA9D2A30"),Total:rest)).ToList();}
         var total=groups.Sum(g=>g.Total);var panel=new StackPanel{Spacing=14};var ring=new Grid{Width=166,Height=166,HorizontalAlignment=HorizontalAlignment.Center,Margin=new Thickness(0,12,0,0)};
         ring.Children.Add(new Ellipse{Stroke=new SolidColorBrush(ColorHelper.FromArgb(50,150,150,170)),StrokeThickness=20,Margin=new Thickness(9)});
         double angle=-90;
@@ -158,6 +158,6 @@ internal static class UsageCharts
             var label=new TextBlock{Text=groups[i].Name,FontSize=12,TextWrapping=TextWrapping.Wrap};Grid.SetColumn(label,1);row.Children.Add(label);
             var percentage=new TextBlock{Text=total>0?$"{100d*groups[i].Total/total:0.#}%":"—",FontSize=12};Grid.SetColumn(percentage,2);row.Children.Add(percentage);panel.Children.Add(row);
         }
-        if(total==0)panel.Children.Add(new TextBlock{Text="暂无模型记录",Opacity=.65});return panel;
+        if(total==0)panel.Children.Add(new TextBlock{Text=L10n.T("s1ABA7CBE2A2C"),Opacity=.65});return panel;
     }
 }

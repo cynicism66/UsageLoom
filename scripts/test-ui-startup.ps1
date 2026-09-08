@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$AllPages)
+param([switch]$AllPages,[switch]$English,[switch]$Personalization)
 $ErrorActionPreference='Stop'
 $workspace=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $exe=Join-Path $workspace 'artifacts/win-x64/UsageLoom.App.exe'
@@ -11,6 +11,8 @@ if($AllPages){$scenarios+=@('quota','breakdown','sessions','single-day','narrow-
 foreach($scenario in $scenarios){
     $before=if(Test-Path -LiteralPath $log){@(Get-Content -LiteralPath $log -Encoding UTF8).Count}else{0}
     $arguments=@('--smoke-test','--navigation-check')
+    if($English){$arguments+='--preview-english'}
+    if($Personalization){$arguments+='--personalization-check'}
     if($scenario -eq 'empty'){$arguments+='--preview-empty'}
     if($scenario -eq 'quota'){$arguments+='--preview-weekly'}
     if($scenario -eq 'sessions'){$arguments+='--preview-session-stress'}
@@ -24,8 +26,9 @@ foreach($scenario in $scenarios){
     $testProcess.Refresh()
     $lines=@(Get-Content -LiteralPath $log -Encoding UTF8 | Select-Object -Skip $before)
     $lines | Write-Output
-    if($testProcess.ExitCode -ne 0 -or $lines -match '\[ERROR\]' -or !($lines -match 'Repeated navigation passed') -or !($lines -match "Initial page ready: $page")){
+    if($testProcess.ExitCode -ne 0 -or $lines -match '\[ERROR\]' -or (!$Personalization -and !($lines -match 'Repeated navigation passed')) -or !($lines -match "Initial page ready: $page")){
         throw "UI smoke test failed: $scenario, exit=$($testProcess.ExitCode)"
     }
+    if($Personalization -and !($lines -match 'Theme controls and language restart boundary passed')){throw 'Personalization control check did not complete'}
     Write-Output "PASS UI startup: $scenario"
 }

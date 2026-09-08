@@ -5,4 +5,5 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
+  <ItemGroup><EmbeddedResource Include="Localization/*.json" WithCulture="false" /></ItemGroup>
 </Project>

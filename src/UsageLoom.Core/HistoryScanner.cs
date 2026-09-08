@@ -151,7 +151,7 @@ public sealed class HistoryScanner
                             var pricing=lastUsage is not null&&lastUsage==delta
                                 ?new PricingContext(RequestInputTokens:lastUsage.Input,ValuationDate:timestamp is null?null:DateOnly.FromDateTime(timestamp.Value.LocalDateTime))
                                 :null;
-                            events.Add(new(id,session,project,model,agent,timestamp,timestamp?.ToLocalTime().ToString("yyyy-MM-dd")??"日期未知",delta,timestamp is null,sourceKey,pricing){Segment=segment,QualityNote=quality,AccountScope=row.Text("account_scope")});
+                            events.Add(new(id,session,project,model,agent,timestamp,timestamp?.ToLocalTime().ToString("yyyy-MM-dd")??"日期未知",delta,timestamp is null,sourceKey,pricing){Segment=segment,QualityNote=quality,AccountScope=row.Text("account_scope"),AccountAttribution=row.Text("account_attribution")});
                         }
                         catch(Exception ex) when(ex is JsonException or OverflowException or InvalidOperationException){warnings++;}
                     }

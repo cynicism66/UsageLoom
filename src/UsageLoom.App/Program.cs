@@ -37,6 +37,7 @@ internal static class Program
             Application.Start(initialization =>
             {
                 SynchronizationContext.SetSynchronizationContext(new DispatcherQueueSynchronizationContext(DispatcherQueue.GetForCurrentThread()));
+                UsageLoom.Core.L10n.Language=args.Contains("--preview-english")?"en-US":Settings.Load().Language;
                 _ = new LoomApp(args);
             });
         }
