@@ -75,7 +75,7 @@ public sealed partial class LoomApp : Application
                     (w.Used<old.Used||old.ResetsAt is {} a&&w.ResetsAt is {} b&&Math.Abs((a-b).TotalMinutes)>2));
                 if(capacityDisplayIdentity!=identity||reset)
                 {
-                    capacityDisplayIdentity=identity;capacityEstimator.ApplyTemporal(quota,null,0,null);
+                    capacityDisplayIdentity=identity;capacityEstimator.InitializeTemporal(quota);
                     WeeklyCapacity=capacityEstimator.DisplayCurrent;
                 }
                 capacityDisplayWindows=windows;

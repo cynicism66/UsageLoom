@@ -186,6 +186,24 @@ public sealed class WeeklyCapacityEstimator
         }
     }
 
+    public void InitializeTemporal(QuotaState quota)
+    {
+        if(!quota.Fresh)return;
+        var saved=pendingCache;
+        CapacityCache? restored=null;
+        if(saved is {Version:4}&&saved.Account==quota.AccountKey&&saved.Plan==quota.Plan?.Trim().ToLowerInvariant()&&
+            saved.PricingVersion==Pricing.CatalogVersion&&saved.SavedAt<=DateTimeOffset.Now)
+        {
+            var windows=saved.Windows.Where(s=>quota.PrimaryWindows.Any(w=>w.Key==s.Key&&w.Minutes==10080&&
+                !NewWindow(s.ResetsAt,w.ResetsAt)&&s.ResetsAt>DateTimeOffset.Now&&double.IsFinite(w.Used)&&w.Used>=s.LastUsed)&&
+                double.IsFinite(s.LastUsed)&&s.LastUsed>=0&&s.LastUsed<=100&&double.IsFinite(s.Percent)&&s.Percent>0&&s.Percent<=100&&
+                s.Samples>0&&s.Excluded>=0&&s.Tokens>0&&s.Cost>=0&&s.Priced>=0&&s.Priced<=s.Tokens).ToList();
+            restored=saved with{Windows=windows};
+        }
+        ApplyTemporal(quota,restored,0,null,restored?.Windows.ToDictionary(w=>w.Key,w=>w.LastUsed));
+        if(restored?.Windows.Count>0)RestoredAt=restored.SavedAt;
+    }
+
     public void ApplyTemporal(QuotaState quota,CapacityCache? cache,long localTotal,Estimate? price,IReadOnlyDictionary<string,double>? pendingBaselineUsed=null)
     {
         if(!quota.Fresh)return;
@@ -194,7 +212,7 @@ public sealed class WeeklyCapacityEstimator
             displayHistory.RemoveAll(c=>c.Account==previous.Account&&c.Plan==previous.Plan&&c.Version==previous.Version);
             displayHistory.Add(previous);
         }
-        temporal=true;temporalVersion=cache?.Version==4?4:3;states.Clear();accountKey=quota.AccountKey;plan=quota.Plan?.Trim().ToLowerInvariant();pendingCache=null;RestoredAt=null;
+        temporal=true;temporalVersion=cache?.Version==3?3:4;states.Clear();accountKey=quota.AccountKey;plan=quota.Plan?.Trim().ToLowerInvariant();pendingCache=null;RestoredAt=null;
         foreach(var window in quota.PrimaryWindows.Where(w=>w.Minutes==10080))
         {
             var s=cache is {Version:3 or 4}&&cache.Account==accountKey&&cache.Plan==plan&&cache.PricingVersion==Pricing.CatalogVersion?cache.Windows.FirstOrDefault(w=>w.Key==window.Key&&!NewWindow(w.ResetsAt,window.ResetsAt)):null;

@@ -6,7 +6,9 @@ Windows 11 上的 Codex 用量与额度面板。无需登录即可统计本机 T
 
 UsageLoom 是独立开源项目，不隶属于 OpenAI。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.7.3
+## Windows 桌面版 0.7.4
+
+0.7.4 相对于 0.7.3：启动后立即恢复已保存的有效采样进度，不再等待首次批量计算才显示。[发布说明](docs/releases/RELEASE-0.7.4.md)
 
 0.7.3 相对于 0.7.2：周容量采样进度随每个百分点更新，区分已确认与待确认，保留稳健估算门槛。[发布说明](docs/releases/RELEASE-0.7.3.md)
 

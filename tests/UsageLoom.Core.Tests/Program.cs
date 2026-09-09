@@ -268,6 +268,21 @@ Test("稳定估算合并区间、延迟确认、累计加权和迟到重算",() 
     foreach(var barrier in new[]{O(4,3) with{Account="b"},O(4,3) with{Plan="pro"},O(4,3) with{Barrier=true},O(4,3) with{Windows=[]}})
         Check(TemporalCapacity.CalculateStable([O(0,0),O(3,3),barrier],events,at.AddMinutes(12)).Intervals.Count==0);
 });
+Test("启动立即恢复部分有效采样，隔离套餐周期并保留批量门控",() =>
+{
+    var now=DateTimeOffset.Now;var reset=now.AddDays(6);
+    var quota=new QuotaState([new("codex:weekly","weekly",3,10080,reset)],null,now,"ok",true,"a"){Plan="pro"};
+    var saved=new CapacityCache(4,"a","pro",Pricing.CatalogVersion,now.AddMinutes(-3),[new("codex:weekly","weekly",reset,3,3,300,1m,300,1,0)]);
+    var tracker=new WeeklyCapacityEstimator();tracker.Restore(saved);tracker.InitializeTemporal(quota);
+    Check(tracker.Export()!.Windows.Single().Percent==3&&tracker.Export()!.Windows.Single().Samples==1&&tracker.RestoredAt==saved.SavedAt);
+    Check(tracker.DescribeProgress(quota,0,true).Contains("3/6"));
+    Check(tracker.DescribeProgress(quota with{Windows=[new("codex:weekly","weekly",4,10080,reset)]},0,true).Contains("4/6"));
+    foreach(var changed in new[]{quota with{AccountKey="b"},quota with{Plan="prolite"},quota with{Windows=[new("codex:weekly","weekly",0,10080,reset)]},quota with{Windows=[new("codex:weekly","weekly",3,10080,reset.AddDays(7))]}})
+    {
+        tracker.Restore(saved);tracker.InitializeTemporal(changed);Check(tracker.Export()!.Windows.Count==0&&tracker.RestoredAt is null);
+    }
+    tracker.Restore(null);tracker.InitializeTemporal(quota);Check(tracker.DescribeProgress(quota,0,true).Contains("0/6"));
+});
 Test("周估算五分钟批量门控，空闲跳过且手动可立即计算",() =>
 {
     var at=DateTimeOffset.UtcNow;var schedule=new CapacityBatchSchedule(at);
