@@ -43,6 +43,13 @@ internal sealed partial class Dashboard : Window
     private readonly SolidColorBrush accent = new(ColorHelper.FromArgb(255, 163, 138, 245));
     private string selectedPage = "overview";
     private readonly bool compact;
+    private string? requestedPage;
+    internal void ShowPage(string tag)
+    {
+        requestedPage=tag;
+        if(navigationReady)Navigate(tag);
+        ShowPanel();
+    }
     public bool IsPanelVisible {get;private set;}
     private bool released;
     private bool rendering;
@@ -226,10 +233,20 @@ internal sealed partial class Dashboard : Window
         navigationReady=true;
         navigation.Loaded-=InitializeNavigation;
         Program.Log.Write("INFO","Navigation","Loaded: initializing selected page");
-        var initial=navigation.MenuItems.Concat(navigation.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(item=>(string)item.Tag==app.PreviewPage)
+        var initial=navigation.MenuItems.Concat(navigation.FooterMenuItems).OfType<NavigationViewItem>().FirstOrDefault(item=>(string)item.Tag==(requestedPage??app.PreviewPage))
             ??(NavigationViewItem)navigation.MenuItems[0];
         navigation.SelectedItem=initial;
         Program.Log.Write("INFO","Navigation","Initial page ready: "+selectedPage);
+        if(app.NavigationCheck)
+        {
+            var restore=selectedPage;
+            ShowPage("settings");
+            if(selectedPage!="settings")throw new InvalidOperationException("Settings shortcut navigation failed");
+            ShowPage("overview");
+            if(selectedPage!="overview")throw new InvalidOperationException("Statistics shortcut navigation failed");
+            ShowPage(restore);
+            Program.Log.Write("INFO","NavigationTest","Settings/statistics shortcut targets passed");
+        }
         if(app.PersonalizationCheck){Navigate("settings");_ = VerifyPersonalizationAsync();}
         if(app.NavigationCheck&&!app.PersonalizationCheck)
         {
@@ -716,7 +733,18 @@ internal sealed partial class Dashboard : Window
         var updated=quota.FetchedAt is {} at?L10n.F("s6843540FA5C7", at.ToLocalTime()):L10n.T("s0D4EDA666026");
         var resets=quota.HasQuotaDisplay&&quota.ResetCount is {} count?L10n.F("s26ABA9EC2EFB", count):L10n.T("s382254F4153B");
         quotaPanel.Children.Add(PlanBadge(quota,true));
-        var footer=Label($"{resets}   ·   {updated}",12);footer.Opacity=.6;quotaPanel.Children.Add(footer);
+        var footer=Label($"{resets}   ·   {updated}",12);footer.Opacity=.6;
+        footer.MaxLines=1;footer.TextTrimming=TextTrimming.CharacterEllipsis;footer.VerticalAlignment=VerticalAlignment.Center;
+        var footerRow=new Grid{ColumnSpacing=8};
+        footerRow.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
+        footerRow.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
+        footerRow.Children.Add(footer);
+        var settings=new Button{Content=new FontIcon{Glyph="\uE713",FontSize=18},Width=32,Height=32,Padding=new Thickness(0),
+            Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent),BorderThickness=new Thickness(0),CornerRadius=new CornerRadius(6)};
+        ToolTipService.SetToolTip(settings,L10n.T("sDF3D58C7D84B"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetName(settings,L10n.T("sDF3D58C7D84B"));
+        settings.Click+=(_,_)=>{app.ShowSettings();if(!pinned)Hide();};
+        Grid.SetColumn(settings,1);footerRow.Children.Add(settings);quotaPanel.Children.Add(footerRow);
     }
     private void RenderStats()
     {
@@ -927,7 +955,6 @@ internal sealed partial class Dashboard : Window
     private UIElement SettingsPanel()
     {
         var panel=new StackPanel{Spacing=14,Padding=new Thickness(8)};
-        panel.Children.Add(AppUpdatePanel());
         var cli=new TextBox{Header=L10n.T("s7BA827935C21"),Text=app.Config.CliPath??""};
         var home=new TextBox{Header=L10n.T("s629E14E0CB84"),Text=app.IsDemo?L10n.T("sF99723F1D4A1"):app.Config.CodexHome,IsReadOnly=app.IsDemo};
         var auto=new ToggleSwitch{Header=L10n.T("sB91E861CB0A1"),IsOn=app.Config.AutoRefresh,OnContent=L10n.Language=="en-US"?"On":"开",OffContent=L10n.Language=="en-US"?"Off":"关"};
@@ -963,6 +990,7 @@ internal sealed partial class Dashboard : Window
             {
                 await app.UseCachedLoginAsync(cli.Text.Trim(),home.Text.Trim());
             }));
+        panel.Children.Add(AppUpdatePanel());
         async Task Authorize(bool logout)
         {
             if(app.Authorizing)throw new InvalidOperationException(L10n.T("s081CDEB65923"));

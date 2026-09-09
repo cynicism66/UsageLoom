@@ -6,14 +6,14 @@ namespace UsageLoom.App;
 internal sealed class TrayIcon : IDisposable
 {
     private readonly Native.WindowProc callback;
-    private readonly Action show, details, refresh, exit;
+    private readonly Action show, details, settings, refresh, exit;
     private readonly nint hwnd, icon;
     private readonly uint taskbarCreated = Native.RegisterWindowMessage("TaskbarCreated");
     private Native.NotifyData data;
     private bool disposed;
-    public TrayIcon(Action show, Action details, Action refresh, Action exit)
+    public TrayIcon(Action show, Action details, Action settings, Action refresh, Action exit)
     {
-        (this.show, this.details, this.refresh, this.exit) = (show, details, refresh, exit);
+        (this.show, this.details, this.settings, this.refresh, this.exit) = (show, details, settings, refresh, exit);
         callback = OnMessage;
         var cls = new Native.WindowClass { size = (uint)Marshal.SizeOf<Native.WindowClass>(), procedure = callback, instance = Native.GetModuleHandle(null), className = "UsageLoom.TrayHost" };
         if (Native.RegisterClassEx(ref cls) == 0) throw new InvalidOperationException(L10n.T("sFEFC45E665BA"));
@@ -60,9 +60,9 @@ internal sealed class TrayIcon : IDisposable
         var menu = Native.CreatePopupMenu();
         try
         {
-            Native.AppendMenu(menu, 0, 1, L10n.T("s6ED9D8BDE086")); Native.AppendMenu(menu, 0, 2, L10n.T("s8EAC23D893FB")); Native.AppendMenu(menu, 0, 3, L10n.T("s130123E01753")); Native.AppendMenu(menu, 0x800, 0, ""); Native.AppendMenu(menu, 0, 4, L10n.T("s1CA553FD86AE"));
+            Native.AppendMenu(menu, 0, 1, L10n.T("s6ED9D8BDE086")); Native.AppendMenu(menu, 0, 2, L10n.T("tray.statistics")); Native.AppendMenu(menu, 0, 5, L10n.T("sDF3D58C7D84B")); Native.AppendMenu(menu, 0, 3, L10n.T("s130123E01753")); Native.AppendMenu(menu, 0x800, 0, ""); Native.AppendMenu(menu, 0, 4, L10n.T("s1CA553FD86AE"));
             Native.GetCursorPos(out var p); Native.SetForegroundWindow(hwnd);
-            switch (Native.TrackPopupMenu(menu, 0x100 | 0x2, p.x, p.y, 0, hwnd, 0)) { case 1: show(); break; case 2: details(); break; case 3: refresh(); break; case 4: exit(); break; }
+            switch (Native.TrackPopupMenu(menu, 0x100 | 0x2, p.x, p.y, 0, hwnd, 0)) { case 1: show(); break; case 2: details(); break; case 5: settings(); break; case 3: refresh(); break; case 4: exit(); break; }
             Native.PostMessage(hwnd, 0, 0, 0);
         }
         finally { Native.DestroyMenu(menu); }

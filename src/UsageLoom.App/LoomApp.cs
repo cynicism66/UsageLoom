@@ -258,7 +258,7 @@ public sealed partial class LoomApp : Application
             catch(Exception ex){Program.Log.Write("WARN","CapacityCache",ex.Message);}
         }
         notifications.Restore(Config.NotificationWindows, DateTimeOffset.Now);
-        tray = new TrayIcon(ToggleFlyout, ShowDetails, () => _ = RefreshQuotaAsync(true), () => _ = QuitAsync());
+        tray = new TrayIcon(ToggleFlyout, ShowDetails, ShowSettings, () => _ = RefreshQuotaAsync(true), () => _ = QuitAsync());
         client.AccountInvalidated += () => queue.TryEnqueue(() =>
         {
             if (quitting) return;
@@ -395,7 +395,8 @@ public sealed partial class LoomApp : Application
         flyout ??= new Dashboard(this, true);
         if (flyout.IsPanelVisible) flyout.Hide(); else flyout.ShowPanel();
     }
-    internal void ShowDetails() { dashboard ??= new Dashboard(this, false); dashboard.ShowPanel(); }
+    internal void ShowDetails() { dashboard ??= new Dashboard(this, false); dashboard.ShowPage(IsDemo?PreviewPage:"overview"); }
+    internal void ShowSettings() { dashboard ??= new Dashboard(this, false); dashboard.ShowPage("settings"); }
     internal Task RefreshQuotaAsync(bool manual)
     {
         if(IsDemo){Message=L10n.T("s987E3F3AAADE");Changed?.Invoke();return Task.CompletedTask;}
