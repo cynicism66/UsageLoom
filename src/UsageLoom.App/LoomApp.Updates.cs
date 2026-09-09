@@ -45,7 +45,11 @@ public sealed partial class LoomApp
         }
         catch (Exception ex)
         {
-            UpdateStatus = UpdateText("检查失败，请稍后重试：", "Update check failed; try again later: ") + ex.Message;
+            AvailableRelease ??= AppUpdates.CachedRelease();
+            UpdateStatus = ex is System.Net.Http.HttpRequestException { StatusCode: System.Net.HttpStatusCode.Forbidden or System.Net.HttpStatusCode.TooManyRequests }
+                ? UpdateText("GitHub 暂时限制此网络的访问，请稍后重试，或打开发布页手动下载。", "GitHub has temporarily limited this network. Retry later or open the releases page.")
+                : UpdateText("暂时无法获取更新信息，请检查网络，或打开发布页手动下载。", "Update information is unavailable. Check your connection or open the releases page.");
+            if(AvailableRelease is {} cached)UpdateStatus+=UpdateText($" 已保留此前获取的 {cached.Version}，仍可尝试下载；文件会重新校验。", $" Previously retrieved {cached.Version} remains available to download and verify.");
             Program.Log.Write("WARN", "AppUpdate", ex.Message);
         }
         finally { updateChecking = false; }

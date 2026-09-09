@@ -38,6 +38,10 @@ internal sealed partial class Dashboard
             label.Text = app.UpdateStatus; notes.Text = app.AvailableRelease?.Notes ?? "";
             install.IsEnabled = app.AvailableRelease is not null && !app.IsDemo;
         }));
+        group.Children.Add(Button(T("打开发布页", "Open releases page"), async () =>
+        {
+            await Windows.System.Launcher.LaunchUriAsync(new Uri("https://github.com/cynicism66/UsageLoom/releases/latest"));
+        }));
         group.Children.Add(label); group.Children.Add(install); group.Children.Add(progress);
         group.Children.Add(new ScrollViewer { MaxHeight = 280, Content = notes, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled });
         return StableExpander.Configure(new Expander { Header = T("软件更新", "Software updates"), Content = group,

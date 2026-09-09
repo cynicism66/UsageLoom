@@ -60,6 +60,26 @@ void Check(bool result, string message = "断言失败") { if (!result) throw ne
 JsonElement Json(string text) { using var doc = JsonDocument.Parse(text); return doc.RootElement.Clone(); }
 void Test(string name, Action action) => tests.Add((name, () => { action(); return Task.CompletedTask; }));
 void AsyncTest(string name, Func<Task> action) => tests.Add((name, action));
+AsyncTest("更新清单优先、API 备用与双源限流不伪报最新版",async()=>
+{
+    var json=JsonSerializer.Serialize(new{tag_name="v0.7.0",draft=false,prerelease=false,body="notes",assets=new[]{new{name="UsageLoom-0.7.0-win-x64.zip",size=100,digest="sha256:"+new string('a',64),browser_download_url="https://github.com/cynicism66/UsageLoom/releases/download/v0.7.0/UsageLoom-0.7.0-win-x64.zip"}}});
+    foreach(var first in new[]{"ok","missing","invalid","oversized"})
+    {
+        using var handler=new UpdateFeedHandler((n,request)=>
+        {
+            Check(request.RequestUri!.AbsoluteUri==(n==1?UpdateFeed.ManifestUrl:UpdateFeed.ApiUrl));
+            if(n==1&&first=="missing")return UpdateFeedHandler.Reply(System.Net.HttpStatusCode.NotFound);
+            return UpdateFeedHandler.Reply(System.Net.HttpStatusCode.OK,n==1&&first=="invalid"?"{}":n==1&&first=="oversized"?new string('x',1024*1024+1):json);
+        });
+        using var client=new System.Net.Http.HttpClient(handler);
+        var value=await UpdateFeed.ReadAsync(client,"0.6.8",false);
+        Check(UpdateRelease.Parse(value,"0.6.8",false)?.Version=="0.7.0"&&handler.Calls==(first=="ok"?1:2));
+    }
+    using var limited=new UpdateFeedHandler((n,r)=>UpdateFeedHandler.Reply(System.Net.HttpStatusCode.Forbidden));
+    using var limitedClient=new System.Net.Http.HttpClient(limited);var rejected=false;
+    try{await UpdateFeed.ReadAsync(limitedClient,"0.6.8",false);}catch(System.Net.Http.HttpRequestException){rejected=true;}
+    Check(rejected&&limited.Calls==2);
+});
 Test("更新只接受正式新版本、匹配架构与 GitHub 摘要", () =>
 {
     string Release(string tag="v0.7.0", string extension="zip", string? url=null, string? digest=null, bool preview=false, long size=123) => JsonSerializer.Serialize(new {

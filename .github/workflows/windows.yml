@@ -35,10 +35,12 @@ jobs:
           ./scripts/build-msi.ps1
           ./scripts/test-msi-package.ps1
           ./scripts/build-portable.ps1
+          ./scripts/build-update-feed.ps1
       - uses: actions/upload-artifact@v4
         with:
           name: windows-validation
           path: |
             artifacts/installer/*.msi
             artifacts/portable/*.zip
+            artifacts/release-*/update.json
           retention-days: 7

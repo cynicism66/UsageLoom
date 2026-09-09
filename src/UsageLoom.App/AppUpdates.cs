@@ -38,10 +38,28 @@ internal static class AppUpdates
 
     internal static async Task<UpdateRelease?> CheckAsync()
     {
-        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-        using var response = await Http.GetAsync("https://api.github.com/repos/cynicism66/UsageLoom/releases/latest", timeout.Token);
-        response.EnsureSuccessStatusCode();
-        return UpdateRelease.Parse(await response.Content.ReadAsStringAsync(timeout.Token), Program.Version, IsInstalled());
+        var installed=IsInstalled();
+        var json=await UpdateFeed.ReadAsync(Http,Program.Version,installed);
+        var release=UpdateRelease.Parse(json,Program.Version,installed);
+        try
+        {
+            var path=Path.Combine(Program.DataPath,"update-release.json");
+            Directory.CreateDirectory(Program.DataPath);
+            File.WriteAllText(path+".tmp",json);File.Move(path+".tmp",path,true);
+        }
+        catch(IOException ex){Program.Log.Write("WARN","AppUpdateCache",ex.Message);}
+        return release;
+    }
+
+    internal static UpdateRelease? CachedRelease()
+    {
+        try
+        {
+            var path=Path.Combine(Program.DataPath,"update-release.json");
+            if(!File.Exists(path)||DateTime.UtcNow-File.GetLastWriteTimeUtc(path)>TimeSpan.FromDays(7)||new FileInfo(path).Length>1024*1024)return null;
+            return UpdateRelease.Parse(File.ReadAllText(path),Program.Version,IsInstalled());
+        }
+        catch(Exception){return null;}
     }
 
     internal static async Task<string> DownloadAsync(UpdateRelease release, IProgress<double> progress)
