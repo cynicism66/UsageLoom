@@ -28,6 +28,7 @@ internal sealed partial class Dashboard : Window
     private readonly ComboBox sessionOrder=new(){ItemsSource=new[]{L10n.T("sA821A0A35B3A"),L10n.T("s41F5CADA11ED"),L10n.T("s1034068B43DF")},SelectedIndex=0,Width=180};
     private readonly StackPanel dateControls=new(){Orientation=Orientation.Horizontal,Spacing=10};
     private readonly Grid filterBar;
+    private Panel? filterHost;
     private readonly ComboBox breakdownKind=new(){ItemsSource=new[]{L10n.T("sC98E118E0A43"),L10n.T("s79F326BE4409"),L10n.T("sED1EDA4DF65E")},SelectedIndex=0,Width=160};
     private int sessionPage;
     private readonly NavigationView navigation = new() { IsBackButtonVisible = NavigationViewBackButtonVisible.Collapsed, IsSettingsVisible = false, OpenPaneLength = 208, PaneDisplayMode = NavigationViewPaneDisplayMode.Auto, ExpandedModeThresholdWidth=1000, CompactModeThresholdWidth=0 };
@@ -256,8 +257,20 @@ internal sealed partial class Dashboard : Window
             {
                 if(step>=route.Length){navigationTest.Stop();Program.Log.Write("INFO","NavigationTest","Repeated navigation passed");return;}
                 Program.Log.Write("INFO","NavigationTest","Visit "+route[step]);Navigate(route[step++]);
+                VerifyHistoryFilterAttached();
             };navigationTest.Start();
         }
+    }
+    private void VerifyHistoryFilterAttached()
+    {
+        if(selectedPage is not ("overview" or "breakdown" or "sessions"))return;
+        ((FrameworkElement)Content).UpdateLayout();
+        DependencyObject? current=filterBar;
+        var expected=selectedPage=="sessions"?(DependencyObject)sessionWorkspace:statsPanel;
+        while(current is not null&&!ReferenceEquals(current,expected))current=VisualTreeHelper.GetParent(current);
+        if(current is null||historyRangeButtons.ActualWidth<=0||historyRangeButtons.ActualHeight<=0||historyRangeButtonList.Count!=5)
+            throw new InvalidOperationException("History filter detached or invisible after navigation: "+selectedPage);
+        Program.Log.Write("INFO","NavigationTest","History filter visible: "+selectedPage);
     }
     private void UpdatePaneFooter()
     {
@@ -357,7 +370,10 @@ internal sealed partial class Dashboard : Window
         // The filter contains stateful WinUI controls and is shared by overview,
         // breakdown and session workspaces. Detach it while the old page is still
         // connected to the visual tree; detached subtrees do not expose a visual parent.
-        Detach(filterBar);
+        DetachHistoryFilter();
+        // Detaching changes the UI even when usage data and range are unchanged.
+        // Force reconstruction on return instead of reusing the now-empty card.
+        renderedFilter=null;
         var (title, subtitle) = selectedPage switch {
             "quota" => (L10n.T("s9251EA0BED6B"), L10n.T("s8BC73914D0EC")),
             "breakdown" => (L10n.T("sB0E9050DAAAC"), L10n.T("s0122629EDAE9")),
@@ -432,6 +448,14 @@ internal sealed partial class Dashboard : Window
         }
         foreach(var card in cards)grid.Children.Add(card);
         grid.SizeChanged+=(_,e)=>Layout(e.NewSize.Width);Layout(1000);return grid;
+    }
+    private void DetachHistoryFilter()
+    {
+        // Keep the logical owner explicitly: WinUI may hide visual parents while
+        // the old subtree is unloaded or awaiting layout.
+        filterHost?.Children.Remove(filterBar);
+        filterHost=null;
+        Detach(filterBar);
     }
     private static void Detach(UIElement element)
     {
@@ -752,7 +776,7 @@ internal sealed partial class Dashboard : Window
         var filter=$"{selectedPage}|{historyRangeIndex}|{selectedRange.From}|{selectedRange.Through}|{historySearch.Text}|{sessionOrder.SelectedIndex}|{sessionPage}|{breakdownKind.SelectedIndex}|{DateTime.Today:yyyy-MM-dd}";
         if(ReferenceEquals(renderedEvents,app.Events)&&renderedFilter==filter)return;
         renderedEvents=app.Events;renderedFilter=filter;
-        Detach(filterBar);
+        DetachHistoryFilter();
         updateOverviewLayout=null;
         overviewQuota=new StackPanel{Spacing=10};overviewQuotaCard=Card(overviewQuota);
         overviewQuotaCard.Visibility=app.Quota.HasQuotaDisplay?Visibility.Visible:Visibility.Collapsed;
@@ -778,7 +802,7 @@ internal sealed partial class Dashboard : Window
             return;
         }
         var rangeHeader=new Grid{ColumnSpacing=12};rangeHeader.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});rangeHeader.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
-        rangeHeader.Children.Add(filterBar);var rangeLabel=new TextBlock{Text=selectedRange.Label,Opacity=.62,FontSize=12,VerticalAlignment=VerticalAlignment.Top,Margin=new Thickness(0,8,0,0)};Grid.SetColumn(rangeLabel,1);rangeHeader.Children.Add(rangeLabel);
+        rangeHeader.Children.Add(filterBar);filterHost=rangeHeader;var rangeLabel=new TextBlock{Text=selectedRange.Label,Opacity=.62,FontSize=12,VerticalAlignment=VerticalAlignment.Top,Margin=new Thickness(0,8,0,0)};Grid.SetColumn(rangeLabel,1);rangeHeader.Children.Add(rangeLabel);
         rangeHeader.SizeChanged+=(_,e)=>rangeLabel.Visibility=e.NewSize.Width<820?Visibility.Collapsed:Visibility.Visible;
         statsPanel.Children.Add(Card(rangeHeader));
         if(selectedPage=="overview")
@@ -851,7 +875,7 @@ internal sealed partial class Dashboard : Window
         sessionWorkspace.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
         sessionWorkspace.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
         sessionWorkspace.RowDefinitions.Add(new RowDefinition{Height=new GridLength(1,GridUnitType.Star)});
-        sessionWorkspace.Children.Add(filterBar);
+        sessionWorkspace.Children.Add(filterBar);filterHost=sessionWorkspace;
 
         var sessions=HistoryQuery.Sessions(rows,sessionOrder.SelectedIndex switch{1=>"recent",2=>"name",_=>"tokens"},app.SessionNames);
         const int pageSize=30;sessionPage=Math.Clamp(sessionPage,0,Math.Max(0,(sessions.Count-1)/pageSize));

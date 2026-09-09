@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Version='0.6.10')
+param([string]$Version='0.7.0')
 $ErrorActionPreference='Stop'
 $workspace=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $publish=Join-Path $workspace 'artifacts/win-x64'
