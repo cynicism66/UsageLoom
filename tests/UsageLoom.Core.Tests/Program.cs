@@ -290,6 +290,28 @@ Test("周期短暂切换恢复已确认样本，不跨异常区间累计",() =>
     var rollback=observations.ToArray();rollback[5]=O(15,2);rollback[6]=O(18,2);
     Check(TemporalCapacity.CalculateStable(rollback,events,at.AddMinutes(25)).Cache!.Windows.Count==0);
 });
+Test("查询超时恢复已确认样本，保留硬边界与历史证据",() =>
+{
+    var at=DateTimeOffset.UtcNow;var reset=at.AddDays(7);
+    QuotaObservation O(int m,double used)=>new(at.AddMinutes(m),"a","pro",Pricing.CatalogVersion,[new("codex:primary","weekly",used,10080,reset)]);
+    UsageEvent E(string id,int m)=>new(id,"s","p","gpt-5.4","main",at.AddMinutes(m),"2026-09-10",new(300)){AccountScope="a"};
+    var failure=O(7,4) with{Barrier=true,Windows=[],BarrierReason="query-failure"};
+    var observations=new[]{O(0,0),O(3,3),O(6,4),failure,failure with{At=at.AddMinutes(8)},O(9,4),O(12,7),O(15,7)};
+    var events=new[]{E("first",2),E("gap",8),E("second",11)};
+    var result=TemporalCapacity.CalculateStable(observations,events,at.AddMinutes(20));
+    Check(result.Cache!.Windows.Single().Percent==6&&result.Cache.Windows.Single().Samples==2&&result.Cache.Windows.Single().Tokens==600);
+    Check(!result.Intervals.SelectMany(i=>i.EventIds).Contains("gap"));
+    foreach(var hard in new[]{failure with{BarrierReason=null},failure with{BarrierReason="explicit-boundary"},failure with{Account="b"},failure with{Plan="prolite"}})
+    {
+        var changed=observations.ToArray();changed[3]=hard;
+        Check(TemporalCapacity.CalculateStable(changed,events,at.AddMinutes(20)).Cache!.Windows.Single().Percent==3);
+    }
+    var legacy=failure with{Account=null,Plan=null,BarrierReason=null};
+    var lines=new[]{$"{legacy.At.AddMilliseconds(4):O} [WARN] Quota Codex 额度服务响应超时，请稍后重试"};
+    Check(LegacyQuotaFailures.Recover([O(6,4),legacy],lines)[1].BarrierReason=="query-failure");
+    Check(LegacyQuotaFailures.Recover([O(6,4),legacy],[])[1].BarrierReason is null);
+    Check(LegacyQuotaFailures.Recover([O(6,4),legacy with{BarrierReason="explicit-boundary"}],lines)[1].BarrierReason=="explicit-boundary");
+});
 Test("启动立即恢复部分有效采样，隔离套餐周期并保留批量门控",() =>
 {
     var now=DateTimeOffset.Now;var reset=now.AddDays(6);

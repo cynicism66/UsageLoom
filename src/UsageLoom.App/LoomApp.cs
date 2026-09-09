@@ -48,14 +48,16 @@ public sealed partial class LoomApp : Application
     private DateTimeOffset? capacityLastCalculated;
     private string capacityFeedback="";
     internal string CapacityCalculationStatus=>capacityFeedback+"\n"+L10n.F("capacity.schedule",capacityLastCalculated?.ToLocalTime().ToString("MM-dd HH:mm:ss")??"—",capacityBatch.NextAt.ToLocalTime().ToString("HH:mm:ss"));
-    private void RecordCapacityObservation(QuotaState quota,bool barrier=false)
+    private void RecordCapacityObservation(QuotaState quota,bool barrier=false,bool queryFailure=false)
     {
         if(IsDemo)return;
         try
         {
             var valid=!barrier&&Config.CapacityEnabled&&quota.Fresh&&quota.AccountKey is not null;
-            store.SaveQuotaObservation(new(valid?quota.FetchedAt??DateTimeOffset.UtcNow:DateTimeOffset.UtcNow,valid?quota.AccountKey:null,valid?quota.Plan?.Trim().ToLowerInvariant():null,
-                Pricing.CatalogVersion,valid?quota.PrimaryWindows.Where(w=>w.Minutes==10080).ToList():[],!valid));
+            var retainIdentity=queryFailure&&Config.CapacityEnabled&&quota.AccountKey is not null;
+            store.SaveQuotaObservation(new(valid?quota.FetchedAt??DateTimeOffset.UtcNow:DateTimeOffset.UtcNow,valid||retainIdentity?quota.AccountKey:null,valid||retainIdentity?quota.Plan?.Trim().ToLowerInvariant():null,
+                Pricing.CatalogVersion,valid?quota.PrimaryWindows.Where(w=>w.Minutes==10080).ToList():[],!valid)
+                {BarrierReason=valid?null:retainIdentity?"query-failure":"explicit-boundary"});
             capacityBatch.MarkDirty();
             if(valid)Program.Log.Write("INFO","CapacityPrecision",quota.PrimaryWindows.Any(w=>w.Used!=Math.Truncate(w.Used))?"Fractional percentage observed":"This response contains integer percentages");
         }
@@ -437,8 +439,8 @@ public sealed partial class LoomApp : Application
                 ex is CodexRpcException rpc&&rpc.Kind==RpcFailureKind.Authentication?L10n.T("s0F3153A9971E"):
                 ex is CodexRpcException?L10n.T("s4D8B77CAC03C"):
                 L10n.T("sBF248948A756");
-            Quota = new([], null, null, status, false);
-            RecordCapacityObservation(Quota,true);
+            RecordCapacityObservation(Quota,true,ex is CodexRpcException failure&&(failure.Retryable||failure.Kind==RpcFailureKind.Timeout)||ex is TimeoutException);
+            Quota = Quota with{Windows=[],ResetCount=null,FetchedAt=null,Status=status,Fresh=false};
             Message = Privacy.Redact(ex.Message);
             Program.Log.Write("WARN", "Quota", ex.Message);
             await client.StopAsync();

@@ -1,7 +1,10 @@
 namespace UsageLoom.Core;
 
 // No credentials or response bodies: only the fields required for reproducible pairing.
-public sealed record QuotaObservation(DateTimeOffset At,string? Account,string? Plan,string PricingVersion,List<QuotaWindow> Windows,bool Barrier=false);
+public sealed record QuotaObservation(DateTimeOffset At,string? Account,string? Plan,string PricingVersion,List<QuotaWindow> Windows,bool Barrier=false)
+{
+    public string? BarrierReason { get; init; }
+}
 public sealed record CapacityInterval(string Key,DateTimeOffset From,DateTimeOffset To,string Account,string Plan,DateTimeOffset Reset,double Percent,long Tokens,decimal Cost,long Priced,string[] EventIds,string? Exclusion);
 public sealed record TemporalCapacityResult(CapacityCache? Cache,List<CapacityInterval> Intervals,DateTimeOffset? PendingFrom,List<CapacityCache> History)
 {
@@ -60,6 +63,17 @@ public static class TemporalCapacity
         foreach(var o in ordered)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            if(o.Barrier&&o.BarrierReason=="query-failure"&&last is not null&&o.Account is not null&&
+                o.Account==last.Account&&o.Plan==last.Plan&&o.PricingVersion==last.PricingVersion&&o.PricingVersion==Pricing.CatalogVersion)
+            {
+                foreach(var pair in totals.Where(p=>p.Value.Samples>0))
+                {
+                    var used=last.Windows.FirstOrDefault(w=>w.Key==pair.Key)?.Used??pair.Value.LastUsed;
+                    suspended.RemoveAll(s=>s.Key==pair.Key&&Math.Abs((s.Reset-pair.Value.ResetsAt).TotalMinutes)<=2);
+                    suspended.Add((pair.Key,pair.Value.ResetsAt,used,pair.Value,segments[pair.Key]));
+                }
+                anchors.Clear();totals.Clear();last=o;continue;
+            }
             if(o.Barrier||string.IsNullOrWhiteSpace(o.Account)||string.IsNullOrWhiteSpace(o.Plan)||o.PricingVersion!=Pricing.CatalogVersion)
             {anchors.Clear();totals.Clear();suspended.Clear();last=o;continue;}
             if(last?.Account!=o.Account||last?.Plan!=o.Plan||last?.PricingVersion!=o.PricingVersion){anchors.Clear();totals.Clear();suspended.Clear();}
@@ -82,7 +96,7 @@ public static class TemporalCapacity
                     }
                     var resume=suspended.FindLastIndex(s=>s.Key==w.Key&&s.Reset>o.At&&Math.Abs((s.Reset-reset).TotalMinutes)<=2);
                     totals.Remove(w.Key);segments[w.Key]=++generation;
-                    if(differentCycle&&resume>=0)
+                    if((differentCycle||last?.BarrierReason=="query-failure")&&resume>=0)
                     {
                         var saved=suspended[resume];suspended.RemoveAt(resume);
                         if(w.Used>=saved.Used)

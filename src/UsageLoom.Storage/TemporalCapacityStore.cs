@@ -19,7 +19,38 @@ public sealed partial class HistoryStore
         command.CommandText="CREATE TABLE IF NOT EXISTS quota_observations(at TEXT PRIMARY KEY,payload TEXT NOT NULL)";command.ExecuteNonQuery();
         command.CommandText="SELECT payload FROM quota_observations ORDER BY at";using var reader=command.ExecuteReader();var result=new List<QuotaObservation>();
         while(reader.Read())if(JsonSerializer.Deserialize<QuotaObservation>(reader.GetString(0)) is {} o)result.Add(o);
-        return result;
+        // Preserve only timeout evidence so log rotation cannot undo recovery.
+        // The original observation ledger remains unchanged.
+        reader.Close();
+        command.CommandText="SELECT value FROM metadata WHERE key='legacy_quota_timeout_evidence_v1'";
+        var savedEvidence=command.ExecuteScalar() as string;
+        var evidence=savedEvidence is null?new List<string>():JsonSerializer.Deserialize<List<string>>(savedEvidence)??[];
+        var lines=new List<string>();
+        foreach(var name in new[]{"runtime.log","runtime.1.log","runtime.2.log"})
+        {
+            try
+            {
+                using var stream=new FileStream(Path.Combine(dataDirectory,"logs",name),FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
+                using var log=new StreamReader(stream);
+                while(log.ReadLine() is {} line)if(line.Contains(" [WARN] Quota ",StringComparison.Ordinal))lines.Add(line);
+            }
+            catch(IOException){}catch(UnauthorizedAccessException){}
+        }
+        lines.AddRange(evidence);
+        var recovered=LegacyQuotaFailures.Recover(result,lines);
+        var needed=recovered.Where(o=>o.BarrierReason=="query-failure"&&result.Any(old=>old.At==o.At&&old.BarrierReason is null)).Select(o=>o.At).ToList();
+        var retained=lines.Distinct().Where(line=>
+        {
+            var split=line.IndexOf(" [WARN] Quota ",StringComparison.Ordinal);
+            return split>0&&DateTimeOffset.TryParse(line[..split],out var at)&&needed.Any(start=>at>=start&&at-start<TimeSpan.FromSeconds(1));
+        }).OrderBy(line=>line,StringComparer.Ordinal).ToList();
+        var payload=JsonSerializer.Serialize(retained);
+        if(payload!=savedEvidence&&retained.Count>0)
+        {
+            command.CommandText="INSERT INTO metadata(key,value) VALUES('legacy_quota_timeout_evidence_v1',$value) ON CONFLICT(key) DO UPDATE SET value=excluded.value";
+            command.Parameters.AddWithValue("$value",payload);command.ExecuteNonQuery();
+        }
+        return recovered;
     }
     public void SaveTemporalIntervals(IReadOnlyList<CapacityInterval> intervals,IReadOnlyList<CapacityCache>? history=null,int algorithmVersion=3)
     {
