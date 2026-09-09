@@ -8,7 +8,7 @@ import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
 const run = promisify(execFile);
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const privateNames = new Set(["DEVELOPMENT_PLAN.md", "DEVELOPMENT_LOG.md"]);
 
 test("internal documents are ignored without excluding public documentation", async () => {
@@ -25,9 +25,9 @@ test("public source validates without internal documents and rejects private doc
   const fixture = await mkdtemp(path.join(tempParent, "public-project-"));
   try {
     const publicEntries = [
-      ".codex-plugin", ".mcp.json", ".github", ".gitignore", ".gitattributes", ".npmignore",
-      "assets", "docs", "server", "skills", "src", "scripts",
-      "package.json", "package-lock.json", "README.md", "LICENSE", "LICENSE.zh-CN.md",
+      ".github", ".gitignore", ".gitattributes", "legacy",
+      "assets", "docs", "src", "scripts", "tests/project",
+      "README.md", "LICENSE", "LICENSE.zh-CN.md",
       "THIRD_PARTY_NOTICES.md", "SECURITY.md", "CONTRIBUTING.md", "CHANGELOG.md",
     ];
     for (const entry of publicEntries) {

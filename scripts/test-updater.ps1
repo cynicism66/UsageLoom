@@ -28,9 +28,10 @@ foreach ($scenario in @('success', 'rollback', 'conflict', 'traversal', 'bad-has
             [IO.File]::WriteAllText((Join-Path $root $name), $(if ($root -eq $installRoot) {'old'} else {'new'}))
         }
     }
-    [IO.File]::WriteAllLines((Join-Path $installRoot 'update-manifest.txt'), ($required + 'obsolete.dll'))
+    $obsolete=@('obsolete.dll','onnxruntime.dll','DirectML.dll','Microsoft.Windows.AI.Text.dll','Microsoft.Windows.Widgets.dll')
+    [IO.File]::WriteAllLines((Join-Path $installRoot 'update-manifest.txt'), ($required + $obsolete))
     [IO.File]::WriteAllLines((Join-Path $sourceRoot 'update-manifest.txt'), ($required + 'new.dll' + $(if ($scenario -eq 'traversal') {'../escape.txt'} else {@()})))
-    [IO.File]::WriteAllText((Join-Path $installRoot 'obsolete.dll'), 'old')
+    foreach($name in $obsolete){[IO.File]::WriteAllText((Join-Path $installRoot $name), 'old')}
     [IO.File]::WriteAllText((Join-Path $installRoot 'personal.txt'), 'keep')
     [IO.File]::WriteAllText((Join-Path $sourceRoot 'new.dll'), 'new')
     if ($scenario -eq 'conflict') { [IO.File]::WriteAllText((Join-Path $installRoot 'new.dll'), 'personal') }
@@ -55,9 +56,14 @@ foreach ($scenario in @('success', 'rollback', 'conflict', 'traversal', 'bad-has
     if ($scenario -eq 'success') {
         if ($actual -ne 'new' -or $result -notmatch 'Update completed' -or (Test-Path -LiteralPath (Join-Path $installRoot 'obsolete.dll'))) { throw "Failed: $scenario $result" }
         if ([IO.File]::ReadAllText((Join-Path $jobRoot 'backup/UsageLoom.App.dll')) -ne 'old') { throw 'Backup missing' }
+        foreach($name in $obsolete){
+            if(Test-Path -LiteralPath (Join-Path $installRoot $name)){throw "Obsolete component retained: $name"}
+            if([IO.File]::ReadAllText((Join-Path $jobRoot "backup/$name")) -ne 'old'){throw "Component backup missing: $name"}
+        }
     } else {
         if ($actual -ne 'old' -or $result -match '^Update completed') { throw "Failed: $scenario $result" }
         if ($scenario -eq 'rollback' -and $result -notmatch 'Previous version restored') { throw "Rollback not exercised: $result" }
+        foreach($name in $obsolete){if([IO.File]::ReadAllText((Join-Path $installRoot $name)) -ne 'old'){throw "Old component lost: $name"}}
     }
     if ([IO.File]::ReadAllText((Join-Path $installRoot 'personal.txt')) -ne 'keep') { throw 'User file changed' }
     Write-Output "PASS updater: $scenario"

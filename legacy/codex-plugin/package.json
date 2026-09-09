@@ -13,9 +13,9 @@
     "url": "https://github.com/cynicism66/UsageLoom/issues"
   },
   "scripts": {
-    "test": "node --test test/*.test.mjs",
-    "validate": "node scripts/validate-project.mjs",
-    "validate:local": "node scripts/validate-local-docs.mjs",
+    "test": "node --test test/*.test.mjs ../../tests/project/*.test.mjs",
+    "validate": "node ../../scripts/validate-project.mjs",
+    "validate:local": "node ../../scripts/validate-local-docs.mjs",
     "check": "npm run validate && npm test",
     "smoke": "node scripts/smoke-test.mjs",
     "package": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/package-plugin.ps1"

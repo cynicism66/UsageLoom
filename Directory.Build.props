@@ -1,8 +1,15 @@
 <Project>
+  <!-- Keep normal build products out of source and test directories. -->
+  <PropertyGroup>
+    <UsageLoomBuildRoot Condition="'$(UsageLoomBuildRoot)' == ''">$(MSBuildThisFileDirectory)artifacts</UsageLoomBuildRoot>
+    <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildProjectDirectory)\obj\**;$(MSBuildProjectDirectory)\bin\**</DefaultItemExcludes>
+    <BaseIntermediateOutputPath>$(UsageLoomBuildRoot)\obj\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <BaseOutputPath>$(UsageLoomBuildRoot)\bin\$(MSBuildProjectName)\</BaseOutputPath>
+  </PropertyGroup>
   <!-- Keeps restricted/test builds independent from caches created by another Windows identity. -->
   <PropertyGroup Condition="'$(UsageLoomIsolatedBuild)' == 'true'">
     <DefaultItemExcludes>$(DefaultItemExcludes);$(MSBuildProjectDirectory)\obj\**;$(MSBuildProjectDirectory)\bin\**</DefaultItemExcludes>
-    <BaseIntermediateOutputPath>$(MSBuildThisFileDirectory)artifacts\obj-isolated\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
-    <BaseOutputPath>$(MSBuildThisFileDirectory)artifacts\bin-isolated\$(MSBuildProjectName)\</BaseOutputPath>
+    <BaseIntermediateOutputPath>$(UsageLoomBuildRoot)\obj-isolated\$(MSBuildProjectName)\</BaseIntermediateOutputPath>
+    <BaseOutputPath>$(UsageLoomBuildRoot)\bin-isolated\$(MSBuildProjectName)\</BaseOutputPath>
   </PropertyGroup>
 </Project>

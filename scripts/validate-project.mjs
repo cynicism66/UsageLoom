@@ -11,9 +11,9 @@ const mustExist = async (relativePath) => {
   await access(path.join(root, relativePath));
 };
 
-const packageJson = await readJson("package.json");
-const manifest = await readJson(path.join(".codex-plugin", "plugin.json"));
-const mcp = await readJson(".mcp.json");
+const packageJson = await readJson("legacy/codex-plugin/package.json");
+const manifest = await readJson("legacy/codex-plugin/.codex-plugin/plugin.json");
+const mcp = await readJson("legacy/codex-plugin/.mcp.json");
 
 assert.equal(packageJson.name, "usage-loom");
 assert.equal(manifest.name, "usage-loom");
@@ -24,8 +24,8 @@ assert.ok(mcp.mcpServers.usage_loom);
 assert.equal(mcp.mcpServers.usage_loom.cwd, ".");
 
 for (const relativePath of [
-  ".codex-plugin/plugin.json",
-  ".mcp.json",
+  "legacy/codex-plugin/.codex-plugin/plugin.json",
+  "legacy/codex-plugin/.mcp.json",
   "LICENSE",
   "LICENSE.zh-CN.md",
   "README.md",
@@ -36,11 +36,11 @@ for (const relativePath of [
   "docs/PRIVACY.md",
   "docs/PROJECT_ORIGINS.md",
   "docs/RELEASING.md",
-  "server/index.mjs",
-  "src/providers/codex/usage.mjs",
-  "src/providers/codex/quota.mjs",
-  "src/providers/codex/pricing.mjs",
-  "assets/usage-dashboard.html",
+  "legacy/codex-plugin/server/index.mjs",
+  "legacy/codex-plugin/src/providers/codex/usage.mjs",
+  "legacy/codex-plugin/src/providers/codex/quota.mjs",
+  "legacy/codex-plugin/src/providers/codex/pricing.mjs",
+  "legacy/codex-plugin/assets/usage-dashboard.html",
 ]) await mustExist(relativePath);
 
 const files = [
@@ -55,20 +55,20 @@ const files = [
   "docs/PRIVACY.md",
   "docs/PROJECT_ORIGINS.md",
   "docs/RELEASING.md",
-  ".codex-plugin/plugin.json",
-  ".mcp.json",
-  "server/index.mjs",
-  "src/providers/codex/usage.mjs",
-  "src/providers/codex/quota.mjs",
-  "src/providers/codex/pricing.mjs",
-  "assets/usage-dashboard.html",
-  "skills/usage-monitor/SKILL.md",
+  "legacy/codex-plugin/.codex-plugin/plugin.json",
+  "legacy/codex-plugin/.mcp.json",
+  "legacy/codex-plugin/server/index.mjs",
+  "legacy/codex-plugin/src/providers/codex/usage.mjs",
+  "legacy/codex-plugin/src/providers/codex/quota.mjs",
+  "legacy/codex-plugin/src/providers/codex/pricing.mjs",
+  "legacy/codex-plugin/assets/usage-dashboard.html",
+  "legacy/codex-plugin/skills/usage-monitor/SKILL.md",
   "scripts/validate-project.mjs",
   "scripts/validate-local-docs.mjs",
-  "scripts/package-plugin.ps1",
-  "scripts/smoke-test.mjs",
-  "package.json",
-  "package-lock.json",
+  "legacy/codex-plugin/scripts/package-plugin.ps1",
+  "legacy/codex-plugin/scripts/smoke-test.mjs",
+  "legacy/codex-plugin/package.json",
+  "legacy/codex-plugin/package-lock.json",
   ".github/workflows/test.yml",
 ];
 const texts = await Promise.all(files.map((relativePath) => readFile(path.join(root, relativePath), "utf8")));

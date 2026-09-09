@@ -1,8 +1,10 @@
 # 参与贡献
 
-当前源码仍是 JavaScript 技术原型，以下 Node.js 命令用于验证原型；WinUI 3 客户端尚未实现。公开开发流程不依赖个人内部规划、开发流水或会话交接文件。
+当前主产品为 WinUI 3 桌面客户端，另保留 JavaScript 技术原型。公开开发流程不依赖个人内部规划、开发流水或会话交接文件。
 
-`npm run validate` 用于公开项目自检；`npm run validate:local` 仅在本机存在内部开发文档时单独校验，公开源码副本缺少这些文档时会正常跳过，不是贡献或 CI 的前置条件。
+桌面源码在 `src/UsageLoom.*`，目录说明见 [目录指南](docs/REPOSITORY_LAYOUT.md)。在根目录执行 `./scripts/build-windows.ps1 -Test` 测试桌面核心。
+
+下文 npm 命令均在 `legacy/codex-plugin` 中执行，仅针对历史 JavaScript/MCP 原型。`npm run validate` 用于公开项目自检；`npm run validate:local` 仅在本机存在内部开发文档时单独校验，公开源码副本缺少这些文档时会正常跳过，不是贡献或 CI 的前置条件。
 
 感谢你帮助改进 UsageLoom。
 
@@ -34,7 +36,7 @@ npm run smoke
 - 行为发生变化时新增或更新测试。
 - 不要加入凭据、真实会话日志、个人路径，或包含隐私数据的截图。
 - 复制资产、源码片段或新增依赖时，更新 `THIRD_PARTY_NOTICES.md` 并确认许可证允许相应用途。
-- 修改 `src/providers/codex/pricing.mjs` 时，同时更新价格来源和核对日期。
+- 修改原型的 `legacy/codex-plugin/src/providers/codex/pricing.mjs` 时，同时更新价格来源和核对日期；桌面定价在 `src/UsageLoom.Core/Pricing.cs`。
 - 新增 Provider 时，在 `docs/PRIVACY.md` 中说明其身份验证方式和数据边界。
 - 面向用户、维护者和贡献者的说明文档统一使用中文；必要的技术专有名词可以保留英文。
 

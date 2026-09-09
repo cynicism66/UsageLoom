@@ -1,5 +1,7 @@
 [CmdletBinding()]
-param([string]$Version='0.7.0')
+param([string]$Version)
+. "$PSScriptRoot/common/Get-ReleaseVersion.ps1"
+$Version=Get-ReleaseVersion $Version
 $ErrorActionPreference='Stop'
 $workspace=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $installer=New-Object -ComObject WindowsInstaller.Installer

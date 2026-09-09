@@ -1,8 +1,9 @@
 [CmdletBinding()]
-param([switch]$AllPages,[switch]$English,[switch]$Personalization)
+param([switch]$AllPages,[switch]$English,[switch]$Personalization,[string]$PublishDirectory)
 $ErrorActionPreference='Stop'
 $workspace=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$exe=Join-Path $workspace 'artifacts/win-x64/UsageLoom.App.exe'
+if(!$PublishDirectory){$PublishDirectory=Join-Path $workspace 'artifacts/win-x64'}
+$exe=Join-Path $PublishDirectory 'UsageLoom.App.exe'
 # Preview uses a separate mutex and data directory; do not stop the user's app.
 $env:USAGELOOM_TEST_DATA=Join-Path $workspace 'artifacts/ui-preview-data'
 $log=Join-Path $env:USAGELOOM_TEST_DATA 'logs/runtime.log'

@@ -10,6 +10,9 @@ permissions:
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: legacy/codex-plugin
     strategy:
       matrix:
         node-version: [20, 22]
@@ -21,6 +24,7 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
+          cache-dependency-path: legacy/codex-plugin/package-lock.json
       - name: Install dependencies
         run: npm ci --ignore-scripts
       - name: Validate project

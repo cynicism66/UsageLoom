@@ -6,15 +6,17 @@ Windows 11 上的 Codex 用量与额度面板。无需登录即可统计本机 T
 
 UsageLoom 是独立开源项目，不隶属于 OpenAI。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.7.0
+## Windows 桌面版 0.7.1
 
-0.7.0 修复切页后日期筛选栏消失、只剩空白卡片的问题，并增加筛选控件可见性回归检查。[发布说明](docs/RELEASE-0.7.0.md)
+0.7.1 相对于 0.7.0：整理工程结构，并通过组件化依赖将未压缩发布体积缩小约 23.2%，保留自包含运行能力。[发布说明](docs/releases/RELEASE-0.7.1.md)
 
-0.6.10：设置中可调整新版本检查频率，支持从不自动检查。[发布说明](docs/RELEASE-0.6.10.md)
+0.7.0 修复切页后日期筛选栏消失、只剩空白卡片的问题，并增加筛选控件可见性回归检查。[发布说明](docs/releases/RELEASE-0.7.0.md)
 
-0.6.9：增加速览齿轮设置入口、拆分托盘统计与设置，并调整软件更新分组位置。[发布说明](docs/RELEASE-0.6.9.md)
+0.6.10：设置中可调整新版本检查频率，支持从不自动检查。[发布说明](docs/releases/RELEASE-0.6.10.md)
 
-0.6.8 修复更新检查限流：优先使用 Release 下载清单、API 备用，并提供缓存与发布页入口。[0.6.8 说明](docs/RELEASE-0.6.8.md)
+0.6.9：增加速览齿轮设置入口、拆分托盘统计与设置，并调整软件更新分组位置。[发布说明](docs/releases/RELEASE-0.6.9.md)
+
+0.6.8 修复更新检查限流：优先使用 Release 下载清单、API 备用，并提供缓存与发布页入口。[0.6.8 说明](docs/releases/RELEASE-0.6.8.md)
 
 支持应用内更新，并保留分页历史子集接续修复。
 
@@ -63,7 +65,7 @@ UsageLoom 是独立开源项目，不隶属于 OpenAI。本地统计与费用估
 
 升级前从托盘退出 UsageLoom，再安装新版 MSI 或解压 ZIP。两种版本默认共用 `%LOCALAPPDATA%\UsageLoom\user-data\`，请勿删除此目录。v2/v3 估算保留为历史参考，不混入 v4 样本；旧版未保存的额度快照无法补造。美元结果是实验性 API 等价估算，不是官方美元余额。
 
-详细说明见 [0.6.7 发布说明](docs/RELEASE-0.6.7.md)。安装包尚未签名；自动化测试不代表干净 Windows 安装、多屏/DPI 或真实托盘人工验收。下方截图仍为明确标注的 0.4.0 演示截图。
+详细说明见 [0.6.7 发布说明](docs/releases/RELEASE-0.6.7.md)。安装包尚未签名；自动化测试不代表干净 Windows 安装、多屏/DPI 或真实托盘人工验收。下方截图仍为明确标注的 0.4.0 演示截图。
 
 ## 实际界面
 
@@ -153,7 +155,9 @@ Windows 构建使用 .NET 10 SDK、WinUI 3 与 WiX 6：
 
 核心回归：`dotnet run --project tests/UsageLoom.Core.Tests -c Release`。桌面冒烟：退出运行中的程序后执行 `./scripts/test-ui-startup.ps1 -AllPages`。后者不替代干净系统安装、多屏 DPI、托盘置顶的实际交互验收。
 
-仓库保留 0.1.0 JavaScript/MCP 原型（`npm run check`），其包版本与 Windows 桌面版分开。索引目前按受影响 Session 重放，不宣称完整数据库级增量聚合。
+仓库在 `legacy/codex-plugin` 保留 0.1.0 JavaScript/MCP 原型（进入该目录执行 `npm run check`），其包版本与 Windows 桌面版分开。索引目前按受影响 Session 重放，不宣称完整数据库级增量聚合。
+
+源码分层、构建产物和文档位置见 [目录指南](docs/REPOSITORY_LAYOUT.md)。
 
 ## 致谢与许可
 

@@ -1,5 +1,7 @@
 [CmdletBinding()]
-param([string]$Version='0.7.0')
+param([string]$Version)
+. "$PSScriptRoot/common/Get-ReleaseVersion.ps1"
+$Version=Get-ReleaseVersion $Version
 $ErrorActionPreference='Stop'
 $workspace=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $localRuntime=Join-Path $workspace '.tools/dotnet'
@@ -11,6 +13,7 @@ if($Version -notmatch '^\d+\.\d+\.\d+$'){throw '版本号必须为 major.minor.p
 $wix=Join-Path $workspace '.tools/wix/wix.exe'
 if(!(Test-Path $wix)){throw 'WiX 未安装，请先运行 dotnet tool install wix --tool-path .tools/wix --version 6.0.2'}
 $publish=Join-Path $workspace 'artifacts/win-x64'
+& "$PSScriptRoot/test-publish-layout.ps1" -PublishDirectory $publish
 if(!(Test-Path (Join-Path $publish 'UsageLoom.App.exe'))){throw '请先运行 build-windows.ps1 -Publish'}
 foreach($required in @('UsageLoom.App.pri','App.xbf','Microsoft.UI.Xaml.dll','coreclr.dll','hostfxr.dll')){
     if(!(Test-Path -LiteralPath (Join-Path $publish $required))){throw "自包含发布目录缺少 $required，拒绝生成不完整 MSI"}

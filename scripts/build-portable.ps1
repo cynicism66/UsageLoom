@@ -1,8 +1,11 @@
 [CmdletBinding()]
-param([string]$Version='0.7.0')
+param([string]$Version)
+. "$PSScriptRoot/common/Get-ReleaseVersion.ps1"
+$Version=Get-ReleaseVersion $Version
 $ErrorActionPreference='Stop'
 $workspace=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $publish=Join-Path $workspace 'artifacts/win-x64'
+& "$PSScriptRoot/test-publish-layout.ps1" -PublishDirectory $publish
 $exe=Join-Path $publish 'UsageLoom.App.exe'
 if(!(Test-Path -LiteralPath $exe)){throw '请先运行 build-windows.ps1 -Publish'}
 if(((Get-Item -LiteralPath $exe).VersionInfo.ProductVersion -split '\+')[0] -ne $Version){throw '发布目录版本不一致'}

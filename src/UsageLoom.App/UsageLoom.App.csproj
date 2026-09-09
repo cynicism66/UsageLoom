@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <Version>0.7.0</Version>
+    <Version>0.7.1</Version>
     <!-- 0.2.0 shipped a default 1.0.0.0 file version. Keep native file versions above it. -->
-    <FileVersion>1.0.7.0</FileVersion>
+    <FileVersion>1.0.7.1</FileVersion>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>
     <UseWinUI>true</UseWinUI>
@@ -27,10 +27,12 @@
     <Content Include="../../assets/licenses/*.txt" Link="THIRD-PARTY-LICENSES/%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="$(NuGetPackageRoot)/microsoft.netcore.app.runtime.win-x64/10.0.11/LICENSE.TXT" Link="THIRD-PARTY-LICENSES/dotnet-LICENSE.txt" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="$(NuGetPackageRoot)/microsoft.netcore.app.runtime.win-x64/10.0.11/THIRD-PARTY-NOTICES.TXT" Link="THIRD-PARTY-LICENSES/dotnet-NOTICES.txt" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="$(NuGetPackageRoot)/microsoft.windowsappsdk/1.8.260804001/license.txt" Link="THIRD-PARTY-LICENSES/windowsappsdk-LICENSE.txt" CopyToPublishDirectory="PreserveNewest" />
-    <Content Include="$(NuGetPackageRoot)/microsoft.windowsappsdk/1.8.260804001/NOTICE.txt" Link="THIRD-PARTY-LICENSES/windowsappsdk-NOTICES.txt" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(NuGetPackageRoot)/microsoft.windowsappsdk.winui/1.8.260803003/license.txt" Link="THIRD-PARTY-LICENSES/windowsappsdk-LICENSE.txt" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="$(NuGetPackageRoot)/microsoft.windowsappsdk.winui/1.8.260803003/NOTICE.txt" Link="THIRD-PARTY-LICENSES/windowsappsdk-NOTICES.txt" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../assets/UsageLoom.ico" Link="UsageLoom.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="1.8.260804001" />
+    <!-- Component reference avoids unused AI/ML/Widgets payloads from the SDK metapackage. -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="1.8.260803003" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools.MSIX" Version="1.7.20250829.1" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.7175" />
     <ProjectReference Include="../UsageLoom.Core/UsageLoom.Core.csproj" />
     <ProjectReference Include="../UsageLoom.Storage/UsageLoom.Storage.csproj" />

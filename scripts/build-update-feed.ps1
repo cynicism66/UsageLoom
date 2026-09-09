@@ -1,5 +1,7 @@
 [CmdletBinding()]
-param([string]$Version='0.7.0')
+param([string]$Version)
+. "$PSScriptRoot/common/Get-ReleaseVersion.ps1"
+$Version=Get-ReleaseVersion $Version
 $ErrorActionPreference='Stop'
 if($Version -notmatch '^\d+\.\d+\.\d+$'){throw 'Invalid version'}
 $workspace=Split-Path $PSScriptRoot
@@ -11,6 +13,6 @@ foreach($pair in @(@('installer','msi'),@('portable','zip'))){
 }
 $directory=Join-Path $workspace "artifacts/release-$Version"
 New-Item -ItemType Directory -Force -Path $directory | Out-Null
-$feed=@{tag_name="v$Version";draft=$false;prerelease=$false;body=[IO.File]::ReadAllText((Join-Path $workspace "docs/RELEASE-$Version.md"));assets=$assets}
+$feed=@{tag_name="v$Version";draft=$false;prerelease=$false;body=[IO.File]::ReadAllText((Join-Path $workspace "docs/releases/RELEASE-$Version.md"));assets=$assets}
 [IO.File]::WriteAllText((Join-Path $directory 'update.json'),($feed|ConvertTo-Json -Depth 6),[Text.UTF8Encoding]::new($false))
 Write-Output "Update feed: $directory/update.json (upload alongside MSI and ZIP)"
