@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Version='0.6.9')
+param([string]$Version='0.6.10')
 $ErrorActionPreference='Stop'
 $workspace=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $localRuntime=Join-Path $workspace '.tools/dotnet'

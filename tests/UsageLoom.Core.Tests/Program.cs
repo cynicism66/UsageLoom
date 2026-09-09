@@ -60,6 +60,22 @@ void Check(bool result, string message = "断言失败") { if (!result) throw ne
 JsonElement Json(string text) { using var doc = JsonDocument.Parse(text); return doc.RootElement.Clone(); }
 void Test(string name, Action action) => tests.Add((name, () => { action(); return Task.CompletedTask; }));
 void AsyncTest(string name, Func<Task> action) => tests.Add((name, action));
+Test("更新检查频率：从不、首次、间隔边界与旧配置默认值", () =>
+{
+    var now=DateTimeOffset.UtcNow;
+    Check(!UpdateSchedule.IsDue(false,1,null,now));
+    Check(!UpdateSchedule.IsDue(false,1,now.AddDays(-10),now));
+    foreach(var hours in new[]{1,6,12,24,72,168})
+    {
+        Check(UpdateSchedule.IsDue(true,hours,null,now));
+        Check(!UpdateSchedule.IsDue(true,hours,now.AddHours(-hours).AddSeconds(1),now));
+        Check(UpdateSchedule.IsDue(true,hours,now.AddHours(-hours),now));
+        Check(!UpdateSchedule.IsDue(true,hours,now.AddHours(1),now));
+    }
+    Check(UpdateSchedule.NormalizeHours(0)==24 && UpdateSchedule.NormalizeHours(-1)==24 && UpdateSchedule.NormalizeHours(int.MaxValue)==24);
+    Check(!UpdateSchedule.IsDue(true,0,now.AddHours(-23),now));
+    Check(UpdateSchedule.IsDue(true,0,now.AddHours(-24),now));
+});
 AsyncTest("更新清单优先、API 备用与双源限流不伪报最新版",async()=>
 {
     var json=JsonSerializer.Serialize(new{tag_name="v0.7.0",draft=false,prerelease=false,body="notes",assets=new[]{new{name="UsageLoom-0.7.0-win-x64.zip",size=100,digest="sha256:"+new string('a',64),browser_download_url="https://github.com/cynicism66/UsageLoom/releases/download/v0.7.0/UsageLoom-0.7.0-win-x64.zip"}}});

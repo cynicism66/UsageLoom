@@ -30,7 +30,7 @@ public sealed partial class LoomApp
             }
             catch (Exception ex) { Program.Log.Write("WARN", "AppUpdate", ex.Message); }
         }
-        if (!manual && (!Config.AutoUpdateCheck || DateTimeOffset.UtcNow - (Config.LastUpdateCheck ?? DateTimeOffset.MinValue) < TimeSpan.FromDays(1))) return;
+        if (!manual && !UpdateSchedule.IsDue(Config.AutoUpdateCheck, Config.UpdateCheckHours, Config.LastUpdateCheck, DateTimeOffset.UtcNow)) return;
         updateChecking = true;
         try
         {

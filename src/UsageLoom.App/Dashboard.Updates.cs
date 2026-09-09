@@ -10,10 +10,21 @@ internal sealed partial class Dashboard
     {
         string T(string zh, string en) => LoomApp.UpdateText(zh, en);
         var group = new StackPanel { Spacing = 12 };
-        var automatic = new ToggleSwitch { Header = T("自动检查更新（每天一次）", "Check for updates automatically (daily)"), IsOn = app.Config.AutoUpdateCheck,
-            OnContent=T("开", "On"), OffContent=T("关", "Off") };
-        automatic.Toggled += (_, _) => { if (!app.IsDemo) { app.Config.AutoUpdateCheck = automatic.IsOn; app.Config.Save(); } };
+        int[] hours = [0, 1, 6, 12, 24, 72, 168];
+        var automatic = new ComboBox { Header = T("新版本检查频率", "Update check frequency"), HorizontalAlignment = HorizontalAlignment.Stretch,
+            ItemsSource = new[] { T("从不自动检查", "Never automatically"), T("每 1 小时", "Every hour"), T("每 6 小时", "Every 6 hours"),
+                T("每 12 小时", "Every 12 hours"), T("每天（默认）", "Daily (default)"), T("每 3 天", "Every 3 days"), T("每周", "Weekly") },
+            SelectedIndex = app.Config.AutoUpdateCheck ? Array.IndexOf(hours, app.Config.UpdateCheckHours) : 0 };
+        automatic.SelectionChanged += (_, _) =>
+        {
+            if (app.IsDemo || automatic.SelectedIndex < 0) return;
+            var selected = hours[automatic.SelectedIndex];
+            app.Config.AutoUpdateCheck = selected != 0;
+            if (selected != 0) app.Config.UpdateCheckHours = selected;
+            app.Config.Save();
+        };
         group.Children.Add(automatic);
+        group.Children.Add(new TextBlock { Text = T("选择后立即保存。仅在软件运行时按所选间隔检查；从不自动检查仍可手动检查。间隔从上次检查开始计算，包括失败的检查。", "Saved immediately. Checks run only while the app is running. Never disables automatic checks, not manual checks. The interval starts at the last check, including failed attempts."), TextWrapping = TextWrapping.Wrap });
         group.Children.Add(new TextBlock { Text = T("只查询 GitHub Release，不上传账号或用量。点击更新后将下载、校验、退出并替换程序，然后重新启动；用户数据保持不变。请先保存其他设置。", "Checks GitHub Releases without sending account or usage data. Updating downloads and verifies the package, exits, upgrades and restarts the app. User data is preserved. Save other settings first."), TextWrapping = TextWrapping.Wrap });
         var label = new TextBlock { Text = app.UpdateStatus, TextWrapping = TextWrapping.Wrap };
         var notes = new TextBlock { Text = app.AvailableRelease?.Notes ?? "", TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };

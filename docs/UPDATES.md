@@ -2,7 +2,7 @@
 
 从 0.6.8 起优先读取最新 Release 附件 `update.json`，不依赖公共 API 配额；API 仅作备用。已验证的元数据在本地保留最多 7 天，检查失败时仍可尝试已知版本下载。设置提供发布页链接。两条网络路径都不可达时不会误报“已是最新版”。发布者需在生成 MSI/ZIP 后运行 `scripts/build-update-feed.ps1`，上传对应清单。
 
-设置中的「软件更新」支持每天自动检查一次 GitHub 最新正式 Release，也可手动检查。检查只请求公共发布信息，不发送账号、Token、日志或统计数据。关闭自动检查不会影响手动更新。
+设置中的「软件更新」从 0.6.10 起支持选择检查频率：从不自动检查、每 1/6/12 小时、每天（默认）、每 3 天或每周，选择后立即保存。仅在软件运行时按距离上次检查的间隔检查（包括失败的检查），也可随时手动检查。旧版关闭自动检查的设置继续保留。检查只请求公共发布信息，不发送账号、Token、日志或统计数据。关闭自动检查不会影响手动更新。
 
 发现新版后显示发布说明。点击「下载更新并重启」并确认后，下载适合当前运行位置的 Windows x64 ZIP 或 MSI，显示下载进度，检查长度和 GitHub 资产 SHA-256 摘要，再正常退出并升级。没有摘要、版本或下载地址不匹配时拒绝安装。摘要用于完整性校验，并不等同于独立代码签名；安全性仍依赖 GitHub 仓库和发布账号。
 
@@ -16,6 +16,6 @@
 
 ## English
 
-Settings → Software updates checks the latest stable GitHub Release daily, with a manual check option. No account or usage data is sent. Confirm “Download update and restart” to download the matching x64 asset, verify its size and GitHub SHA-256 digest, exit normally, upgrade and restart. The digest is an integrity check, not an independent code signature.
+From 0.6.10, Settings → Software updates offers automatic checks every 1/6/12 hours, daily (default), every 3 days, weekly, or never. Changes save immediately. Checks run only while the app is running; intervals start at the last attempt, including failures. Previously disabled automatic checks remain disabled. Manual checks remain available. No account or usage data is sent. Confirm “Download update and restart” to download the matching x64 asset, verify its size and GitHub SHA-256 digest, exit normally, upgrade and restart. The digest is an integrity check, not an independent code signature.
 
 MSI installations use Windows Installer's upgrade transaction at the registered installation location. Portable builds use a separate helper, an application mutex and an explicit file manifest; unrelated files are preserved, conflicts abort the update, and replacement failures restore a backup. User data remains in its existing directory. Backups and logs remain under `%LOCALAPPDATA%\UsageLoom\updates\` for recovery. Power loss and post-launch application bugs are not covered by automatic file-replacement rollback. The first update-capable version must be installed manually.

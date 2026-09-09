@@ -13,6 +13,7 @@ internal sealed class Settings
     public string CodexHome { get; set; } = Environment.GetEnvironmentVariable("CODEX_HOME")??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),".codex");
     public bool AutoRefresh { get; set; }=true;
     public bool AutoUpdateCheck { get; set; }=true;
+    public int UpdateCheckHours { get; set; }=24;
     public DateTimeOffset? LastUpdateCheck { get; set; }
     public string? LastUpdateResult { get; set; }
     public bool CapacityEnabled { get; set; }=true;
@@ -34,6 +35,7 @@ internal sealed class Settings
             var p=Path.Combine(Program.DataPath,"settings.json");
             var settings=File.Exists(p)?JsonSerializer.Deserialize<Settings>(File.ReadAllText(p))??new():new();
             settings.BackgroundSeconds=Math.Clamp(settings.BackgroundSeconds,30,3600);
+            settings.UpdateCheckHours=UpdateSchedule.NormalizeHours(settings.UpdateCheckHours);
             settings.ForegroundSeconds=Math.Clamp(settings.ForegroundSeconds,15,3600);
             settings.LowPercent=Math.Clamp(settings.LowPercent,1,99);
             settings.ResetMinutes=Math.Clamp(settings.ResetMinutes,1,120);
