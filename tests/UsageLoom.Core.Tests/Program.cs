@@ -249,15 +249,22 @@ Test("稳定估算合并区间、延迟确认、累计加权和迟到重算",() 
     UsageEvent E(string id,int m,long tokens)=>new(id,"s","p","gpt-5.4","main",at.AddMinutes(m),"2026-09-08",new(tokens)){AccountScope="a"};
     var observations=new[]{O(0,0),O(1,1),O(3,3),O(6,8),O(9,11),O(12,11)};
     var events=new[]{E("a",1,300),E("b",5,1000),E("c",8,900)};
+    foreach(var used in new[]{1d,2d,3d})
+    {
+        var pending=TemporalCapacity.CalculateStable([O(0,0),O(1,used)],events,at.AddMinutes(12));
+        Check(pending.PendingBaselineUsed["codex:weekly"]==0&&pending.Intervals.Count==0&&pending.Cache!.Windows.Count==0);
+    }
     Check(TemporalCapacity.CalculateStable(observations[..3],events,at.AddMinutes(12)).Intervals.Count==0);
     Check(TemporalCapacity.CalculateStable(observations,events,at.AddMinutes(4)).Intervals.Count==0);
     var result=TemporalCapacity.CalculateStable(observations,events,at.AddMinutes(12));var sample=result.Cache!.Windows.Single();
     Check(result.Cache.Version==4&&sample.Percent==11&&sample.Tokens==2200&&sample.Samples==3&&sample.RangeSamples==3);
+    Check(result.PendingBaselineUsed["codex:weekly"]==11); // Confirmed points are not counted twice.
     Check(sample.DollarLow<sample.Cost*100m/11&&sample.DollarHigh>sample.Cost*100m/11);
     var updated=TemporalCapacity.CalculateStable(observations,events.Append(E("late",2,100)),at.AddMinutes(12));
     Check(updated.Intervals.Count==3&&updated.Cache!.Windows.Single().Tokens==2300);
     var dip=TemporalCapacity.CalculateStable([O(0,0),O(1,2),O(2,1),O(5,4),O(8,4)],[E("old",1,999),E("new",4,100)],at.AddMinutes(8));
     Check(dip.Cache!.Windows.Single().Tokens==100);
+    Check(dip.PendingBaselineUsed["codex:weekly"]==4);
     foreach(var barrier in new[]{O(4,3) with{Account="b"},O(4,3) with{Plan="pro"},O(4,3) with{Barrier=true},O(4,3) with{Windows=[]}})
         Check(TemporalCapacity.CalculateStable([O(0,0),O(3,3),barrier],events,at.AddMinutes(12)).Intervals.Count==0);
 });

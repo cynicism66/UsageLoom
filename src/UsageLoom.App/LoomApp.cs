@@ -139,7 +139,7 @@ public sealed partial class LoomApp : Application
             },lifetime.Token);
             if(!Current()){capacityBatch.MarkDirty();capacityFeedback=L10n.T("capacity.changed");return;}
             capacityEstimator.Restore(null,history);
-            capacityEstimator.ApplyTemporal(quota,output.result.Cache,output.total,output.price);
+            capacityEstimator.ApplyTemporal(quota,output.result.Cache,output.total,output.price,output.result.PendingBaselineUsed);
             WeeklyCapacity=capacityEstimator.DisplayCurrent;
             capacityLastCalculated=DateTimeOffset.Now;
             capacityFeedback=L10n.T("capacity.done")+" · "+WeeklyCapacityProgress;

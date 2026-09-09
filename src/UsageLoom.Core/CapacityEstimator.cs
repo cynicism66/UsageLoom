@@ -78,7 +78,11 @@ public sealed class WeeklyCapacityEstimator
         if(!string.Equals(accountKey,quota.AccountKey,StringComparison.Ordinal)||!states.TryGetValue(window.Key,out var state))return L10n.T("sBD4D57CD3F7F");
         var tokens=Math.Max(0,localTokenTotal-state.BaselineTokens);
         var percent=Math.Max(0,window.Used-state.BaselineUsed);
-        if(temporal&&temporalVersion==4)return L10n.F("capacity.stableProgress",state.ObservedPercent,state.Samples);
+        if(temporal&&temporalVersion==4)
+        {
+            var pending=plan==quota.Plan?.Trim().ToLowerInvariant()&&!NewWindow(state.ResetsAt,window.ResetsAt)?percent:0;
+            return L10n.F("capacity.stableProgress",state.ObservedPercent+pending,state.Samples,state.ObservedPercent,pending);
+        }
         var stage=state.Samples>0?L10n.F("s4C059D23076E", state.ObservedPercent, state.Samples):percent>0?L10n.T("sBBBF41C18FDD"):tokens>0?L10n.T("s56E6E4044346"):L10n.T("s374E804CF4EB");
         return L10n.F("s62ED6CB79078", stage, tokens, percent, state.Samples, state.ExcludedIntervals);
     }
@@ -182,7 +186,7 @@ public sealed class WeeklyCapacityEstimator
         }
     }
 
-    public void ApplyTemporal(QuotaState quota,CapacityCache? cache,long localTotal,Estimate? price)
+    public void ApplyTemporal(QuotaState quota,CapacityCache? cache,long localTotal,Estimate? price,IReadOnlyDictionary<string,double>? pendingBaselineUsed=null)
     {
         if(!quota.Fresh)return;
         if(Export() is {} previous&&previous.Windows.Any(w=>w.Percent>=5&&w.Samples>=2))
@@ -194,7 +198,8 @@ public sealed class WeeklyCapacityEstimator
         foreach(var window in quota.PrimaryWindows.Where(w=>w.Minutes==10080))
         {
             var s=cache is {Version:3 or 4}&&cache.Account==accountKey&&cache.Plan==plan&&cache.PricingVersion==Pricing.CatalogVersion?cache.Windows.FirstOrDefault(w=>w.Key==window.Key&&!NewWindow(w.ResetsAt,window.ResetsAt)):null;
-            states[window.Key]=new WindowState{Label=window.Label,ResetsAt=window.ResetsAt,BaselineUsed=window.Used,BaselineTokens=localTotal,BaselinePrice=price,
+            var baseline=cache is not null&&cache.Account==accountKey&&cache.Plan==plan&&pendingBaselineUsed?.TryGetValue(window.Key,out var used)==true?used:window.Used;
+            states[window.Key]=new WindowState{Label=window.Label,ResetsAt=window.ResetsAt,BaselineUsed=baseline,BaselineTokens=localTotal,BaselinePrice=price,
                 ObservedPercent=s?.Percent??0,ObservedTokens=s?.Tokens??0,ObservedCost=s?.Cost??0,PricedTokens=s?.Priced??0,Samples=s?.Samples??0,ExcludedIntervals=s?.Excluded??0,DollarLow=s?.DollarLow,DollarHigh=s?.DollarHigh,RangeSamples=s?.RangeSamples??0};
         }
     }

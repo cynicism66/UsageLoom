@@ -3,7 +3,11 @@ namespace UsageLoom.Core;
 // No credentials or response bodies: only the fields required for reproducible pairing.
 public sealed record QuotaObservation(DateTimeOffset At,string? Account,string? Plan,string PricingVersion,List<QuotaWindow> Windows,bool Barrier=false);
 public sealed record CapacityInterval(string Key,DateTimeOffset From,DateTimeOffset To,string Account,string Plan,DateTimeOffset Reset,double Percent,long Tokens,decimal Cost,long Priced,string[] EventIds,string? Exclusion);
-public sealed record TemporalCapacityResult(CapacityCache? Cache,List<CapacityInterval> Intervals,DateTimeOffset? PendingFrom,List<CapacityCache> History);
+public sealed record TemporalCapacityResult(CapacityCache? Cache,List<CapacityInterval> Intervals,DateTimeOffset? PendingFrom,List<CapacityCache> History)
+{
+    // Display-only anchors; unfinished intervals must not enter estimates or archives.
+    public Dictionary<string,double> PendingBaselineUsed { get; init; } = [];
+}
 
 public static class TemporalCapacity
 {
@@ -92,6 +96,7 @@ public static class TemporalCapacity
         }
         var cache=last is not null&&!last.Barrier&&last.Account is not null&&last.Plan is not null&&last.PricingVersion==Pricing.CatalogVersion?
             new CapacityCache(version,last.Account,last.Plan,Pricing.CatalogVersion,last.At,totals.Values.Where(t=>t.Samples>0).ToList()):null;
-        return new(cache,intervals,anchors.Count>0?anchors.Values.Min(a=>a.Observation.At):null,history.Values.ToList());
+        return new(cache,intervals,anchors.Count>0?anchors.Values.Min(a=>a.Observation.At):null,history.Values.ToList())
+        {PendingBaselineUsed=anchors.ToDictionary(p=>p.Key,p=>p.Value.Window.Used)};
     }
 }
