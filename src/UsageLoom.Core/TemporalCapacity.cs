@@ -54,13 +54,15 @@ public static class TemporalCapacity
         var totals=new Dictionary<string,CapacitySample>();var intervals=new List<CapacityInterval>();
         var history=new Dictionary<string,CapacityCache>();
         var segments=new Dictionary<string,int>();var generation=0;
+        // Preserve completed blocks only. Never bridge usage across a different cycle.
+        var suspended=new List<(string Key,DateTimeOffset Reset,double Used,CapacitySample Sample,int Segment)>();
         QuotaObservation? last=null;
         foreach(var o in ordered)
         {
             cancellationToken.ThrowIfCancellationRequested();
             if(o.Barrier||string.IsNullOrWhiteSpace(o.Account)||string.IsNullOrWhiteSpace(o.Plan)||o.PricingVersion!=Pricing.CatalogVersion)
-            {anchors.Clear();totals.Clear();last=o;continue;}
-            if(last?.Account!=o.Account||last?.Plan!=o.Plan||last?.PricingVersion!=o.PricingVersion){anchors.Clear();totals.Clear();}
+            {anchors.Clear();totals.Clear();suspended.Clear();last=o;continue;}
+            if(last?.Account!=o.Account||last?.Plan!=o.Plan||last?.PricingVersion!=o.PricingVersion){anchors.Clear();totals.Clear();suspended.Clear();}
             var keys=o.Windows.Select(w=>w.Key).ToHashSet();
             foreach(var key in anchors.Keys.Where(k=>!keys.Contains(k)).ToArray()){anchors.Remove(key);totals.Remove(key);}
             foreach(var w in o.Windows.Where(w=>w.IsPrimary&&w.Minutes==10080))
@@ -70,7 +72,27 @@ public static class TemporalCapacity
                 if(!anchors.TryGetValue(w.Key,out var a)||a.Window.ResetsAt is not {} oldReset||
                     Math.Abs((oldReset-reset).TotalMinutes)>2||o.At>=oldReset||w.Used<a.Window.Used||
                     stable&&last?.Windows.FirstOrDefault(p=>p.Key==w.Key) is {} previousWindow&&w.Used<previousWindow.Used)
-                {anchors[w.Key]=(o,w);totals.Remove(w.Key);segments[w.Key]=++generation;continue;}
+                {
+                    var previous=last?.Windows.FirstOrDefault(p=>p.Key==w.Key);
+                    var differentCycle=previous?.ResetsAt is {} priorReset&&Math.Abs((priorReset-reset).TotalMinutes)>2;
+                    if(differentCycle&&totals.TryGetValue(w.Key,out var completed)&&completed.Samples>0)
+                    {
+                        suspended.RemoveAll(s=>s.Key==w.Key&&Math.Abs((s.Reset-completed.ResetsAt).TotalMinutes)<=2);
+                        suspended.Add((w.Key,completed.ResetsAt,previous!.Used,completed,segments[w.Key]));
+                    }
+                    var resume=suspended.FindLastIndex(s=>s.Key==w.Key&&s.Reset>o.At&&Math.Abs((s.Reset-reset).TotalMinutes)<=2);
+                    totals.Remove(w.Key);segments[w.Key]=++generation;
+                    if(differentCycle&&resume>=0)
+                    {
+                        var saved=suspended[resume];suspended.RemoveAt(resume);
+                        if(w.Used>=saved.Used)
+                        {
+                            totals[w.Key]=saved.Sample with{LastUsed=w.Used,ResetsAt=reset};
+                            segments[w.Key]=saved.Segment;
+                        }
+                    }
+                    anchors[w.Key]=(o,w);continue;
+                }
                 var delta=w.Used-a.Window.Used;
                 if(delta<=0)continue; // Keep flat observations, but pair the whole plateau when it moves.
                 if(stable&&(delta<3||!confirmed.Contains((o.At,w.Key))))continue;

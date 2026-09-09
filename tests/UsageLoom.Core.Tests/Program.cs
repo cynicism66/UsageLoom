@@ -268,6 +268,28 @@ Test("稳定估算合并区间、延迟确认、累计加权和迟到重算",() 
     foreach(var barrier in new[]{O(4,3) with{Account="b"},O(4,3) with{Plan="pro"},O(4,3) with{Barrier=true},O(4,3) with{Windows=[]}})
         Check(TemporalCapacity.CalculateStable([O(0,0),O(3,3),barrier],events,at.AddMinutes(12)).Intervals.Count==0);
 });
+Test("周期短暂切换恢复已确认样本，不跨异常区间累计",() =>
+{
+    var at=DateTimeOffset.UtcNow;var reset=at.AddDays(7);
+    QuotaObservation O(int m,double used,bool other=false)=>new(at.AddMinutes(m),"a","pro",Pricing.CatalogVersion,[new("codex:primary","weekly",used,10080,other?reset.AddDays(-2):reset)]);
+    UsageEvent E(string id,int m,long tokens)=>new(id,"s","p","gpt-5.4","main",at.AddMinutes(m),"2026-09-10",new(tokens)){AccountScope="a"};
+    var observations=new[]{O(0,0),O(3,3),O(6,4),O(9,11,true),O(12,11,true),O(15,4),O(18,6)};
+    var events=new[]{E("first",2,300),E("gap",10,999),E("later",17,300)};
+    var resumed=TemporalCapacity.CalculateStable(observations,events,at.AddMinutes(25));
+    var sample=resumed.Cache!.Windows.Single();
+    Check(sample.Percent==3&&sample.Tokens==300&&sample.Samples==1&&sample.LastUsed==4);
+    Check(resumed.PendingBaselineUsed["codex:primary"]==4);
+    var complete=TemporalCapacity.CalculateStable(observations.Concat([O(21,7),O(24,7)]),events,at.AddMinutes(25));
+    Check(complete.Cache!.Windows.Single().Percent==6&&complete.Cache.Windows.Single().Tokens==600);
+    Check(!complete.Intervals.SelectMany(i=>i.EventIds).Contains("gap"));
+    foreach(var barrier in new[]{O(12,11,true) with{Account="b"},O(12,11,true) with{Plan="prolite"},O(12,11,true) with{Barrier=true}})
+    {
+        var changed=observations.ToArray();changed[4]=barrier;
+        Check(TemporalCapacity.CalculateStable(changed,events,at.AddMinutes(25)).Cache!.Windows.Count==0);
+    }
+    var rollback=observations.ToArray();rollback[5]=O(15,2);rollback[6]=O(18,2);
+    Check(TemporalCapacity.CalculateStable(rollback,events,at.AddMinutes(25)).Cache!.Windows.Count==0);
+});
 Test("启动立即恢复部分有效采样，隔离套餐周期并保留批量门控",() =>
 {
     var now=DateTimeOffset.Now;var reset=now.AddDays(6);

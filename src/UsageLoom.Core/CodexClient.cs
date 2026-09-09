@@ -109,6 +109,13 @@ public sealed class CodexClient(DiagnosticLog log, LocalAccountFingerprint? fing
             }
             LastStage=L10n.T("sADB8BBDC1E8E");
             var parsed=QuotaParser.Parse(result,DateTimeOffset.Now,key,account.Text("planType"));
+            // Allowlisted diagnostics only: no response body, credentials, email or account ID.
+            var source=result.TryGetProperty("rateLimitsByLimitId",out var buckets)&&buckets.ValueKind==JsonValueKind.Object&&
+                QuotaParser.Parse(JsonSerializer.SerializeToElement(new{rateLimitsByLimitId=buckets}),DateTimeOffset.Now,null,null).Windows.Count>0
+                ?"rateLimitsByLimitId":"rateLimits";
+            var identitySource=ReadIdentity(account) is not null?"official-id":"email-fingerprint";
+            log.Write("INFO","QuotaSource",$"transport={(reuseBackend?"proxy":"stdio")}; managed={managedAccount}; identity={identitySource}; branch={source}; weekly="+
+                string.Join(";",parsed.PrimaryWindows.Where(w=>w.Minutes==10080).Select(w=>$"used={w.Used.ToString(System.Globalization.CultureInfo.InvariantCulture)},reset={w.ResetsAt:O}")));
             var unavailable=parsed.Fresh?"":L10n.T("sDD9DAEEF70AF");
             return managedAccount?parsed with{IsAuthorizedAccount=true,Status=L10n.T("s9903587501AE")+unavailable}:
                 reuseBackend?parsed with{IsCachedAccount=true,Status=L10n.T("sFD4917818970")+unavailable}:
