@@ -6,31 +6,34 @@
     <Property Id="LOOM_DESKTOP" Value="1" Secure="yes" />
     <Property Id="LOOM_STARTMENU" Value="1" Secure="yes" />
     <UI>
+      <TextStyle Id="LoomBody" FaceName="Microsoft YaHei UI" Size="9" />
       <TextStyle Id="LoomHeading" FaceName="Microsoft YaHei UI" Size="12" Bold="yes" />
       <TextStyle Id="LoomSection" FaceName="Microsoft YaHei UI" Size="9" Bold="yes" />
       <Publish Dialog="LicenseAgreementDlg" Control="Next" Event="NewDialog" Value="LoomShortcutsDlg" Order="2" Condition="LicenseAccepted = &quot;1&quot;" />
       <Publish Dialog="InstallDirDlg" Control="Back" Event="NewDialog" Value="LoomShortcutsDlg" Order="2" />
-      <Dialog Id="LoomShortcutsDlg" Width="370" Height="270" Title="[ProductName] 安装">
-        <Control Id="Title" Type="Text" X="24" Y="18" Width="322" Height="22" Text="{\LoomHeading}选择启动入口" />
-        <Control Id="Description" Type="Text" X="24" Y="44" Width="322" Height="18" Text="按你的习惯放置 UsageLoom，可随时取消勾选。" />
-        <Control Id="HeaderLine" Type="Line" X="24" Y="69" Width="322" Height="0" />
-        <Control Id="Desktop" Type="CheckBox" X="28" Y="82" Width="310" Height="18" Property="LOOM_DESKTOP" CheckBoxValue="1" Text="创建桌面快捷方式" />
-        <Control Id="StartMenu" Type="CheckBox" X="28" Y="108" Width="310" Height="18" Property="LOOM_STARTMENU" CheckBoxValue="1" Text="创建开始菜单入口（含卸载）" />
-        <Control Id="TaskbarTitle" Type="Text" X="28" Y="149" Width="310" Height="18" Text="{\LoomSection}固定到任务栏" />
-        <Control Id="Note" Type="Text" X="28" Y="172" Width="310" Height="32" Text="安装后启动应用，右键任务栏图标 → 固定到任务栏。此步骤需要你手动完成。" />
-        <Control Id="UninstallNote" Type="Text" X="28" Y="210" Width="310" Height="16" Text="不创建快捷方式也可通过 Windows 设置卸载。" />
-        <Control Id="FooterLine" Type="Line" X="0" Y="234" Width="370" Height="0" />
-        <Control Id="Back" Type="PushButton" X="180" Y="243" Width="56" Height="17" Text="上一步">
+      <Dialog Id="LoomShortcutsDlg" Width="370" Height="250" Title="[ProductName] 安装">
+        <Control Id="Title" Type="Text" X="24" Y="18" Width="280" Height="22" Text="{\LoomHeading}选择启动入口" />
+        <Control Id="BrandIcon" Type="Icon" X="318" Y="18" Width="28" Height="28" Text="LoomBrandIcon" FixedSize="yes" IconSize="32" />
+        <Control Id="Description" Type="Text" X="24" Y="44" Width="322" Height="20" Text="{\LoomBody}选择需要创建的快捷方式。" />
+        <Control Id="HeaderLine" Type="Line" X="24" Y="70" Width="322" Height="0" />
+        <Control Id="Desktop" Type="CheckBox" X="24" Y="82" Width="322" Height="18" Property="LOOM_DESKTOP" CheckBoxValue="1" Text="{\LoomBody}创建桌面快捷方式" />
+        <Control Id="StartMenu" Type="CheckBox" X="24" Y="106" Width="322" Height="18" Property="LOOM_STARTMENU" CheckBoxValue="1" Text="{\LoomBody}创建开始菜单入口（含卸载）" />
+        <Control Id="TaskbarTitle" Type="Text" X="24" Y="136" Width="322" Height="18" Text="{\LoomSection}固定到任务栏" />
+        <Control Id="Note" Type="Text" X="24" Y="158" Width="322" Height="30" Text="{\LoomBody}安装后启动应用，右键任务栏图标，选择“固定到任务栏”。此步骤需手动完成。" />
+        <Control Id="UninstallNote" Type="Text" X="24" Y="192" Width="322" Height="18" Text="{\LoomBody}未创建快捷方式时，也可从系统设置卸载。" />
+        <Control Id="FooterLine" Type="Line" X="0" Y="216" Width="370" Height="0" />
+        <Control Id="Back" Type="PushButton" X="162" Y="225" Width="56" Height="18" Text="{\LoomBody}上一步">
           <Publish Event="NewDialog" Value="LicenseAgreementDlg" />
         </Control>
-        <Control Id="Next" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="下一步">
+        <Control Id="Next" Type="PushButton" X="226" Y="225" Width="56" Height="18" Default="yes" Text="{\LoomBody}下一步">
           <Publish Event="NewDialog" Value="InstallDirDlg" />
         </Control>
-        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="取消">
+        <Control Id="Cancel" Type="PushButton" X="290" Y="225" Width="56" Height="18" Cancel="yes" Text="{\LoomBody}取消">
           <Publish Event="SpawnDialog" Value="CancelDlg" />
         </Control>
       </Dialog>
     </UI>
+    <Binary Id="LoomBrandIcon" SourceFile="$(var.PublishDir)\UsageLoom.ico" />
     <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />
     <SetProperty Id="ARPINSTALLLOCATION" Value="[INSTALLFOLDER]" After="CostFinalize" Sequence="execute" />
     <Icon Id="AppIcon" SourceFile="$(var.PublishDir)\UsageLoom.App.exe" />
