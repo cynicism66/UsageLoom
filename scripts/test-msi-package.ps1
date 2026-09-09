@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([string]$Version='0.6.6')
+param([string]$Version='0.6.7')
 $ErrorActionPreference='Stop'
 $workspace=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $installer=New-Object -ComObject WindowsInstaller.Installer
@@ -31,7 +31,7 @@ foreach($id in @('StartMenuShortcut','DesktopShortcut','UninstallShortcut')){
     Write-Output "PASS shortcut: $id"
 }
 $files=Read-MsiTable 'SELECT FileName FROM File' 1
-foreach($name in @('UsageLoom.App.exe','UsageLoom.App.dll','UsageLoom.App.pri','App.xbf','coreclr.dll')){
+foreach($name in @('UsageLoom.App.exe','UsageLoom.App.dll','UsageLoom.App.pri','App.xbf','coreclr.dll','Update-UsageLoom.ps1','update-manifest.txt')){
     if(!($files | Where-Object {($_[0] -split '\|')[-1] -eq $name})){throw "MSI is missing $name"}
 }
 Write-Output "PASS MSI $Version : language, install directory, launch/uninstall shortcuts, and required resources. Installation was not executed."

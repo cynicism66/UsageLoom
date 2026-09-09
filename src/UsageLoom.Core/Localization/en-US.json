@@ -1,5 +1,6 @@
 {
 "scan.preserved":"{0} changed files need review: recorded usage retained, other sessions scanned; new capacity estimates paused",
+"scan.preservedScoped":"{0} changed files need review: recorded usage retained; only overlapping estimate intervals are excluded",
 "capacity.mature":"More observations (not an accuracy guarantee)",
 "capacity.developing":"Accumulating observations",
 "capacity.preliminary":"Preliminary observations",

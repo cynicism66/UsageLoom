@@ -21,9 +21,9 @@ internal static class PaginatedContinuation
         return string.Join('|',values);
     }
     private static DateTimeOffset? Time(JsonElement row)=>row.TryGetProperty("timestamp",out var t)&&DateTimeOffset.TryParse(t.GetString(),out var at)?at:null;
-    public static bool TryJoin(IReadOnlyList<string> previous,IReadOnlyList<string> physical,out List<string> joined)
+    public static bool TryJoin(IReadOnlyList<string> previous,IReadOnlyList<string> physical,out List<string> joined,out bool retainedAhead)
     {
-        joined=[];
+        joined=[];retainedAhead=false;
         try
         {
             var old=previous.Select(r=>JsonSerializer.Deserialize<JsonElement>(r)).ToArray();
@@ -45,7 +45,24 @@ internal static class PaginatedContinuation
             {
                 // A retimestamped *final* snapshot is only cursor evidence, not new usage.
                 anchor=indexes[^1];
-                if(Counter(current[anchor])!=signature||indexes.Any(i=>Time(current[i]) is not {} time||time>at))return false;
+                if(Counter(current[anchor])!=signature||indexes.Any(i=>Time(current[i]) is not {} time||time>at))
+                {
+                    // A pruned physical history can end BEFORE our retained ledger.
+                    // Require the complete ordered counter sequence, not isolated equal totals.
+                    if(current.Any(r=>Is(r,"event_msg")&&r.GetProperty("payload").TryGetProperty("type",out var k)&&k.GetString()=="token_count"&&
+                        r.GetProperty("payload").TryGetProperty("info",out var info)&&info.ValueKind==JsonValueKind.Object&&Counter(r)==null))return false;
+                    if(indexes.Length<2||indexes.Any(i=>Time(current[i]) is not {} time||time>at)||
+                        indexes.Select(i=>Counter(current[i])).Distinct().Count()<2)return false;
+                    var position=0;
+                    foreach(var i in indexes)
+                    {
+                        var counter=Counter(current[i]);
+                        while(position<oldTokens.Length&&Counter(oldTokens[position])!=counter)position++;
+                        if(position==oldTokens.Length)return false;
+                        position++;
+                    }
+                    joined=previous.ToList();retainedAhead=true;return true;
+                }
             }
             if(indexes.Any(i=>i>anchor&&(Time(current[i]) is not {} time||time<=at)))return false;
             joined=previous.Concat(physical.Skip(anchor+1).Where(r=>!Is(JsonSerializer.Deserialize<JsonElement>(r),"session_meta"))).ToList();

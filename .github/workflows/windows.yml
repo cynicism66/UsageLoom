@@ -19,6 +19,9 @@ jobs:
       - name: Publish self-contained desktop
         shell: pwsh
         run: ./scripts/build-windows.ps1 -Publish
+      - name: Isolated updater replacement and rollback tests
+        shell: powershell
+        run: ./scripts/test-updater.ps1
       - name: Install packaging tools
         shell: pwsh
         run: |

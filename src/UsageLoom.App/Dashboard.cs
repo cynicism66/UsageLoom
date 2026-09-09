@@ -6,7 +6,7 @@ using UsageLoom.Core;
 
 namespace UsageLoom.App;
 
-internal sealed class Dashboard : Window
+internal sealed partial class Dashboard : Window
 {
     private readonly LoomApp app;
     private TextBlock? capacityStatusText;
@@ -927,6 +927,7 @@ internal sealed class Dashboard : Window
     private UIElement SettingsPanel()
     {
         var panel=new StackPanel{Spacing=14,Padding=new Thickness(8)};
+        panel.Children.Add(AppUpdatePanel());
         var cli=new TextBox{Header=L10n.T("s7BA827935C21"),Text=app.Config.CliPath??""};
         var home=new TextBox{Header=L10n.T("s629E14E0CB84"),Text=app.IsDemo?L10n.T("sF99723F1D4A1"):app.Config.CodexHome,IsReadOnly=app.IsDemo};
         var auto=new ToggleSwitch{Header=L10n.T("sB91E861CB0A1"),IsOn=app.Config.AutoRefresh,OnContent=L10n.Language=="en-US"?"On":"开",OffContent=L10n.Language=="en-US"?"Off":"关"};

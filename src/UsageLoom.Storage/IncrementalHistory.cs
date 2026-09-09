@@ -6,7 +6,10 @@ using UsageLoom.Core;
 namespace UsageLoom.Storage;
 
 public sealed record IndexedFile(string Path,int Version,long Offset,long Length,long Written,long Created,
-    string PrefixHash,[property: System.Text.Json.Serialization.JsonConverter(typeof(IndexRecordsConverter))] List<string> Records,int Warnings,string? AccountScope=null,int IntegrityWarnings=0);
+    string PrefixHash,[property: System.Text.Json.Serialization.JsonConverter(typeof(IndexRecordsConverter))] List<string> Records,int Warnings,string? AccountScope=null,int IntegrityWarnings=0)
+{
+    public bool RetainedAhead { get; init; }
+}
 public sealed record IncrementalResult(ScanReport Report,long BytesParsed,int FilesUpdated)
 {
     public string? BackupPath { get; init; }
@@ -15,6 +18,7 @@ public sealed record IncrementalResult(ScanReport Report,long BytesParsed,int Fi
     public IReadOnlyList<int> PreviousParserVersions { get; init; }=[];
     public int DeferredFiles { get; init; }
     public int PreservedFiles { get; init; }
+    public IReadOnlyList<UsageUncertainty> UncertainRanges { get; init; }=[];
 }
 
 /// <summary>仅索引必要元数据与计数；保留半行起点，索引与派生事件同事务保存。</summary>
@@ -60,7 +64,13 @@ public sealed class IncrementalHistory(HistoryStore store)
             }
             var records=new Dictionary<string,IReadOnlyList<string>>(StringComparer.OrdinalIgnoreCase);
             var preserved=new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-            void Preserve(string path,IndexedFile index){records[path]=index.Records;preserved.Add(path);}
+            var uncertain=new Dictionary<string,UsageUncertainty>(StringComparer.OrdinalIgnoreCase);
+            void Preserve(string path,IndexedFile index,IReadOnlyList<string>? physical=null)
+            {
+                records[path]=index.Records;preserved.Add(path);
+                uncertain[path]=physical is not null&&Owner(path,index.Records)==Owner(path,physical)
+                    ?UsageUncertainty.FromRecords(index.Records.Concat(physical)):new(null,null);
+            }
             long bytesParsed=0;var warnings=0;
             foreach(var leaf in new[]{"sessions","archived_sessions"})
             {
@@ -87,7 +97,7 @@ public sealed class IncrementalHistory(HistoryStore store)
                     var paginationReplay=false;
                     if(old is not null)
                     {
-                        if(capturedLength<old.Length||created!=old.Created||capturedLength==old.Length&&written!=old.Written)
+                        if(old.RetainedAhead||capturedLength<old.Length||created!=old.Created||capturedLength==old.Length&&written!=old.Written)
                             paginationReplay=true;
                         else paginationReplay=await HashPrefix(file,old.Offset,ct)!=old.PrefixHash;
                     }
@@ -137,12 +147,13 @@ public sealed class IncrementalHistory(HistoryStore store)
                         await using var current=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete,65536,FileOptions.Asynchronous|FileOptions.SequentialScan);
                         if(await HashPrefix(current,offset,ct)!=hash)throw new IOException("扫描期间已读取的日志前缀发生变化，取消本次保存");
                     }
+                    var retainedAhead=false;
                     if(paginationReplay)
                     {
-                        if(integrityWarnings>0||!PaginatedContinuation.TryJoin(old!.Records,compact,out var joined)){Preserve(path,old!);continue;}
+                        if(integrityWarnings>0||!PaginatedContinuation.TryJoin(old!.Records,compact,out var joined,out retainedAhead)){Preserve(path,old!,integrityWarnings==0?compact:null);continue;}
                         compact=joined;
                     }
-                    var index=new IndexedFile(path,ParserVersion,offset,capturedLength,written,created,hash,compact,fileWarnings,string.IsNullOrWhiteSpace(accountScope)?null:accountScope,integrityWarnings);
+                    var index=new IndexedFile(path,ParserVersion,offset,capturedLength,written,created,hash,compact,fileWarnings,string.IsNullOrWhiteSpace(accountScope)?null:accountScope,integrityWarnings){RetainedAhead=retainedAhead};
                     updated.Add(index);records[path]=compact;warnings+=fileWarnings;
                 }
             }
@@ -151,9 +162,9 @@ public sealed class IncrementalHistory(HistoryStore store)
             // its new baseline could otherwise replace previously recorded events.
             var blockedOwners=preserved.Select(path=>Owner(path,saved[path].Records)).ToHashSet(StringComparer.Ordinal);
             foreach(var index in updated.Where(i=>blockedOwners.Contains(Owner(i.Path,i.Records))).ToArray())
-            {updated.Remove(index);preserved.Add(index.Path);}
+            {updated.Remove(index);preserved.Add(index.Path);uncertain[index.Path]=new(null,null);}
             if(updated.Count==0)
-            {var cached=store.Read(ct);completed=true;return new(new(cached,records.Count,warnings+preserved.Count,DateTimeOffset.Now){UsedCache=true},0,0){PreservedFiles=preserved.Count};}
+            {var cached=store.Read(ct);completed=true;return new(new(cached,records.Count,warnings+preserved.Count,DateTimeOffset.Now){UsedCache=true},0,0){PreservedFiles=preserved.Count,UncertainRanges=uncertain.Values.ToArray()};}
             HashSet<string>? affectedSessions=null;
             var ancestryRecords=new Dictionary<string,IReadOnlyList<string>>(records,StringComparer.OrdinalIgnoreCase);
             foreach(var index in saved.Values)
@@ -191,7 +202,7 @@ public sealed class IncrementalHistory(HistoryStore store)
             }
             store.Save(report,ct,indexes:updated,replaceSessions:affectedSessions);
             completed=true;
-            return new(report,bytesParsed,updated.Count){RecordsReplayed=replayed,PreservedFiles=preserved.Count};
+            return new(report,bytesParsed,updated.Count){RecordsReplayed=replayed,PreservedFiles=preserved.Count,UncertainRanges=uncertain.Values.ToArray()};
         }
         finally{if(completed&&!rebuild){observedAccount=accountScope;observedHome=home;observedAt=scanStarted;}gate.Release();}
     }

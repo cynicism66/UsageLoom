@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <Version>0.6.6</Version>
+    <Version>0.6.7</Version>
     <!-- 0.2.0 shipped a default 1.0.0.0 file version. Keep native file versions above it. -->
-    <FileVersion>1.0.6.6</FileVersion>
+    <FileVersion>1.0.6.7</FileVersion>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>
     <UseWinUI>true</UseWinUI>
@@ -21,6 +21,7 @@
     <DefineConstants>$(DefineConstants);DISABLE_XAML_GENERATED_MAIN</DefineConstants>
   </PropertyGroup>
   <ItemGroup>
+    <Content Include="Update-UsageLoom.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../LICENSE" Link="LICENSE" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../THIRD_PARTY_NOTICES.md" Link="THIRD_PARTY_NOTICES.md" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../assets/licenses/*.txt" Link="THIRD-PARTY-LICENSES/%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
@@ -42,5 +43,9 @@
     </ItemGroup>
     <Error Condition="!Exists('%(LoomXamlPayload.Identity)')" Text="Required WinUI resource missing: %(LoomXamlPayload.Identity)" />
     <Copy SourceFiles="@(LoomXamlPayload)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
+    <ItemGroup>
+      <UpdateFiles Include="$(PublishDir)**/*" Exclude="$(PublishDir)**/*.pdb;$(PublishDir)update-manifest.txt" />
+    </ItemGroup>
+    <WriteLinesToFile File="$(PublishDir)update-manifest.txt" Lines="@(UpdateFiles->'%(RecursiveDir)%(Filename)%(Extension)');update-manifest.txt" Overwrite="true" Encoding="UTF-8" />
   </Target>
 </Project>

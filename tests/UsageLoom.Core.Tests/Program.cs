@@ -60,6 +60,24 @@ void Check(bool result, string message = "断言失败") { if (!result) throw ne
 JsonElement Json(string text) { using var doc = JsonDocument.Parse(text); return doc.RootElement.Clone(); }
 void Test(string name, Action action) => tests.Add((name, () => { action(); return Task.CompletedTask; }));
 void AsyncTest(string name, Func<Task> action) => tests.Add((name, action));
+Test("更新只接受正式新版本、匹配架构与 GitHub 摘要", () =>
+{
+    string Release(string tag="v0.7.0", string extension="zip", string? url=null, string? digest=null, bool preview=false, long size=123) => JsonSerializer.Serialize(new {
+        tag_name=tag, draft=false, prerelease=preview, body="Release notes",
+        assets=new[]{new{name=$"UsageLoom-{tag[1..]}-win-x64.{extension}", browser_download_url=url??$"https://github.com/cynicism66/UsageLoom/releases/download/{tag}/UsageLoom-{tag[1..]}-win-x64.{extension}", digest=digest??("sha256:"+new string('a',64)), size}}
+    });
+    Check(UpdateRelease.Parse(Release(),"0.6.6",false)?.Version=="0.7.0");
+    Check(UpdateRelease.Parse(Release(extension:"msi"),"0.6.6",true)?.Url.EndsWith(".msi")==true);
+    Check(UpdateRelease.Parse(Release(),"0.7.0",false) is null);
+    Check(UpdateRelease.Parse(Release(),"0.8.0",false) is null);
+    Check(UpdateRelease.Parse(Release(preview:true),"0.6.6",false) is null);
+    foreach(var bad in new[]{Release(url:"https://example.com/fake.zip"),Release(digest:""),Release(digest:"sha256:abc"),Release(size:0),Release(size:long.MaxValue),Release(tag:"v0.7.0-beta")})
+    {
+        var rejected=false;
+        try{UpdateRelease.Parse(bad,"0.6.6",false);}catch(InvalidDataException){rejected=true;}
+        Check(rejected);
+    }
+});
 Test("主额度分组与百分比边界倒计时",()=>
 {
     var now=DateTimeOffset.Now;
@@ -883,6 +901,46 @@ AsyncTest("分页迁移保留原明细，重定时末次快照不重计，跨重
     // A different owner is not a continuation even if all counters match.
     await File.WriteAllLinesAsync(file,[Header("other"),Row(400,"2026-09-08T00:00:00Z",1)]);
     Check((await new IncrementalHistory(store).ScanAsync(home,default)).PreservedFiles==1&&store.Read().Sum(e=>e.Tokens.Total)==400);
+});
+AsyncTest("分页完整有序子集保留更多历史，跨重启追加必须重新接续",async()=>
+{
+    var home=Fixture("subset-ledger");var file=Path.Combine(home,"sessions","a.jsonl");
+    string Row(int n,long? ordinal=null,int last=100)=>JsonSerializer.Serialize(new{type="event_msg",timestamp=$"2026-08-18T0{n}:00:00Z",ordinal,payload=new{type="token_count",info=new{total_token_usage=new{input_tokens=n*100,output_tokens=0},last_token_usage=new{input_tokens=last,output_tokens=0}}}});
+    string Header(string owner="subset")=>JsonSerializer.Serialize(new{type="session_meta",ordinal=0,payload=new{id=owner,history_mode="paginated"}});
+    await File.WriteAllLinesAsync(file,[Meta("subset"),Row(1),Row(2),Row(3),Row(4)]);
+    var store=new HistoryStore(Fixture("subset-db"));await new IncrementalHistory(store).ScanAsync(home,default);var before=store.Read();
+    await File.WriteAllLinesAsync(file,[Header(),Row(1,1),Row(3,2)]);
+    var result=await new IncrementalHistory(store).ScanAsync(home,default);
+    Check(result.PreservedFiles==0&&store.Read().Sum(e=>e.Tokens.Total)==400&&store.ReadIndexes()[file].RetainedAhead);
+    Check(before.All(e=>store.Read().Single(n=>n.Id==e.Id)==e));
+    await new IncrementalHistory(store).ScanAsync(home,default);Check(store.Read().Sum(e=>e.Tokens.Total)==400);
+    // Without the retained tail, a genuinely different suffix cannot be silently appended.
+    await File.AppendAllLinesAsync(file,[Row(5,3)]);
+    Check((await new IncrementalHistory(store).ScanAsync(home,default)).PreservedFiles==1&&store.Read().Sum(e=>e.Tokens.Total)==400);
+    await File.WriteAllLinesAsync(file,[Header(),Row(1,1),Row(3,2),Row(4,3),Row(5,4)]);
+    Check((await new IncrementalHistory(store).ScanAsync(home,default)).PreservedFiles==0&&store.Read().Sum(e=>e.Tokens.Total)==500);
+    Check(!store.ReadIndexes()[file].RetainedAhead);
+    await new IncrementalHistory(store).ScanAsync(home,default);Check(store.Read().Sum(e=>e.Tokens.Total)==500);
+    foreach(var bad in new[]{new[]{Header(),Row(3,1),Row(1,2)},new[]{Header(),Row(1,1)},new[]{Header("other"),Row(1,1),Row(3,2)},new[]{Header(),Row(1,1),Row(3,2,999)}})
+    {
+        await File.WriteAllLinesAsync(file,bad);
+        Check((await new IncrementalHistory(store).ScanAsync(home,default)).PreservedFiles==1&&store.Read().Sum(e=>e.Tokens.Total)==500);
+    }
+});
+Test("待核对历史只排除重叠估算区间，未知范围仍保守排除",()=>
+{
+    var at=DateTimeOffset.Parse("2026-09-09T00:00:00Z");
+    QuotaObservation Q(int hour,double used)=>new(at.AddHours(hour),"a","pro",Pricing.CatalogVersion,[new("codex:weekly","weekly",used,10080,at.AddDays(6))]);
+    var observations=new[]{Q(0,10),Q(1,13),Q(2,16),Q(3,19),Q(4,19)};
+    var rows=Enumerable.Range(1,3).Select(n=>Event("range"+n,100,20) with{Timestamp=at.AddMinutes(n*60-10),AccountScope="a",Model="gpt-5.4"}).ToArray();
+    var clean=TemporalCapacity.CalculateStable(observations,rows,at.AddHours(5));
+    var old=TemporalCapacity.CalculateStable(observations,rows,at.AddHours(5),uncertainRanges:[new(at.AddDays(-20),at.AddDays(-10))]);
+    Check(clean.Cache!.Windows.Single().Tokens==old.Cache!.Windows.Single().Tokens);
+    var overlap=TemporalCapacity.CalculateStable(observations,rows,at.AddHours(5),uncertainRanges:[new(at.AddMinutes(70),at.AddMinutes(80))]);
+    Check(overlap.Intervals.Count(i=>i.Exclusion=="uncertain-history")==1&&overlap.Intervals.Count(i=>i.Exclusion is null)==2);
+    var unknown=TemporalCapacity.CalculateStable(observations,rows,at.AddHours(5),uncertainRanges:[new(null,null)]);
+    Check(unknown.Intervals.All(i=>i.Exclusion=="uncertain-history"));
+    Check(UsageUncertainty.FromRecords(["{\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\"}}"] ).IsUnknown);
 });
 Test("索引与事件同事务回滚",()=>
 {

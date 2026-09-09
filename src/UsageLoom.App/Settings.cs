@@ -12,6 +12,9 @@ internal sealed class Settings
     public bool AuthorizedAccount { get; set; }
     public string CodexHome { get; set; } = Environment.GetEnvironmentVariable("CODEX_HOME")??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),".codex");
     public bool AutoRefresh { get; set; }=true;
+    public bool AutoUpdateCheck { get; set; }=true;
+    public DateTimeOffset? LastUpdateCheck { get; set; }
+    public string? LastUpdateResult { get; set; }
     public bool CapacityEnabled { get; set; }=true;
     public int BackgroundSeconds { get; set; }=300;
     public int ForegroundSeconds { get; set; }=30;

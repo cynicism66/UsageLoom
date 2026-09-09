@@ -7,9 +7,9 @@ public sealed record TemporalCapacityResult(CapacityCache? Cache,List<CapacityIn
 
 public static class TemporalCapacity
 {
-    public static TemporalCapacityResult CalculateStable(IEnumerable<QuotaObservation> observations,IEnumerable<UsageEvent> events,DateTimeOffset indexedThrough,CancellationToken cancellationToken=default)
-        =>Calculate(observations,events,cancellationToken,indexedThrough);
-    public static TemporalCapacityResult Calculate(IEnumerable<QuotaObservation> observations,IEnumerable<UsageEvent> events,CancellationToken cancellationToken=default,DateTimeOffset? indexedThrough=null)
+    public static TemporalCapacityResult CalculateStable(IEnumerable<QuotaObservation> observations,IEnumerable<UsageEvent> events,DateTimeOffset indexedThrough,CancellationToken cancellationToken=default,IReadOnlyList<UsageUncertainty>? uncertainRanges=null)
+        =>Calculate(observations,events,cancellationToken,indexedThrough,uncertainRanges);
+    public static TemporalCapacityResult Calculate(IEnumerable<QuotaObservation> observations,IEnumerable<UsageEvent> events,CancellationToken cancellationToken=default,DateTimeOffset? indexedThrough=null,IReadOnlyList<UsageUncertainty>? uncertainRanges=null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var ordered=observations.OrderBy(o=>o.At).DistinctBy(o=>o.At).ToArray();
@@ -72,6 +72,7 @@ public static class TemporalCapacity
                 if(stable&&(delta<3||!confirmed.Contains((o.At,w.Key))))continue;
                 var part=rows[After(a.Observation.At)..After(o.At)];
                 string? exclusion=part.Length==0?"no-timed-usage":part.Any(e=>e.AccountScope!=o.Account||e.AccountAttribution=="restart-inferred")?"unverified-ownership":null;
+                if(uncertainRanges?.Any(r=>r.Overlaps(a.Observation.At,o.At))==true)exclusion="uncertain-history";
                 var tokens=part.Sum(e=>e.Tokens.Total);
                 if(tokens<=0)exclusion??="no-timed-usage";
                 var price=exclusion is null?Pricing.Summarize(part):null;

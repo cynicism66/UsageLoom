@@ -33,6 +33,8 @@ public sealed partial class LoomApp : Application
     private long capacityTokenTotal;
     private bool capacityHistoryReady;
     private int preservedHistoryFiles;
+    private IReadOnlyList<UsageUncertainty> capacityUncertainRanges=[];
+    private string PreservedHistoryMessage=>L10n.F(capacityHistoryReady?"scan.preservedScoped":"scan.preserved",preservedHistoryFiles);
     private DateTimeOffset capacityIndexedThrough;
     private readonly CapacityBatchSchedule capacityBatch=new(DateTimeOffset.UtcNow);
     private List<UsageEvent>? batchEvents;
@@ -81,7 +83,7 @@ public sealed partial class LoomApp : Application
             if(CapacityBusy)return WeeklyCapacity;
             if(!quota.Fresh||!capacityHistoryReady)
             {
-                capacityFeedback=preservedHistoryFiles>0?L10n.F("scan.preserved",preservedHistoryFiles):L10n.T(!capacityHistoryReady?"capacity.waitIndex":"capacity.waitQuota");
+                capacityFeedback=preservedHistoryFiles>0?PreservedHistoryMessage:L10n.T(!capacityHistoryReady?"capacity.waitIndex":"capacity.waitQuota");
                 return WeeklyCapacity;
             }
             if(!capacityBatch.TryBegin(DateTimeOffset.UtcNow,force))return WeeklyCapacity;
@@ -108,6 +110,7 @@ public sealed partial class LoomApp : Application
     private async Task CalculateCapacityBackgroundAsync(QuotaState quota)
     {
         var events=Events;var epoch=capacityEpoch;var generation=configurationGeneration;var indexedThrough=capacityIndexedThrough;
+        var uncertainRanges=capacityUncertainRanges;
         var stamp=new CapacityInputStamp(events,epoch,generation,quota.AccountKey,quota.Plan,quota.FetchedAt);
         capacityFeedback=L10n.T("capacity.running");
         var watch=Stopwatch.StartNew();
@@ -120,7 +123,7 @@ public sealed partial class LoomApp : Application
             var output=await Task.Run(()=>
                 {
                     lifetime.Token.ThrowIfCancellationRequested();
-                    var result=TemporalCapacity.CalculateStable(store.ReadQuotaObservations(),events,indexedThrough,lifetime.Token);
+                    var result=TemporalCapacity.CalculateStable(store.ReadQuotaObservations(),events,indexedThrough,lifetime.Token,uncertainRanges);
                     var general=CapacityUsage.ForAccount(events,quota.AccountKey).ToList();
                     var price=Pricing.Summarize(general);
                     var pending=result.PendingFrom is {} from?general.Where(e=>e.Timestamp>from).Sum(e=>e.Tokens.Total):0;
@@ -230,7 +233,7 @@ public sealed partial class LoomApp : Application
     internal bool HasLoadedHistory => IsDemo||historyLoaded;
     internal IReadOnlyDictionary<string,string> SessionNames { get; private set; }=new Dictionary<string,string>();
     internal IReadOnlyList<WeeklyCapacityEstimate> WeeklyCapacity { get; private set; }=[];
-    internal string WeeklyCapacityProgress => !Config.CapacityEnabled?L10n.T("s40E9A224A0E3"):preservedHistoryFiles>0?L10n.F("scan.preserved",preservedHistoryFiles):capacityEstimator.DescribeProgress(Quota,capacityTokenTotal,capacityHistoryReady);
+    internal string WeeklyCapacityProgress => !Config.CapacityEnabled?L10n.T("s40E9A224A0E3"):preservedHistoryFiles>0?PreservedHistoryMessage:capacityEstimator.DescribeProgress(Quota,capacityTokenTotal,capacityHistoryReady);
     internal string HistoryStatus { get; private set; } = L10n.T("sA3A08B0EC497");
     internal string Message { get; private set; } = L10n.T("s5A253CCAEBA1");
     internal event Action? Changed;
@@ -310,7 +313,7 @@ public sealed partial class LoomApp : Application
             if (Config.AutoRefresh) _ = RefreshQuotaAsync(false);
         }
         timer = queue.CreateTimer(); timer.Interval = TimeSpan.FromSeconds(5);
-        timer.Tick += (_, _) => Tick(); timer.Start();
+        timer.Tick += (_, _) => { Tick(); _ = CheckAppUpdateAsync(false); }; timer.Start();
         if (!this.args.Contains("--background") || this.args.Contains("--show") || smoke || this.args.Contains("--demo")) ShowDetails();
         if (smoke)
         {
@@ -496,11 +499,13 @@ public sealed partial class LoomApp : Application
             }
             historyLoaded=true;
             preservedHistoryFiles=indexed.PreservedFiles;
-            capacityHistoryReady=indexed.PreservedFiles==0;
+            if(!capacityUncertainRanges.SequenceEqual(indexed.UncertainRanges)){capacityEpoch++;capacityBatch.MarkDirty();}
+            capacityUncertainRanges=indexed.UncertainRanges;
+            capacityHistoryReady=indexed.PreservedFiles==0||indexed.UncertainRanges.Count>0&&indexed.UncertainRanges.All(r=>!r.IsUnknown);
             if(capacityHistoryReady)capacityIndexedThrough=report.ScannedAt;
             WeeklyCapacity=ObserveCapacity(Quota);
             Message = L10n.F("sBF8AACAC3A69", (report.UsedCache ? L10n.T("s38BE587EDD10") : L10n.T("sB164E0EDAEC8")), report.Files, indexed.BytesParsed, report.Warnings, watch.ElapsedMilliseconds);
-            if(indexed.PreservedFiles>0)Message+=" · "+L10n.F("scan.preserved",indexed.PreservedFiles);
+            if(indexed.PreservedFiles>0)Message+=" · "+PreservedHistoryMessage;
             if(verifyIntegrity)Message=L10n.T("s1AD7D8B010C8")+Message;
             if(indexed.BackupPath is not null)Message=indexed.Migrated
                 ?L10n.F("sB389D366B4CF", (indexed.PreviousParserVersions.Contains(0)?L10n.T("sCA6ACDE43454"):L10n.T("s7B2F11B1DAF2")+string.Join(',',indexed.PreviousParserVersions)), Path.GetFileName(indexed.BackupPath), report.Warnings, indexed.DeferredFiles)
@@ -556,7 +561,7 @@ public sealed partial class LoomApp : Application
         }
         catch (Exception ex) { Program.Log.Write("WARN", "Notify", ex.Message); }
     }
-    private async Task QuitAsync()
+    internal async Task QuitAsync()
     {
         if (quitting) return; quitting = true;
         smokeTimer?.Stop(); timer?.Stop();
