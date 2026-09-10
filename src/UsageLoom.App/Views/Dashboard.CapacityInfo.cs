@@ -22,8 +22,10 @@ internal sealed partial class Dashboard
 
     private Button CapacityInfoButton()
     {
-        var button=new Button{Content=new FontIcon{Glyph="\uE946",FontSize=16},Width=32,Height=32,
-            Padding=new Thickness(0),VerticalAlignment=VerticalAlignment.Center};
+        var button=new Button{Content=new FontIcon{Glyph="\uE946",FontSize=12},Width=22,Height=22,MinWidth=0,MinHeight=0,
+            Padding=new Thickness(0),VerticalAlignment=VerticalAlignment.Center,
+            Background=new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness=new Thickness(0),CornerRadius=new CornerRadius(4)};
         AutomationProperties.SetName(button,L10n.T("capacity.info"));
         button.Click+=(_,_)=>
         {
