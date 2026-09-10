@@ -47,6 +47,9 @@ public sealed partial class LoomApp : Application
     internal bool CapacityBusy=>capacityTask is {IsCompleted:false};
     private DateTimeOffset? capacityLastCalculated;
     private string capacityFeedback="";
+    private int capacityInterruptionCount;
+    private CapacitySource appliedCapacitySource;
+    private CapacitySource CurrentCapacitySource()=>new(Config.CliPath,Config.CodexHome,Config.AuthorizedAccount,Config.ReuseBackend);
     internal string CapacityCalculationStatus=>capacityFeedback+"\n"+L10n.F("capacity.schedule",capacityLastCalculated?.ToLocalTime().ToString("MM-dd HH:mm:ss")??"—",capacityBatch.NextAt.ToLocalTime().ToString("HH:mm:ss"));
     private void RecordCapacityObservation(QuotaState quota,bool barrier=false,bool queryFailure=false)
     {
@@ -55,9 +58,10 @@ public sealed partial class LoomApp : Application
         {
             var valid=!barrier&&Config.CapacityEnabled&&quota.Fresh&&quota.AccountKey is not null;
             var retainIdentity=queryFailure&&Config.CapacityEnabled&&quota.AccountKey is not null;
+            if(!valid&&!queryFailure)capacityInterruptionCount=0;
             store.SaveQuotaObservation(new(valid?quota.FetchedAt??DateTimeOffset.UtcNow:DateTimeOffset.UtcNow,valid||retainIdentity?quota.AccountKey:null,valid||retainIdentity?quota.Plan?.Trim().ToLowerInvariant():null,
                 Pricing.CatalogVersion,valid?quota.PrimaryWindows.Where(w=>w.Minutes==10080).ToList():[],!valid)
-                {BarrierReason=valid?null:retainIdentity?"query-failure":"explicit-boundary"});
+                {BarrierReason=valid?null:queryFailure?"query-failure":"explicit-boundary"});
             capacityBatch.MarkDirty();
             if(valid)Program.Log.Write("INFO","CapacityPrecision",quota.PrimaryWindows.Any(w=>w.Used!=Math.Truncate(w.Used))?"Fractional percentage observed":"This response contains integer percentages");
         }
@@ -77,6 +81,7 @@ public sealed partial class LoomApp : Application
                     (w.Used<old.Used||old.ResetsAt is {} a&&w.ResetsAt is {} b&&Math.Abs((a-b).TotalMinutes)>2));
                 if(capacityDisplayIdentity!=identity||reset)
                 {
+                    capacityInterruptionCount=0;
                     capacityDisplayIdentity=identity;capacityEstimator.InitializeTemporal(quota);
                     WeeklyCapacity=capacityEstimator.DisplayCurrent;
                 }
@@ -142,12 +147,15 @@ public sealed partial class LoomApp : Application
             if(!Current()){capacityBatch.MarkDirty();capacityFeedback=L10n.T("capacity.changed");return;}
             capacityEstimator.Restore(null,history);
             capacityEstimator.ApplyTemporal(quota,output.result.Cache,output.total,output.price,output.result.PendingBaselineUsed);
+            capacityInterruptionCount=output.result.Interruptions.Count;
             WeeklyCapacity=capacityEstimator.DisplayCurrent;
             capacityLastCalculated=DateTimeOffset.Now;
             capacityFeedback=L10n.T("capacity.done")+" · "+WeeklyCapacityProgress;
             var cache=capacityEstimator.Export();
             await Task.Run(()=>store.SaveCapacity(cache),lifetime.Token);
-            Program.Log.Write("INFO","CapacityBatch",$"Completed in {watch.ElapsedMilliseconds} ms; intervals={output.result.Intervals.Count}");
+            Program.Log.Write("INFO","CapacityBatch",$"Completed in {watch.ElapsedMilliseconds} ms; intervals={output.result.Intervals.Count}; interruptions={capacityInterruptionCount}");
+            foreach(var gap in output.result.Interruptions)
+                Program.Log.Write("INFO","CapacityContinuity",$"from={gap.From:O}; to={gap.To:O}; reason={gap.Reason}");
             }
             finally{capacityWorkGate.Release();}
         }
@@ -235,7 +243,9 @@ public sealed partial class LoomApp : Application
     internal bool HasLoadedHistory => IsDemo||historyLoaded;
     internal IReadOnlyDictionary<string,string> SessionNames { get; private set; }=new Dictionary<string,string>();
     internal IReadOnlyList<WeeklyCapacityEstimate> WeeklyCapacity { get; private set; }=[];
-    internal string WeeklyCapacityProgress => !Config.CapacityEnabled?L10n.T("s40E9A224A0E3"):preservedHistoryFiles>0?PreservedHistoryMessage:capacityEstimator.DescribeProgress(Quota,capacityTokenTotal,capacityHistoryReady);
+    internal string WeeklyCapacityProgress => !Config.CapacityEnabled?L10n.T("s40E9A224A0E3"):preservedHistoryFiles>0?PreservedHistoryMessage:
+        capacityEstimator.DescribeProgress(Quota,capacityTokenTotal,capacityHistoryReady)+
+        (Quota.Fresh&&capacityInterruptionCount>0?"\n"+L10n.F("capacity.interrupted",capacityInterruptionCount):"");
     internal string HistoryStatus { get; private set; } = L10n.T("sA3A08B0EC497");
     internal string Message { get; private set; } = L10n.T("s5A253CCAEBA1");
     internal event Action? Changed;
@@ -243,6 +253,7 @@ public sealed partial class LoomApp : Application
     public LoomApp(string[] args)
     {
         this.args = args;
+        appliedCapacitySource=CurrentCapacitySource();
         InitializeComponent();
         UnhandledException += (_, e) => Program.Log.Write("ERROR", "UI", e.Exception.ToString());
     }
@@ -534,11 +545,26 @@ public sealed partial class LoomApp : Application
     }
     internal async Task SaveSettingsAsync()
     {
+        if(Authorizing)throw new InvalidOperationException(L10n.T("s3B5CB5F80AA4"));
+        var source=CurrentCapacitySource();
+        var sourceChanged=!appliedCapacitySource.Matches(source);
+        Config.Save();
+        if(!sourceChanged)
+        {
+            // Ordinary settings must not clear account context or cancel a valid
+            // interval. The timer reads the updated refresh/notification settings.
+            dashboard?.ApplyTheme();flyout?.ApplyTheme();
+            Program.Log.Write("INFO","CapacitySettings","Ordinary settings saved; sampling continuity retained");
+            Message=L10n.T("sBD03C0AAD701");Changed?.Invoke();
+            if(Config.AutoRefresh)await RefreshQuotaAsync(false);
+            return;
+        }
         restartCheckpoint=null;
         RecordCapacityObservation(Quota,true);
-        if(Authorizing)throw new InvalidOperationException(L10n.T("s3B5CB5F80AA4"));
+        Program.Log.Write("INFO","CapacitySettings","Source settings changed; sampling boundary recorded");
+        appliedCapacitySource=source;
         capacityEstimator.Reset();WeeklyCapacity=[];SessionNames=new Dictionary<string,string>();
-        Config.Save(); configurationGeneration++;
+        configurationGeneration++;capacityEpoch++;capacityDisplayIdentity=null;capacityLastCalculated=null;
         quotaCancellation.Cancel();
         if (quotaTask is not null) await quotaTask;
         quotaCancellation.Dispose(); quotaCancellation = new();
@@ -596,7 +622,6 @@ public sealed partial class LoomApp : Application
         if(!Path.IsPathFullyQualified(home))throw new ArgumentException(L10n.T("sA279FE7C2774"));
         Config.CliPath=executable;Config.CodexHome=home;
         Config.AuthorizedAccount=false;Config.ReuseBackend=false;
-        capacityEstimator.Reset();WeeklyCapacity=[];SessionNames=new Dictionary<string,string>();
         await SaveSettingsAsync();
         if(!Config.AutoRefresh)await RefreshQuotaAsync(true);
     }
@@ -618,6 +643,7 @@ public sealed partial class LoomApp : Application
             quotaCancellation.Dispose();quotaCancellation=new();
             await client.StopAsync();
             Config.AuthorizedAccount=true;Config.ReuseBackend=false;Config.Save();
+            appliedCapacitySource=CurrentCapacitySource();
             capacityEstimator.Reset();WeeklyCapacity=[];SessionNames=new Dictionary<string,string>();
             Quota=new([],null,null,logout?L10n.T("sFD38695BC486"):L10n.T("sC125127F9996"),false);
             Message=Quota.Status;Changed?.Invoke();

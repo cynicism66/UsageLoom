@@ -309,6 +309,19 @@ Test("查询超时恢复已确认样本，保留硬边界与历史证据",() =>
     Check(result.Intervals.SelectMany(i=>i.EventIds).Count(id=>id=="gap")==1);
     var unverified=TemporalCapacity.CalculateStable(observations,events.Select(e=>e.Id=="gap"?e with{AccountScope=null}:e),at.AddMinutes(20));
     Check(unverified.Cache!.Windows.Single().Percent==6&&unverified.Cache.Windows.Single().Tokens==600);
+    Check(unverified.Interruptions.Any(i=>i.Reason=="unverified-ownership"));
+    var missingIdentity=observations.Select(o=>o.Barrier?o with{Account=null,Plan=null}:o).ToArray();
+    var recovered=TemporalCapacity.CalculateStable(missingIdentity,events,at.AddMinutes(20));
+    Check(recovered.Cache!.Windows.Single().Percent==7&&recovered.Cache.Windows.Single().Tokens==900);
+    Check(missingIdentity.Where(o=>o.Barrier).All(o=>o.Account is null&&o.Plan is null));
+    var otherAccount=missingIdentity.Select(o=>o.At>=at.AddMinutes(9)?o with{Account="b"}:o);
+    Check(TemporalCapacity.CalculateStable(otherAccount,events,at.AddMinutes(20)).Cache!.Windows.Count==0);
+    var longOutage=new[]{O(0,0),O(3,3),O(6,4),failure with{Account=null,Plan=null},O(90,4),O(93,7),O(96,7)};
+    var retained=TemporalCapacity.CalculateStable(longOutage,new[]{E("first",2),E("after",92)},at.AddMinutes(100));
+    Check(retained.Cache!.Windows.Single().Percent==6&&retained.Cache.Windows.Single().Tokens==600);
+    Check(retained.Interruptions.Any(i=>i.Reason=="continuity-not-proven"));
+    var confirmedAgain=TemporalCapacity.CalculateStable(observations,events,at.AddMinutes(20));
+    Check(confirmedAgain.Interruptions.Count==0&&confirmedAgain.Cache!.Windows.Single().Percent==7);
     var uncertain=TemporalCapacity.CalculateStable(observations,events,at.AddMinutes(20),uncertainRanges:[new(at.AddMinutes(7),at.AddMinutes(8))]);
     Check(uncertain.Cache!.Windows.Single().Percent==6);
     var idleObservations=new[]{O(0,0),O(3,3),O(6,4),failure,O(15,4),O(18,7),O(21,7)};
@@ -354,6 +367,21 @@ Test("周估算五分钟批量门控，空闲跳过且手动可立即计算",() 
     Check(!schedule.TryBegin(at.AddMinutes(20)));schedule.MarkDirty();Check(schedule.TryBegin(at.AddMinutes(20)));
     schedule.MarkDirty();Check(!schedule.TryBegin(at.AddMinutes(21)));Check(schedule.TryBegin(at.AddMinutes(21),true));
     Check(!schedule.TryBegin(at.AddMinutes(25)));schedule.MarkDirty();Check(schedule.TryBegin(at.AddMinutes(26)));
+});
+Test("设置采样边界只比较数据来源与登录模式",() =>
+{
+    var source=new CapacitySource(@"C:\Tools\codex.exe",@"C:\Data\Codex",false,false);
+    Check(source.Matches(new(@"c:\tools\codex.exe",@"C:\Data\Codex\",false,false)));
+    Check(!source.Matches(source with{Home=@"C:\Data\Other"}));
+    Check(!source.Matches(source with{Executable=@"C:\Other\codex.exe"}));
+    Check(!source.Matches(source with{Authorized=true}));Check(!source.Matches(source with{ReuseBackend=true}));
+    Check(new CapacitySource(null,@"C:\Data\Codex",false,false).Matches(new(" ",@"C:\Data\Codex",false,false)));
+    // Saving ordinary settings leaves this source snapshot and estimator intact.
+    var now=DateTimeOffset.Now;var reset=now.AddDays(6);
+    var quota=new QuotaState([new("codex:primary","weekly",13,10080,reset)],null,now,"ok",true,"a"){Plan="pro"};
+    var cache=new CapacityCache(4,"a","pro",Pricing.CatalogVersion,now,[new("codex:primary","weekly",reset,12,12,1200,12m,1200,4,0)]);
+    var estimator=new WeeklyCapacityEstimator();estimator.Restore(cache);estimator.InitializeTemporal(quota);
+    for(var i=0;i<3;i++){Check(source.Matches(source with{}));Check(estimator.DescribeProgress(quota,0,true).Contains("13/6"));}
 });
 Test("首次索引就绪立即重算旧采样起点，重启保持 8/6",() =>
 {

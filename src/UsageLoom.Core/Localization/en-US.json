@@ -1,4 +1,5 @@
 {
+"capacity.interrupted":"{0} interrupted intervals have not passed continuity checks and are excluded. Recoverable confirmed samples are retained. Later snapshots or updated ownership evidence trigger reassessment.",
 "capacity.info":"Sampling and estimate details",
 "tray.statistics":"Detailed statistics",
 "scan.preserved":"{0} changed files need review: recorded usage retained, other sessions scanned; new capacity estimates paused",

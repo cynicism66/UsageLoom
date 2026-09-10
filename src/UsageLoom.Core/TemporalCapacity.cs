@@ -6,10 +6,12 @@ public sealed record QuotaObservation(DateTimeOffset At,string? Account,string? 
     public string? BarrierReason { get; init; }
 }
 public sealed record CapacityInterval(string Key,DateTimeOffset From,DateTimeOffset To,string Account,string Plan,DateTimeOffset Reset,double Percent,long Tokens,decimal Cost,long Priced,string[] EventIds,string? Exclusion);
+public sealed record CapacityInterruption(string Key,DateTimeOffset From,DateTimeOffset To,string Reason);
 public sealed record TemporalCapacityResult(CapacityCache? Cache,List<CapacityInterval> Intervals,DateTimeOffset? PendingFrom,List<CapacityCache> History)
 {
     // Display-only anchors; unfinished intervals must not enter estimates or archives.
     public Dictionary<string,double> PendingBaselineUsed { get; init; } = [];
+    public List<CapacityInterruption> Interruptions { get; init; } = [];
 }
 
 public static class TemporalCapacity
@@ -67,10 +69,19 @@ public static class TemporalCapacity
             pendingAnchors.RemoveAll(p=>p.Key==key&&p.Window.ResetsAt is {} r&&start.Window.ResetsAt is {} s&&Math.Abs((r-s).TotalMinutes)<=2);
             pendingAnchors.Add((key,start.Observation,start.Window,end,endWindow,timeout,interruptedAt??end.At));
         }
+        var interruptions=new List<CapacityInterruption>();
         QuotaObservation? last=null;
-        foreach(var o in ordered)
+        foreach(var observation in ordered)
         {
             cancellationToken.ThrowIfCancellationRequested();
+            var o=observation;
+            // An unavailable identity during a transport failure is not evidence
+            // of an account switch. Carry comparison context in memory only;
+            // successful recovery must still verify the actual identity below.
+            if(o.Barrier&&o.BarrierReason=="query-failure"&&last?.Account is not null&&last.Plan is not null&&
+                (!last.Barrier||last.BarrierReason=="query-failure")&&o.PricingVersion==last.PricingVersion&&
+                (o.Account is null||o.Account==last.Account)&&(o.Plan is null||o.Plan==last.Plan))
+                o=o with{Account=o.Account??last.Account,Plan=o.Plan??last.Plan};
             if(o.Barrier&&o.BarrierReason=="query-failure"&&last is not null&&o.Account is not null&&
                 o.Account==last.Account&&o.Plan==last.Plan&&o.PricingVersion==last.PricingVersion&&o.PricingVersion==Pricing.CatalogVersion)
             {
@@ -84,8 +95,8 @@ public static class TemporalCapacity
                 anchors.Clear();totals.Clear();last=o;continue;
             }
             if(o.Barrier||string.IsNullOrWhiteSpace(o.Account)||string.IsNullOrWhiteSpace(o.Plan)||o.PricingVersion!=Pricing.CatalogVersion)
-            {anchors.Clear();totals.Clear();suspended.Clear();pendingAnchors.Clear();last=o;continue;}
-            if(last?.Account!=o.Account||last?.Plan!=o.Plan||last?.PricingVersion!=o.PricingVersion){anchors.Clear();totals.Clear();suspended.Clear();pendingAnchors.Clear();}
+            {anchors.Clear();totals.Clear();suspended.Clear();pendingAnchors.Clear();interruptions.Clear();last=o;continue;}
+            if(last?.Account!=o.Account||last?.Plan!=o.Plan||last?.PricingVersion!=o.PricingVersion){anchors.Clear();totals.Clear();suspended.Clear();pendingAnchors.Clear();interruptions.Clear();}
             var keys=o.Windows.Select(w=>w.Key).ToHashSet();
             foreach(var key in anchors.Keys.Where(k=>!keys.Contains(k)).ToArray()){anchors.Remove(key);totals.Remove(key);pendingAnchors.RemoveAll(p=>p.Key==key);}
             foreach(var w in o.Windows.Where(w=>w.IsPrimary&&w.Minutes==10080))
@@ -129,6 +140,9 @@ public static class TemporalCapacity
                             uncertainRanges?.Any(r=>r.Overlaps(p.Start.At,o.At))!=true&&
                             (p.Timeout||!allEvents.Any(e=>e.Timestamp>p.End.At&&e.Timestamp<=o.At));
                         if(safe)anchors[w.Key]=(p.Start,p.Window);
+                        else interruptions.Add(new(w.Key,p.Start.At,o.At,
+                            !verified?"unverified-ownership":uncertainRanges?.Any(r=>r.Overlaps(p.Start.At,o.At))==true?"uncertain-history":
+                            !confirmed.Contains((o.At,w.Key))?"awaiting-confirmation":"continuity-not-proven"));
                     }
                     continue;
                 }
@@ -158,6 +172,6 @@ public static class TemporalCapacity
         var cache=last is not null&&!last.Barrier&&last.Account is not null&&last.Plan is not null&&last.PricingVersion==Pricing.CatalogVersion?
             new CapacityCache(version,last.Account,last.Plan,Pricing.CatalogVersion,last.At,totals.Values.Where(t=>t.Samples>0).ToList()):null;
         return new(cache,intervals,anchors.Count>0?anchors.Values.Min(a=>a.Observation.At):null,history.Values.ToList())
-        {PendingBaselineUsed=anchors.ToDictionary(p=>p.Key,p=>p.Value.Window.Used)};
+        {PendingBaselineUsed=anchors.ToDictionary(p=>p.Key,p=>p.Value.Window.Used),Interruptions=interruptions};
     }
 }

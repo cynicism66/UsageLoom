@@ -6,9 +6,9 @@ Windows 11 上的 Codex 用量与额度面板。无需登录即可统计本机 T
 
 UsageLoom 是独立开源项目，不隶属于 OpenAI。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.8.0
+## Windows 桌面版 0.8.1
 
-0.8.0：采样说明弹窗使用更小的 12 DIP 字号，按窗口可用宽度换行，并去掉滚动条。[发布说明](docs/releases/RELEASE-0.8.0.md)
+0.8.1：普通设置保存不再打断采样，完善断网后的身份核验与有效样本恢复，并显示未通过核验的中断区间提示。[发布说明](docs/releases/RELEASE-0.8.1.md)
 
 0.7.5：额度周期短暂变化后恢复原周期的有效样本，并增加脱敏查询来源诊断。[发布说明](docs/releases/RELEASE-0.7.5.md)
 
