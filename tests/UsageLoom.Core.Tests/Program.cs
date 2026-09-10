@@ -368,6 +368,31 @@ Test("周估算五分钟批量门控，空闲跳过且手动可立即计算",() 
     schedule.MarkDirty();Check(!schedule.TryBegin(at.AddMinutes(21)));Check(schedule.TryBegin(at.AddMinutes(21),true));
     Check(!schedule.TryBegin(at.AddMinutes(25)));schedule.MarkDirty();Check(schedule.TryBegin(at.AddMinutes(26)));
 });
+Test("重启推定用量需审计和前后快照核验，不修改原始归属",() =>
+{
+    var at=DateTimeOffset.UtcNow;var reset=at.AddDays(7);
+    QuotaObservation O(int m)=>new(at.AddMinutes(m),"a","pro",Pricing.CatalogVersion,[new("codex:primary","weekly",12,10080,reset)]);
+    var e=new UsageEvent("gap","s","p","gpt-5.4","main",at.AddMinutes(2),"2026-09-10",new(100)){AccountScope="a",AccountAttribution="restart-inferred"};
+    var proof=new RestartCapacityEvidence("a",at,at.AddMinutes(1),at.AddMinutes(3),["gap"],"restart-inferred");
+    var ledger=new[]{O(0),O(3),O(5)};
+    Check(RestartCapacityVerification.Verify([e],ledger,[proof],at.AddMinutes(6))[0].AccountAttribution=="restart-verified");
+    Check(e.AccountAttribution=="restart-inferred");
+    Check(RestartCapacityVerification.Verify([e],ledger,[],at.AddMinutes(6))[0]==e);
+    foreach(var bad in new[]{proof with{Account="b"},proof with{Events=["missing"]},proof with{OpenedAt=at.AddHours(1)}})
+        Check(RestartCapacityVerification.Verify([e],ledger,[bad],at.AddHours(2))[0]==e);
+    Check(RestartCapacityVerification.Verify([e],ledger,[proof],at.AddMinutes(4))[0]==e);
+    Check(RestartCapacityVerification.Verify([e],ledger.Append(O(4) with{Barrier=true}),[proof],at.AddMinutes(6))[0]==e);
+    Check(RestartCapacityVerification.Verify([e],new[]{O(0),O(3) with{Account="b"},O(5)},[proof],at.AddMinutes(6))[0]==e);
+});
+Test("反复查询失败不永久截断后续快照确认",() =>
+{
+    var at=DateTimeOffset.UtcNow;var reset=at.AddDays(7);
+    QuotaObservation O(int m,double used)=>new(at.AddMinutes(m),"a","pro",Pricing.CatalogVersion,[new("codex:primary","weekly",used,10080,reset)]);
+    var rows=new[]{O(0,0),O(1,0) with{Barrier=true,BarrierReason="query-failure",Windows=[]},O(2,0),O(3,0) with{Barrier=true,BarrierReason="query-failure",Windows=[]},O(4,0),O(5,3),O(8,3)};
+    var e=new UsageEvent("e","s","p","gpt-5.4","main",at.AddMinutes(4.5),"2026-09-10",new(300)){AccountScope="a"};
+    var result=TemporalCapacity.CalculateStable(rows,[e],at.AddMinutes(10));
+    Check(result.Interruptions.Count==0&&result.Cache!.Windows.Single().Percent==3);
+});
 Test("设置采样边界只比较数据来源与登录模式",() =>
 {
     var source=new CapacitySource(@"C:\Tools\codex.exe",@"C:\Data\Codex",false,false);

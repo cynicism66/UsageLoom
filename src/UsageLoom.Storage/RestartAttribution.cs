@@ -10,6 +10,18 @@ public sealed record RestartFileBoundary(long Created,int Records,string Prefix)
 public sealed record RestartCheckpoint(string Account,string Home,DateTimeOffset Since,DateTimeOffset ClosedAt,Dictionary<string,RestartFileBoundary> Files);
 public sealed partial class HistoryStore
 {
+    public List<RestartCapacityEvidence> ReadRestartCapacityEvidence()
+    {
+        using var connection=Open();using var command=connection.CreateCommand();
+        command.CommandText="SELECT value FROM metadata WHERE key LIKE 'restart-inference-%'";
+        using var reader=command.ExecuteReader();var result=new List<RestartCapacityEvidence>();
+        while(reader.Read())
+        {
+            try{if(JsonSerializer.Deserialize<RestartCapacityEvidence>(reader.GetString(0)) is {} item&&item.Events is not null)result.Add(item);}
+            catch(JsonException){} // Missing or malformed proof never authorizes inference.
+        }
+        return result;
+    }
     private static string RecordsHash(IEnumerable<string> records)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(string.Join('\n',records))));
     public void SaveRestartCheckpoint(string account,string home,DateTimeOffset since,DateTimeOffset closedAt)
     {

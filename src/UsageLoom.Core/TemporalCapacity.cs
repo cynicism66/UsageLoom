@@ -30,6 +30,9 @@ public static class TemporalCapacity
             foreach(var o in ordered.Reverse())
             {
                 cancellationToken.ThrowIfCancellationRequested();
+                if(o.Barrier&&o.BarrierReason=="query-failure"&&next is not null&&
+                    (o.Account is null||o.Account==next.Account)&&(o.Plan is null||o.Plan==next.Plan)&&o.PricingVersion==next.PricingVersion)
+                    continue; // A transport gap does not invalidate later same-cycle confirmation.
                 if(o.Barrier||o.Account is null||o.Plan is null||o.PricingVersion!=Pricing.CatalogVersion){future.Clear();next=o;continue;}
                 if(next is not null&&(next.Barrier||next.Account!=o.Account||next.Plan!=o.Plan||next.PricingVersion!=o.PricingVersion))future.Clear();
                 foreach(var key in future.Keys.Where(k=>!o.Windows.Any(w=>w.Key==k)).ToArray())future.Remove(key);

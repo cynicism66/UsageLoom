@@ -34,7 +34,7 @@
   "capacity.previous": "上次有效估算",
   "capacity.previousAt": "上次估算 {0:MM-dd HH:mm} · 当前周期重新采样",
   "restart.account": "当前账号用量（含补归属）",
-  "restart.note": "含 {0} Token 补归属；用户确认记录按时间配对，推定记录不采样",
+  "restart.note": "含 {0} Token 补归属；用户确认记录按时间配对，重启推定记录须通过审计与快照核验才采样",
   "s4566FC389381": "筛选 Session、模型、项目或 Agent",
   "sD2BB025A2E51": "开始",
   "s760506491EEF": "开始日期",

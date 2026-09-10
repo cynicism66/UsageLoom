@@ -34,7 +34,7 @@
 "capacity.previous":"Last valid estimate",
 "capacity.previousAt":"Previous estimate {0:MM-dd HH:mm} · Resampling current window",
 "restart.account":"Current account (includes reassigned usage)",
-"restart.note":"Includes {0} reassigned tokens; confirmed records are time-paired, inferred records excluded",
+"restart.note":"Includes {0} reassigned tokens; confirmed records are time-paired, restart inference requires audit and quota verification for sampling",
 "s4566FC389381":"Filter sessions, models, projects or agents",
 "sD2BB025A2E51":"From",
 "s760506491EEF":"Start date",

@@ -130,7 +130,9 @@ public sealed partial class LoomApp : Application
             var output=await Task.Run(()=>
                 {
                     lifetime.Token.ThrowIfCancellationRequested();
-                    var result=TemporalCapacity.CalculateStable(store.ReadQuotaObservations(),events,indexedThrough,lifetime.Token,uncertainRanges);
+                    var observations=store.ReadQuotaObservations();
+                    var verifiedEvents=RestartCapacityVerification.Verify(events,observations,store.ReadRestartCapacityEvidence(),indexedThrough);
+                    var result=TemporalCapacity.CalculateStable(observations,verifiedEvents,indexedThrough,lifetime.Token,uncertainRanges);
                     var general=CapacityUsage.ForAccount(events,quota.AccountKey).ToList();
                     var price=Pricing.Summarize(general);
                     var pending=result.PendingFrom is {} from?general.Where(e=>e.Timestamp>from).Sum(e=>e.Tokens.Total):0;
@@ -502,7 +504,7 @@ public sealed partial class LoomApp : Application
             {
                 var inferred=await Task.Run(()=>store.AttributeRestartGap(pending,currentAccount,home,openedAt,lifetime.Token),lifetime.Token);
                 restartCheckpoint=null;
-                Program.Log.Write("INFO","Attribution",$"Restart inference completed: {inferred} records; excluded from capacity sampling");
+                Program.Log.Write("INFO","Attribution",$"Restart inference completed: {inferred} records; capacity use requires separate audit and quota verification");
             }
             var previousTokens=Events.Sum(item=>item.Tokens.Total);
             Events = await Task.Run(() => store.Read(lifetime.Token), lifetime.Token);
