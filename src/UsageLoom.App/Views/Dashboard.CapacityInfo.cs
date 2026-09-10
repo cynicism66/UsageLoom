@@ -8,7 +8,7 @@ namespace UsageLoom.App;
 
 internal sealed partial class Dashboard
 {
-    private readonly TextBlock capacityInfoText=new(){TextWrapping=TextWrapping.Wrap,MaxWidth=340};
+    private readonly TextBlock capacityInfoText=new(){TextWrapping=TextWrapping.Wrap,MaxWidth=340,FontSize=12};
     private Flyout? capacityInfoFlyout;
 
     private void UpdateCapacityInfo()
@@ -30,11 +30,23 @@ internal sealed partial class Dashboard
         button.Click+=(_,_)=>
         {
             if(capacityInfoFlyout?.IsOpen==true){capacityInfoFlyout.Hide();return;}
-            capacityInfoFlyout??=new Flyout{Content=capacityInfoText};
+            if(capacityInfoFlyout is null)
+            {
+                var presenterStyle=new Style(typeof(FlyoutPresenter));
+                presenterStyle.Setters.Add(new Setter(ScrollViewer.HorizontalScrollModeProperty,ScrollMode.Disabled));
+                presenterStyle.Setters.Add(new Setter(ScrollViewer.HorizontalScrollBarVisibilityProperty,ScrollBarVisibility.Disabled));
+                presenterStyle.Setters.Add(new Setter(ScrollViewer.VerticalScrollModeProperty,ScrollMode.Disabled));
+                presenterStyle.Setters.Add(new Setter(ScrollViewer.VerticalScrollBarVisibilityProperty,ScrollBarVisibility.Disabled));
+                presenterStyle.Setters.Add(new Setter(Control.PaddingProperty,new Thickness(12)));
+                capacityInfoFlyout=new Flyout{Content=capacityInfoText,FlyoutPresenterStyle=presenterStyle};
+            }
             UpdateCapacityInfo();
             // Anchor to the persistent window root, not the rebuilt quota card.
             // Refreshes can replace the button without dismissing the explanation.
             var host=(FrameworkElement)Content;
+            // Constrain the content before measuring the presenter. Its padding
+            // must fit as well, including in the compact window at high DPI.
+            capacityInfoText.Width=Math.Max(1,Math.Min(340,host.ActualWidth-56));
             var position=button.TransformToVisual(host).TransformPoint(new Windows.Foundation.Point(button.ActualWidth/2,button.ActualHeight));
             capacityInfoFlyout.ShowAt(host,new FlyoutShowOptions{Position=position,Placement=FlyoutPlacementMode.Bottom});
         };
