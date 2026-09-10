@@ -45,7 +45,8 @@ public static class TemporalCapacity
                 next=o;
             }
         }
-        var rows=events.Where(e=>e.Timestamp is not null&&!string.Equals(e.Model,"gpt-5.3-codex-spark",StringComparison.OrdinalIgnoreCase))
+        var allEvents=events.ToArray();
+        var rows=allEvents.Where(e=>e.Timestamp is not null&&!string.Equals(e.Model,"gpt-5.3-codex-spark",StringComparison.OrdinalIgnoreCase))
             .DistinctBy(e=>e.Id).OrderBy(e=>e.Timestamp).ToArray();
         int After(DateTimeOffset at)
         {
@@ -57,8 +58,15 @@ public static class TemporalCapacity
         var totals=new Dictionary<string,CapacitySample>();var intervals=new List<CapacityInterval>();
         var history=new Dictionary<string,CapacityCache>();
         var segments=new Dictionary<string,int>();var generation=0;
-        // Preserve completed blocks only. Never bridge usage across a different cycle.
+        // Completed blocks survive transient failures; unfinished blocks require stricter continuity evidence.
         var suspended=new List<(string Key,DateTimeOffset Reset,double Used,CapacitySample Sample,int Segment)>();
+        var pendingAnchors=new List<(string Key,QuotaObservation Start,QuotaWindow Window,QuotaObservation End,QuotaWindow EndWindow,bool Timeout)>();
+        void SuspendPending(string key,QuotaObservation end,bool timeout)
+        {
+            if(!anchors.TryGetValue(key,out var start)||end.Windows.FirstOrDefault(w=>w.Key==key) is not {} endWindow)return;
+            pendingAnchors.RemoveAll(p=>p.Key==key&&p.Window.ResetsAt is {} r&&start.Window.ResetsAt is {} s&&Math.Abs((r-s).TotalMinutes)<=2);
+            pendingAnchors.Add((key,start.Observation,start.Window,end,endWindow,timeout));
+        }
         QuotaObservation? last=null;
         foreach(var o in ordered)
         {
@@ -66,6 +74,7 @@ public static class TemporalCapacity
             if(o.Barrier&&o.BarrierReason=="query-failure"&&last is not null&&o.Account is not null&&
                 o.Account==last.Account&&o.Plan==last.Plan&&o.PricingVersion==last.PricingVersion&&o.PricingVersion==Pricing.CatalogVersion)
             {
+                foreach(var key in anchors.Keys.ToArray())SuspendPending(key,last,true);
                 foreach(var pair in totals.Where(p=>p.Value.Samples>0))
                 {
                     var used=last.Windows.FirstOrDefault(w=>w.Key==pair.Key)?.Used??pair.Value.LastUsed;
@@ -75,20 +84,21 @@ public static class TemporalCapacity
                 anchors.Clear();totals.Clear();last=o;continue;
             }
             if(o.Barrier||string.IsNullOrWhiteSpace(o.Account)||string.IsNullOrWhiteSpace(o.Plan)||o.PricingVersion!=Pricing.CatalogVersion)
-            {anchors.Clear();totals.Clear();suspended.Clear();last=o;continue;}
-            if(last?.Account!=o.Account||last?.Plan!=o.Plan||last?.PricingVersion!=o.PricingVersion){anchors.Clear();totals.Clear();suspended.Clear();}
+            {anchors.Clear();totals.Clear();suspended.Clear();pendingAnchors.Clear();last=o;continue;}
+            if(last?.Account!=o.Account||last?.Plan!=o.Plan||last?.PricingVersion!=o.PricingVersion){anchors.Clear();totals.Clear();suspended.Clear();pendingAnchors.Clear();}
             var keys=o.Windows.Select(w=>w.Key).ToHashSet();
-            foreach(var key in anchors.Keys.Where(k=>!keys.Contains(k)).ToArray()){anchors.Remove(key);totals.Remove(key);}
+            foreach(var key in anchors.Keys.Where(k=>!keys.Contains(k)).ToArray()){anchors.Remove(key);totals.Remove(key);pendingAnchors.RemoveAll(p=>p.Key==key);}
             foreach(var w in o.Windows.Where(w=>w.IsPrimary&&w.Minutes==10080))
             {
                 if(w.ResetsAt is not {} reset||reset<=o.At||!double.IsFinite(w.Used)||w.Used<0||w.Used>100)
-                {anchors.Remove(w.Key);totals.Remove(w.Key);continue;}
+                {anchors.Remove(w.Key);totals.Remove(w.Key);pendingAnchors.RemoveAll(p=>p.Key==w.Key);continue;}
                 if(!anchors.TryGetValue(w.Key,out var a)||a.Window.ResetsAt is not {} oldReset||
                     Math.Abs((oldReset-reset).TotalMinutes)>2||o.At>=oldReset||w.Used<a.Window.Used||
                     stable&&last?.Windows.FirstOrDefault(p=>p.Key==w.Key) is {} previousWindow&&w.Used<previousWindow.Used)
                 {
                     var previous=last?.Windows.FirstOrDefault(p=>p.Key==w.Key);
                     var differentCycle=previous?.ResetsAt is {} priorReset&&Math.Abs((priorReset-reset).TotalMinutes)>2;
+                    if(differentCycle&&last is not null)SuspendPending(w.Key,last,false);
                     if(differentCycle&&totals.TryGetValue(w.Key,out var completed)&&completed.Samples>0)
                     {
                         suspended.RemoveAll(s=>s.Key==w.Key&&Math.Abs((s.Reset-completed.ResetsAt).TotalMinutes)<=2);
@@ -105,7 +115,21 @@ public static class TemporalCapacity
                             segments[w.Key]=saved.Segment;
                         }
                     }
-                    anchors[w.Key]=(o,w);continue;
+                    anchors[w.Key]=(o,w);
+                    var pendingIndex=pendingAnchors.FindLastIndex(p=>p.Key==w.Key&&p.Window.ResetsAt is {} r&&r>o.At&&Math.Abs((r-reset).TotalMinutes)<=2);
+                    if((differentCycle||last?.BarrierReason=="query-failure")&&pendingIndex>=0)
+                    {
+                        var p=pendingAnchors[pendingIndex];pendingAnchors.RemoveAt(pendingIndex);
+                        var elapsed=o.At-p.End.At;
+                        var verified=rows[After(p.Start.At)..After(o.At)].All(e=>e.AccountScope==o.Account&&e.AccountAttribution!="restart-inferred");
+                        var safe=stable&&confirmed.Contains((o.At,w.Key))&&p.Start.Account==o.Account&&p.Start.Plan==o.Plan&&
+                            p.Start.PricingVersion==o.PricingVersion&&w.Used==p.EndWindow.Used&&elapsed>TimeSpan.Zero&&
+                            elapsed<=TimeSpan.FromMinutes(p.Timeout?5:60)&&verified&&!allEvents.Any(e=>e.Timestamp is null)&&
+                            uncertainRanges?.Any(r=>r.Overlaps(p.Start.At,o.At))!=true&&
+                            (p.Timeout||!allEvents.Any(e=>e.Timestamp>p.End.At&&e.Timestamp<=o.At));
+                        if(safe)anchors[w.Key]=(p.Start,p.Window);
+                    }
+                    continue;
                 }
                 var delta=w.Used-a.Window.Used;
                 if(delta<=0)continue; // Keep flat observations, but pair the whole plateau when it moves.

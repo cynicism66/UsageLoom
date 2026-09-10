@@ -282,6 +282,12 @@ Test("周期短暂切换恢复已确认样本，不跨异常区间累计",() =>
     var complete=TemporalCapacity.CalculateStable(observations.Concat([O(21,7),O(24,7)]),events,at.AddMinutes(25));
     Check(complete.Cache!.Windows.Single().Percent==6&&complete.Cache.Windows.Single().Tokens==600);
     Check(!complete.Intervals.SelectMany(i=>i.EventIds).Contains("gap"));
+    var safeEvents=new[]{E("first",2,300),E("before",5,100),E("later",17,200)};
+    var safe=TemporalCapacity.CalculateStable(observations.Concat([O(21,6)]),safeEvents,at.AddMinutes(25));
+    Check(safe.Cache!.Windows.Single().Percent==6&&safe.Cache.Windows.Single().Tokens==600);
+    Check(safe.Intervals.SelectMany(i=>i.EventIds).Distinct().Count()==3);
+    var inferred=TemporalCapacity.CalculateStable(observations.Concat([O(21,6)]),safeEvents.Select(e=>e.Id=="before"?e with{AccountAttribution="restart-inferred"}:e),at.AddMinutes(25));
+    Check(inferred.Cache!.Windows.Single().Percent==3);
     foreach(var barrier in new[]{O(12,11,true) with{Account="b"},O(12,11,true) with{Plan="prolite"},O(12,11,true) with{Barrier=true}})
     {
         var changed=observations.ToArray();changed[4]=barrier;
@@ -299,8 +305,12 @@ Test("查询超时恢复已确认样本，保留硬边界与历史证据",() =>
     var observations=new[]{O(0,0),O(3,3),O(6,4),failure,failure with{At=at.AddMinutes(8)},O(9,4),O(12,7),O(15,7)};
     var events=new[]{E("first",2),E("gap",8),E("second",11)};
     var result=TemporalCapacity.CalculateStable(observations,events,at.AddMinutes(20));
-    Check(result.Cache!.Windows.Single().Percent==6&&result.Cache.Windows.Single().Samples==2&&result.Cache.Windows.Single().Tokens==600);
-    Check(!result.Intervals.SelectMany(i=>i.EventIds).Contains("gap"));
+    Check(result.Cache!.Windows.Single().Percent==7&&result.Cache.Windows.Single().Samples==2&&result.Cache.Windows.Single().Tokens==900);
+    Check(result.Intervals.SelectMany(i=>i.EventIds).Count(id=>id=="gap")==1);
+    var unverified=TemporalCapacity.CalculateStable(observations,events.Select(e=>e.Id=="gap"?e with{AccountScope=null}:e),at.AddMinutes(20));
+    Check(unverified.Cache!.Windows.Single().Percent==6&&unverified.Cache.Windows.Single().Tokens==600);
+    var uncertain=TemporalCapacity.CalculateStable(observations,events,at.AddMinutes(20),uncertainRanges:[new(at.AddMinutes(7),at.AddMinutes(8))]);
+    Check(uncertain.Cache!.Windows.Single().Percent==6);
     foreach(var hard in new[]{failure with{BarrierReason=null},failure with{BarrierReason="explicit-boundary"},failure with{Account="b"},failure with{Plan="prolite"}})
     {
         var changed=observations.ToArray();changed[3]=hard;
