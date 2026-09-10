@@ -88,7 +88,10 @@ internal sealed partial class Dashboard
         if(estimate?.HistoricalAt is {} historical)capacity.Text=L10n.T("capacity.previous")+": "+estimate.DollarDisplay;
         capacity.Height=40;capacity.MaxLines=2;capacity.TextTrimming=TextTrimming.CharacterEllipsis;
         capacity.Visibility=app.Config.CapacityEnabled?Visibility.Visible:Visibility.Collapsed;
-        capacity.Opacity=.75;ToolTipService.SetToolTip(capacity,capacity.Text+"\n"+(estimate?.HistoricalAt is {} saved?L10n.F("capacity.previousAt",saved.ToLocalTime())+"\n":"")+app.WeeklyCapacityProgress);quotaPanel.Children.Add(capacity);
+        capacity.Opacity=.75;
+        var capacityRow=new Grid{ColumnSpacing=6,Visibility=capacity.Visibility};
+        capacityRow.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});capacityRow.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
+        capacityRow.Children.Add(capacity);var capacityInfo=CapacityInfoButton();Grid.SetColumn(capacityInfo,1);capacityRow.Children.Add(capacityInfo);quotaPanel.Children.Add(capacityRow);
         var updated=quota.FetchedAt is {} at?L10n.F("s6843540FA5C7", at.ToLocalTime()):L10n.T("s0D4EDA666026");
         var resets=quota.HasQuotaDisplay&&quota.ResetCount is {} count?L10n.F("s26ABA9EC2EFB", count):L10n.T("s382254F4153B");
         quotaPanel.Children.Add(PlanBadge(quota,true));

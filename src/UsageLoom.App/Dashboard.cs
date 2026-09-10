@@ -361,12 +361,13 @@ internal sealed partial class Dashboard : Window
         if(Math.Abs(AppWindow.Size.Height-height)<3)return;
         AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(position.X,Math.Max(info.work.top+12,info.work.bottom-height-12),AppWindow.Size.Width,height));
     }
-    public void Hide(){if(released)return;IsPanelVisible=false;AppWindow.Hide();}
+    public void Hide(){if(released)return;capacityInfoFlyout?.Hide();IsPanelVisible=false;AppWindow.Hide();}
     private void Navigate(string tag)=>navigation.SelectedItem=navigation.MenuItems.Concat(navigation.FooterMenuItems).OfType<NavigationViewItem>().First(i=>(string)i.Tag==tag);
     public void Release(){released=true;navigationTest?.Stop();navigation.Loaded-=InitializeNavigation;app.Changed-=Render;}
     public void ApplyTheme(){if(Content is FrameworkElement element)element.RequestedTheme=Enum.TryParse<ElementTheme>(app.Config.Theme,out var theme)?theme:ElementTheme.Default;RefreshSurfaces();}
     private void SelectPage()
     {
+        capacityInfoFlyout?.Hide();
         // The filter contains stateful WinUI controls and is shared by overview,
         // breakdown and session workspaces. Detach it while the old page is still
         // connected to the visual tree; detached subtrees do not expose a visual parent.
@@ -441,6 +442,7 @@ internal sealed partial class Dashboard : Window
         if(!DispatcherQueue.HasThreadAccess){DispatcherQueue.TryEnqueue(Render);return;}
         rendering=true;
         try {
+        UpdateCapacityInfo();
         if(capacityStatusText is not null)capacityStatusText.Text=app.CapacityCalculationStatus;
         if(compact){RenderCompact();return;}
         status.Text=compact||selectedPage=="quota"?app.Quota.Status:selectedPage is "overview" or "breakdown" or "sessions"?app.HistoryStatus:app.Message;
@@ -475,7 +477,10 @@ internal sealed partial class Dashboard : Window
                 var summary=new StackPanel{Spacing=2,HorizontalAlignment=HorizontalAlignment.Right,VerticalAlignment=VerticalAlignment.Center};
                 summary.Children.Add(new TextBlock{Text=estimate?.EstimatedDollars is {} dollars?L10n.F("s1F2CD6B8A261", dollars):quota.Fresh?L10n.T("s3568603BDEE3"):L10n.T("s1D50FA7450FD"),FontSize=24,TextWrapping=TextWrapping.Wrap,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
                 summary.Children.Add(new TextBlock{Text=estimate?.HistoricalAt is {} historical?L10n.F("capacity.previousAt",historical.ToLocalTime()):estimate is {} result?L10n.F("sEC62E3CDF86A", result.PricingCoverage):L10n.T("s8FCEC6C0C12E"),FontSize=12,Opacity=.65,TextWrapping=TextWrapping.Wrap});
-                ToolTipService.SetToolTip(summary,app.WeeklyCapacityProgress);Grid.SetColumn(summary,1);values.Children.Add(summary);
+                var infoRow=new Grid{ColumnSpacing=6,HorizontalAlignment=HorizontalAlignment.Right};
+                infoRow.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});infoRow.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
+                infoRow.Children.Add(summary);var info=CapacityInfoButton();Grid.SetColumn(info,1);infoRow.Children.Add(info);
+                Grid.SetColumn(infoRow,1);values.Children.Add(infoRow);
             }
             card.Children.Add(values);
             card.Children.Add(new TextBlock{Text=L10n.T("sFF93499BC7DC"),FontSize=12,Opacity=.65});
