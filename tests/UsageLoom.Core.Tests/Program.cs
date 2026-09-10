@@ -1476,7 +1476,9 @@ AsyncTest("模拟 RPC 响应穿插事件不会丢失",async()=>
 AsyncTest("独立后端未登录时不借用桌面身份且撤下旧额度",async()=>
 {
     await using var client=FakeClient("signed-out");var invalidated=false;client.AccountInvalidated+=hard=>{Check(!hard);invalidated=true;};
+    client.AttributionIdentity.Observe("old","unused",DateTimeOffset.UtcNow);
     var result=await client.ReadAsync(null,"unused",default);
+    Check(client.AttributionIdentity.Get("unused",DateTimeOffset.UtcNow) is null);
     Check(invalidated&&!result.Fresh&&result.Windows.Count==0&&result.AccountKey is null&&result.IsLocalAccount&&result.AccountLabel=="本地账户"&&result.ResetCount is null);
 });
 AsyncTest("本地账户无需凭据即可扫描和持久化 Token",async()=>
@@ -1493,6 +1495,39 @@ AsyncTest("本地账户无需凭据即可扫描和持久化 Token",async()=>
 AsyncTest("模拟 RPC stderr 写满仍能完成",async()=>
 {
     await using var client=FakeClient("stderr");Check((await client.ReadAsync(null,"unused",default)).Fresh);
+});
+Test("账号确认独立于额度，有效期、换源、失效与时钟回拨隔离",()=>
+{
+    var at=DateTimeOffset.UtcNow;var identity=new AttributionIdentity();var home=Path.GetTempPath();
+    Check(identity.Get(home,at) is null);
+    identity.Observe("a",home,at);
+    Check(identity.Get(home,at.AddMinutes(1))=="a");
+    Check(identity.Get(home,at.AddMinutes(6)) is null&&identity.Get(home,at.AddSeconds(-1)) is null);
+    Check(identity.Get(Path.Combine(home,"different"),at) is null);
+    identity.Clear();Check(identity.Get(home,at) is null);
+    identity.Observe(null,home,at);Check(identity.Get(home,at) is null);
+    Check(new AttributionIdentity().Get(home,at) is null);
+});
+AsyncTest("额度失败期间及恢复首轮扫描仍使用独立确认账号，不补旧历史",async()=>
+{
+    var home=Fixture("quota-independent-identity");var file=Path.Combine(home,"sessions","a.jsonl");
+    var store=new HistoryStore(Path.Combine(home,"data"));var scanner=new IncrementalHistory(store);
+    await using var client=FakeClient("network-always");
+    try{await client.ReadAsync(null,home,default);}catch(CodexRpcException){}
+    var identity=client.AttributionIdentity;
+    var scope=identity.Get(home,DateTimeOffset.UtcNow);Check(!string.IsNullOrWhiteSpace(scope),"verified identity lost on quota failure");
+    await File.WriteAllLinesAsync(file,[Meta("identity-session"),Model(),Count(80,20)]);
+    await scanner.ScanAsync(home,default,accountScope:identity.Get(home,DateTimeOffset.UtcNow));
+    await File.AppendAllTextAsync(file,Count(160,40)+"\n");
+    await scanner.ScanAsync(home,default,accountScope:identity.Get(home,DateTimeOffset.UtcNow));
+    await using var recovered=FakeClient("event");await recovered.ReadAsync(null,home,default);
+    await File.AppendAllTextAsync(file,Count(240,60)+"\n");
+    await scanner.ScanAsync(home,default,accountScope:recovered.AttributionIdentity.Get(home,DateTimeOffset.UtcNow));
+    Check(recovered.AttributionIdentity.Get(home,DateTimeOffset.UtcNow)==scope,"recovery identity mismatch");
+    Check(store.Read().Where(e=>e.AccountScope==scope).Sum(e=>e.Tokens.Total)==200,"new usage attribution gap");
+    Check(store.Read().Where(e=>e.AccountScope is null).Sum(e=>e.Tokens.Total)==100);
+    await using var changed=FakeClient("switch");await changed.ReadAsync(null,home,default);
+    Check(changed.AttributionIdentity.Get(home,DateTimeOffset.UtcNow) is null);
 });
 AsyncTest("额度网络失败只重试一次且错误信息保持安全",async()=>
 {
@@ -1516,6 +1551,7 @@ AsyncTest("模拟 RPC 超时与取消释放进程",async()=>
     await using var client=FakeClient("timeout");var timedOut=false;
     try{await client.ReadAsync(null,"unused",default);}catch(CodexRpcException ex){timedOut=ex.Kind==RpcFailureKind.Timeout&&ex.Message.Contains("超时");}
     Check(timedOut&&!client.IsConnected);
+    Check(client.AttributionIdentity.Get("unused",DateTimeOffset.UtcNow) is not null,"quota timeout erased separately verified identity");
     using var cancellation=new CancellationTokenSource(150);var canceled=false;
     try{await client.ReadAsync(null,"unused",cancellation.Token);}catch(OperationCanceledException){canceled=true;}
     Check(canceled&&!client.IsConnected);

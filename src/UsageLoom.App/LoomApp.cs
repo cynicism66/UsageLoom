@@ -25,6 +25,12 @@ public sealed partial class LoomApp : Application
     private IncrementalHistory? incremental;
     private readonly DateTimeOffset openedAt=DateTimeOffset.UtcNow;
     private RestartCheckpoint? restartCheckpoint;
+    private CancellationTokenSource scanIdentityCancellation=new();
+    private void CancelIdentityScan()
+    {
+        scanIdentityCancellation.Cancel();scanIdentityCancellation.Dispose();scanIdentityCancellation=new();
+        historyDirty=true;
+    }
     private void AbandonRestartEvidence()
     {
         restartCheckpoint=null;
@@ -293,6 +299,7 @@ public sealed partial class LoomApp : Application
         client.AccountInvalidated += hard => queue.TryEnqueue(() =>
         {
             if (quitting) return;
+            CancelIdentityScan();
             if(hard)
             {
                 AbandonRestartEvidence();
@@ -498,12 +505,14 @@ public sealed partial class LoomApp : Application
         scanning = true;
         historyRevision++;
         var home = Config.CodexHome;
-        var accountScope=Quota.Fresh&&!Quota.IsLocalAccount?Quota.AccountKey:null;
+        var accountScope=client.AttributionIdentity.Get(Config.AuthorizedAccount?AuthorizedHome:Config.CodexHome,DateTimeOffset.UtcNow);
         scanTask = ScanCoreAsync(home,verifyIntegrity,rebuild,accountScope);
         return scanTask;
     }
     private async Task ScanCoreAsync(string home,bool verifyIntegrity,bool rebuild,string? accountScope)
     {
+        using var identityLifetime=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token,scanIdentityCancellation.Token);
+        var scanToken=identityLifetime.Token;
         var watch = Stopwatch.StartNew();
         try
         {
@@ -515,7 +524,8 @@ public sealed partial class LoomApp : Application
             }
             var progress = new Progress<string>(text => { if (!quitting) { Message = text; Changed?.Invoke(); } });
             incremental ??= new IncrementalHistory(store);
-            var indexed = await Task.Run(() => rebuild?incremental.RebuildAsync(home,lifetime.Token,progress):incremental.ScanAsync(home, lifetime.Token, progress,verifyIntegrity,accountScope), lifetime.Token);
+            var indexed = await Task.Run(() => rebuild?incremental.RebuildAsync(home,scanToken,progress):incremental.ScanAsync(home, scanToken, progress,verifyIntegrity,accountScope), scanToken);
+            scanToken.ThrowIfCancellationRequested();
             var report = indexed.Report;
             if(rebuild){store.DiscardPendingRestart();restartCheckpoint=null;}
             if(restartCheckpoint is {} pending&&indexed.PreservedFiles==0&&Quota.Fresh&&Quota.AccountKey is {} currentAccount)
@@ -585,6 +595,8 @@ public sealed partial class LoomApp : Application
             return;
         }
         AbandonRestartEvidence();
+        client.AttributionIdentity.Clear();
+        CancelIdentityScan();
         RecordCapacityObservation(Quota,true);
         Program.Log.Write("INFO","CapacitySettings","Source settings changed; sampling boundary recorded");
         appliedCapacitySource=source;
@@ -592,6 +604,7 @@ public sealed partial class LoomApp : Application
         configurationGeneration++;capacityEpoch++;capacityDisplayIdentity=null;capacityLastCalculated=null;
         quotaCancellation.Cancel();
         if (quotaTask is not null) await quotaTask;
+        client.AttributionIdentity.Clear(); // A finishing old-source request must not repopulate the lease.
         quotaCancellation.Dispose(); quotaCancellation = new();
         await client.StopAsync();
         WatchHistory();historyDirty=true;lastHistoryCheck=DateTimeOffset.MinValue;
@@ -654,6 +667,8 @@ public sealed partial class LoomApp : Application
     {
         if(IsDemo){Message=L10n.T("s8253A60AB040");Changed?.Invoke();return Task.CompletedTask;}
         if(Authorizing||quitting)return authorizationTask??Task.CompletedTask;
+        client.AttributionIdentity.Clear();
+        CancelIdentityScan();
         Authorizing=true;
         authorizationCancellation=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         authorizationTask=AuthorizeCoreAsync(logout,authorizationCancellation.Token);

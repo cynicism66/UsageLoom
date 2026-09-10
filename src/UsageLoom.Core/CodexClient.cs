@@ -28,6 +28,12 @@ public sealed class CodexClient(DiagnosticLog log, LocalAccountFingerprint? fing
     internal TimeSpan RequestTimeout { get; init; } = TimeSpan.FromSeconds(15);
     internal Func<string?,string?> ExecutableResolver { get; init; } = FindExecutable;
     private string? accountKey;
+    public AttributionIdentity AttributionIdentity { get; }=new();
+    private void InvalidateAccount(bool hard)
+    {
+        AttributionIdentity.Clear();
+        AccountInvalidated?.Invoke(hard);
+    }
     public event Action<bool>? AccountInvalidated;
     public event Action<JsonElement>? QuotaUpdated;
     public IReadOnlyDictionary<string,string> ThreadNames { get; private set; }=new Dictionary<string,string>();
@@ -77,6 +83,7 @@ public sealed class CodexClient(DiagnosticLog log, LocalAccountFingerprint? fing
                 {
                     LastStage=L10n.T("s5BEA9B86A80C");
                     AccountObservation=L10n.T("s3FEF6CF82908");
+                    AttributionIdentity.Clear();
                     return QuotaState.LocalAccount with{Status=L10n.T("s093685B5C19C")};
                 }
                 await StartAsync(executable,home,ct,reuseBackend,managedAccount);
@@ -84,20 +91,23 @@ public sealed class CodexClient(DiagnosticLog log, LocalAccountFingerprint? fing
             await TryReadThreadNamesAsync(executable,home,ct,reuseBackend,managedAccount);
             var before=await RequestAsync("account/read",new{refreshToken=false},ct);
             if(!before.TryGetProperty("account",out var account)||account.ValueKind==JsonValueKind.Null)
-            {AccountObservation=L10n.T("s1C0E27F0D7E0");accountKey=null;AccountInvalidated?.Invoke(false);return QuotaState.LocalAccount;}
+            {AccountObservation=L10n.T("s1C0E27F0D7E0");accountKey=null;InvalidateAccount(false);return QuotaState.LocalAccount;}
             var type=account.Text("type");
             if(type!="chatgpt")
-            {accountKey=null;AccountInvalidated?.Invoke(true);return new([],null,null,L10n.T("s33E324A070D1")+(type??L10n.T("s4D8C1C5B4283"))+"）",false);}
+            {accountKey=null;InvalidateAccount(true);return new([],null,null,L10n.T("s33E324A070D1")+(type??L10n.T("s4D8C1C5B4283"))+"）",false);}
             var identity=ReadAccountKey(account);
             var key=identity.Key;
             AccountObservation=L10n.T("s5EE718BBC5FA")+identity.Description;
-            if(accountKey is not null&&key!=accountKey)AccountInvalidated?.Invoke(true);
+            if(accountKey is not null&&key!=accountKey)InvalidateAccount(true);
             accountKey=key;
+            // account/read succeeded even if the subsequent quota request fails.
+            AttributionIdentity.Observe(key,home,DateTimeOffset.UtcNow);
+            log.Write("INFO","AttributionIdentity",key is null?"No stable identity; new usage remains unassigned":"Account identity confirmed independently of quota freshness");
             var revision=Volatile.Read(ref accountRevision);
             var result=await ReadRateLimitsAsync(ct);
             var after=await RequestAsync("account/read",new{refreshToken=false},ct);
             if(revision!=Volatile.Read(ref accountRevision)||!after.TryGetProperty("account",out var second)||second.ValueKind!=JsonValueKind.Object||ReadAccountKey(second).Key!=key||second.Text("type")!=type)
-            {accountKey=null;AccountInvalidated?.Invoke(true);return new([],null,null,L10n.T("s62896AA1C5E5"),false);}
+            {accountKey=null;InvalidateAccount(true);return new([],null,null,L10n.T("s62896AA1C5E5"),false);}
             if(key is null)
             {
                 if(reuseBackend)return new([],null,null,L10n.T("s5228C3F2BA5D"),false);
@@ -121,7 +131,11 @@ public sealed class CodexClient(DiagnosticLog log, LocalAccountFingerprint? fing
                 reuseBackend?parsed with{IsCachedAccount=true,Status=L10n.T("sFD4917818970")+unavailable}:
                 parsed with{IsCachedAccount=true,Status=L10n.T("s3D5FA3C5D5F7")+unavailable};
         }
-        catch { await StopAsync(); throw; }
+        catch(Exception ex)
+        {
+            if(ex is CodexRpcException rpc&&rpc.Kind==RpcFailureKind.Authentication)InvalidateAccount(false);
+            await StopAsync();throw;
+        }
         finally { requests.Release(); }
     }
     public static string? ReadIdentity(JsonElement account)
@@ -220,7 +234,7 @@ public sealed class CodexClient(DiagnosticLog log, LocalAccountFingerprint? fing
     public async Task LogoutAuthorizedAsync(string? executable,string isolatedHome,CancellationToken ct)
     {
         await requests.WaitAsync(ct);
-        try{await StartAsync(executable,isolatedHome,ct,false,true);await RequestAsync("account/logout",new{},ct);AccountInvalidated?.Invoke(true);}
+        try{await StartAsync(executable,isolatedHome,ct,false,true);await RequestAsync("account/logout",new{},ct);InvalidateAccount(true);}
         finally{await StopAsync();requests.Release();}
     }
     private async Task<JsonElement> RequestAsync(string method,object? parameters,CancellationToken ct)
@@ -322,7 +336,7 @@ public sealed class CodexClient(DiagnosticLog log, LocalAccountFingerprint? fing
                 else if(epoch==generation)
                 {
                     if(root.Text("method")=="account/login/completed"&&root.TryGetProperty("params",out var login))loginEvents.Writer.TryWrite(login.Clone());
-                    if(root.Text("method")=="account/updated"){Interlocked.Increment(ref accountRevision);accountKey=null;AccountInvalidated?.Invoke(false);}
+                    if(root.Text("method")=="account/updated"){Interlocked.Increment(ref accountRevision);accountKey=null;InvalidateAccount(false);}
                     if(root.Text("method")=="account/rateLimits/updated"&&root.TryGetProperty("params",out var value))QuotaUpdated?.Invoke(value.Clone());
                 }
             }
