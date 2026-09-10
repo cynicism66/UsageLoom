@@ -88,7 +88,7 @@ public sealed partial class LoomApp : Application
                 capacityFeedback=preservedHistoryFiles>0?PreservedHistoryMessage:L10n.T(!capacityHistoryReady?"capacity.waitIndex":"capacity.waitQuota");
                 return WeeklyCapacity;
             }
-            if(!capacityBatch.TryBegin(DateTimeOffset.UtcNow,force))return WeeklyCapacity;
+            if(!capacityBatch.TryBegin(DateTimeOffset.UtcNow,force,capacityLastCalculated is null))return WeeklyCapacity;
             capacityTask=CalculateCapacityBackgroundAsync(quota);
             queue.TryEnqueue(()=>{if(!quitting)Changed?.Invoke();});
             return WeeklyCapacity;
@@ -439,7 +439,7 @@ public sealed partial class LoomApp : Application
                 ex is CodexRpcException rpc&&rpc.Kind==RpcFailureKind.Authentication?L10n.T("s0F3153A9971E"):
                 ex is CodexRpcException?L10n.T("s4D8B77CAC03C"):
                 L10n.T("sBF248948A756");
-            RecordCapacityObservation(Quota,true,ex is CodexRpcException failure&&(failure.Retryable||failure.Kind==RpcFailureKind.Timeout)||ex is TimeoutException);
+            RecordCapacityObservation(Quota,true,ex is CodexRpcException failure&&(failure.Retryable||failure.Kind==RpcFailureKind.Timeout)||ex is TimeoutException or CodexConnectionClosedException);
             Quota = Quota with{Windows=[],ResetCount=null,FetchedAt=null,Status=status,Fresh=false};
             Message = Privacy.Redact(ex.Message);
             Program.Log.Write("WARN", "Quota", ex.Message);

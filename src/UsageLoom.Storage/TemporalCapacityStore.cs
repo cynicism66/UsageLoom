@@ -19,7 +19,7 @@ public sealed partial class HistoryStore
         command.CommandText="CREATE TABLE IF NOT EXISTS quota_observations(at TEXT PRIMARY KEY,payload TEXT NOT NULL)";command.ExecuteNonQuery();
         command.CommandText="SELECT payload FROM quota_observations ORDER BY at";using var reader=command.ExecuteReader();var result=new List<QuotaObservation>();
         while(reader.Read())if(JsonSerializer.Deserialize<QuotaObservation>(reader.GetString(0)) is {} o)result.Add(o);
-        // Preserve only timeout evidence so log rotation cannot undo recovery.
+        // Preserve correlated failure evidence so log rotation cannot undo recovery.
         // The original observation ledger remains unchanged.
         reader.Close();
         command.CommandText="SELECT value FROM metadata WHERE key='legacy_quota_timeout_evidence_v1'";
@@ -38,7 +38,7 @@ public sealed partial class HistoryStore
         }
         lines.AddRange(evidence);
         var recovered=LegacyQuotaFailures.Recover(result,lines);
-        var needed=recovered.Where(o=>o.BarrierReason=="query-failure"&&result.Any(old=>old.At==o.At&&old.BarrierReason is null)).Select(o=>o.At).ToList();
+        var needed=recovered.Where(o=>o.BarrierReason=="query-failure"&&result.Any(old=>old.At==o.At&&old.BarrierReason!="query-failure")).Select(o=>o.At).ToList();
         var retained=lines.Distinct().Where(line=>
         {
             var split=line.IndexOf(" [WARN] Quota ",StringComparison.Ordinal);

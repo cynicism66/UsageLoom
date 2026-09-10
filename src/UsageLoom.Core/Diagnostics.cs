@@ -70,6 +70,8 @@ public static class RpcFailure
     private static bool Contains(string text,params string[] values)=>values.Any(text.Contains);
 }
 
+public sealed class CodexConnectionClosedException() : IOException(L10n.T("sE65ED89970CA"));
+
 public sealed class CodexRpcException : IOException
 {
     public RpcFailureKind Kind { get; }

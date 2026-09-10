@@ -328,7 +328,7 @@ public sealed class CodexClient(DiagnosticLog log, LocalAccountFingerprint? fing
             }
         }
         catch(Exception ex) when(ex is IOException or JsonException or OperationCanceledException or InvalidOperationException){if(!ct.IsCancellationRequested)log.Write("WARN","RPC",ex.Message);}
-        finally{if(epoch==generation){connectionFaulted=true;loginEvents.Writer.TryWrite(JsonSerializer.SerializeToElement(new{disconnected=true}));foreach(var item in pending.Values)item.TrySetException(new IOException(L10n.T("sE65ED89970CA")));}}
+        finally{if(epoch==generation){connectionFaulted=true;loginEvents.Writer.TryWrite(JsonSerializer.SerializeToElement(new{disconnected=true}));foreach(var item in pending.Values)item.TrySetException(new CodexConnectionClosedException());}}
     }
     private static async Task<string?> ReadBoundedLine(StreamReader reader,CancellationToken ct)
     {

@@ -60,12 +60,12 @@ public static class TemporalCapacity
         var segments=new Dictionary<string,int>();var generation=0;
         // Completed blocks survive transient failures; unfinished blocks require stricter continuity evidence.
         var suspended=new List<(string Key,DateTimeOffset Reset,double Used,CapacitySample Sample,int Segment)>();
-        var pendingAnchors=new List<(string Key,QuotaObservation Start,QuotaWindow Window,QuotaObservation End,QuotaWindow EndWindow,bool Timeout)>();
-        void SuspendPending(string key,QuotaObservation end,bool timeout)
+        var pendingAnchors=new List<(string Key,QuotaObservation Start,QuotaWindow Window,QuotaObservation End,QuotaWindow EndWindow,bool Timeout,DateTimeOffset InterruptedAt)>();
+        void SuspendPending(string key,QuotaObservation end,bool timeout,DateTimeOffset? interruptedAt=null)
         {
             if(!anchors.TryGetValue(key,out var start)||end.Windows.FirstOrDefault(w=>w.Key==key) is not {} endWindow)return;
             pendingAnchors.RemoveAll(p=>p.Key==key&&p.Window.ResetsAt is {} r&&start.Window.ResetsAt is {} s&&Math.Abs((r-s).TotalMinutes)<=2);
-            pendingAnchors.Add((key,start.Observation,start.Window,end,endWindow,timeout));
+            pendingAnchors.Add((key,start.Observation,start.Window,end,endWindow,timeout,interruptedAt??end.At));
         }
         QuotaObservation? last=null;
         foreach(var o in ordered)
@@ -74,7 +74,7 @@ public static class TemporalCapacity
             if(o.Barrier&&o.BarrierReason=="query-failure"&&last is not null&&o.Account is not null&&
                 o.Account==last.Account&&o.Plan==last.Plan&&o.PricingVersion==last.PricingVersion&&o.PricingVersion==Pricing.CatalogVersion)
             {
-                foreach(var key in anchors.Keys.ToArray())SuspendPending(key,last,true);
+                foreach(var key in anchors.Keys.ToArray())SuspendPending(key,last,true,o.At);
                 foreach(var pair in totals.Where(p=>p.Value.Samples>0))
                 {
                     var used=last.Windows.FirstOrDefault(w=>w.Key==pair.Key)?.Used??pair.Value.LastUsed;
@@ -124,7 +124,8 @@ public static class TemporalCapacity
                         var verified=rows[After(p.Start.At)..After(o.At)].All(e=>e.AccountScope==o.Account&&e.AccountAttribution!="restart-inferred");
                         var safe=stable&&confirmed.Contains((o.At,w.Key))&&p.Start.Account==o.Account&&p.Start.Plan==o.Plan&&
                             p.Start.PricingVersion==o.PricingVersion&&w.Used==p.EndWindow.Used&&elapsed>TimeSpan.Zero&&
-                            elapsed<=TimeSpan.FromMinutes(p.Timeout?5:60)&&verified&&!allEvents.Any(e=>e.Timestamp is null)&&
+                            elapsed<=TimeSpan.FromMinutes(60)&&(!p.Timeout||elapsed<=TimeSpan.FromMinutes(5)||
+                                !allEvents.Any(e=>e.Timestamp>p.InterruptedAt&&e.Timestamp<=o.At))&&verified&&!allEvents.Any(e=>e.Timestamp is null)&&
                             uncertainRanges?.Any(r=>r.Overlaps(p.Start.At,o.At))!=true&&
                             (p.Timeout||!allEvents.Any(e=>e.Timestamp>p.End.At&&e.Timestamp<=o.At));
                         if(safe)anchors[w.Key]=(p.Start,p.Window);

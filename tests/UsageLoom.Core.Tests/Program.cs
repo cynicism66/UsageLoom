@@ -311,6 +311,12 @@ Test("查询超时恢复已确认样本，保留硬边界与历史证据",() =>
     Check(unverified.Cache!.Windows.Single().Percent==6&&unverified.Cache.Windows.Single().Tokens==600);
     var uncertain=TemporalCapacity.CalculateStable(observations,events,at.AddMinutes(20),uncertainRanges:[new(at.AddMinutes(7),at.AddMinutes(8))]);
     Check(uncertain.Cache!.Windows.Single().Percent==6);
+    var idleObservations=new[]{O(0,0),O(3,3),O(6,4),failure,O(15,4),O(18,7),O(21,7)};
+    var idleEvents=new[]{E("first",2),E("before-failure",6),E("second",17)};
+    var idle=TemporalCapacity.CalculateStable(idleObservations,idleEvents,at.AddMinutes(25));
+    Check(idle.Cache!.Windows.Single().Percent==7&&idle.Cache.Windows.Single().Tokens==900);
+    var active=TemporalCapacity.CalculateStable(idleObservations,idleEvents.Append(E("offline",10)),at.AddMinutes(25));
+    Check(active.Cache!.Windows.Single().Percent==6&&active.Cache.Windows.Single().Tokens==600);
     foreach(var hard in new[]{failure with{BarrierReason=null},failure with{BarrierReason="explicit-boundary"},failure with{Account="b"},failure with{Plan="prolite"}})
     {
         var changed=observations.ToArray();changed[3]=hard;
@@ -321,6 +327,9 @@ Test("查询超时恢复已确认样本，保留硬边界与历史证据",() =>
     Check(LegacyQuotaFailures.Recover([O(6,4),legacy],lines)[1].BarrierReason=="query-failure");
     Check(LegacyQuotaFailures.Recover([O(6,4),legacy],[])[1].BarrierReason is null);
     Check(LegacyQuotaFailures.Recover([O(6,4),legacy with{BarrierReason="explicit-boundary"}],lines)[1].BarrierReason=="explicit-boundary");
+    var disconnect=new[]{$"{legacy.At.AddMilliseconds(4):O} [WARN] Quota app-server 连接已断开"};
+    Check(LegacyQuotaFailures.Recover([O(6,4),legacy with{BarrierReason="explicit-boundary"}],disconnect)[1].BarrierReason=="query-failure");
+    Check(LegacyQuotaFailures.Recover([O(6,4),legacy with{At=legacy.At.AddSeconds(2),BarrierReason="explicit-boundary"}],disconnect)[1].BarrierReason=="explicit-boundary");
 });
 Test("启动立即恢复部分有效采样，隔离套餐周期并保留批量门控",() =>
 {
@@ -345,6 +354,22 @@ Test("周估算五分钟批量门控，空闲跳过且手动可立即计算",() 
     Check(!schedule.TryBegin(at.AddMinutes(20)));schedule.MarkDirty();Check(schedule.TryBegin(at.AddMinutes(20)));
     schedule.MarkDirty();Check(!schedule.TryBegin(at.AddMinutes(21)));Check(schedule.TryBegin(at.AddMinutes(21),true));
     Check(!schedule.TryBegin(at.AddMinutes(25)));schedule.MarkDirty();Check(schedule.TryBegin(at.AddMinutes(26)));
+});
+Test("首次索引就绪立即重算旧采样起点，重启保持 8/6",() =>
+{
+    var now=DateTimeOffset.Now;var reset=now.AddDays(6);
+    var schedule=new CapacityBatchSchedule(now);
+    Check(!schedule.TryBegin(now));Check(schedule.TryBegin(now,initialReady:true));
+    Check(!schedule.TryBegin(now,initialReady:true));schedule.MarkDirty();Check(!schedule.TryBegin(now.AddMinutes(1)));
+    var quota=new QuotaState([new("codex:primary","weekly",8,10080,reset)],null,now,"ok",true,"a"){Plan="pro"};
+    var saved=new CapacityCache(4,"a","pro",Pricing.CatalogVersion,now,[new("codex:primary","weekly",reset,7,6,600,1m,600,2,0)]);
+    var estimator=new WeeklyCapacityEstimator();estimator.Restore(saved);estimator.InitializeTemporal(quota);
+    Check(estimator.DescribeProgress(quota,0,true).Contains("7/6"));
+    estimator.ApplyTemporal(quota,saved,0,null,new Dictionary<string,double>{{"codex:primary",6}});
+    Check(estimator.DescribeProgress(quota,0,true).Contains("8/6"));
+    var roundtrip=System.Text.Json.JsonSerializer.Deserialize<CapacityCache>(System.Text.Json.JsonSerializer.Serialize(estimator.Export()));
+    estimator.Restore(roundtrip);estimator.InitializeTemporal(quota);
+    Check(estimator.DescribeProgress(quota,0,true).Contains("8/6")&&estimator.Export()!.Windows.Single().Percent==6);
 });
 Test("后台估算拒绝旧扫描、账号套餐快照和设置世代",() =>
 {
