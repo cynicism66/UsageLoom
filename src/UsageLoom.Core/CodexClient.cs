@@ -28,7 +28,7 @@ public sealed class CodexClient(DiagnosticLog log, LocalAccountFingerprint? fing
     internal TimeSpan RequestTimeout { get; init; } = TimeSpan.FromSeconds(15);
     internal Func<string?,string?> ExecutableResolver { get; init; } = FindExecutable;
     private string? accountKey;
-    public event Action? AccountInvalidated;
+    public event Action<bool>? AccountInvalidated;
     public event Action<JsonElement>? QuotaUpdated;
     public IReadOnlyDictionary<string,string> ThreadNames { get; private set; }=new Dictionary<string,string>();
     public bool IsConnected => !connectionFaulted && process is {HasExited:false};
@@ -84,20 +84,20 @@ public sealed class CodexClient(DiagnosticLog log, LocalAccountFingerprint? fing
             await TryReadThreadNamesAsync(executable,home,ct,reuseBackend,managedAccount);
             var before=await RequestAsync("account/read",new{refreshToken=false},ct);
             if(!before.TryGetProperty("account",out var account)||account.ValueKind==JsonValueKind.Null)
-            {AccountObservation=L10n.T("s1C0E27F0D7E0");accountKey=null;AccountInvalidated?.Invoke();return QuotaState.LocalAccount;}
+            {AccountObservation=L10n.T("s1C0E27F0D7E0");accountKey=null;AccountInvalidated?.Invoke(false);return QuotaState.LocalAccount;}
             var type=account.Text("type");
             if(type!="chatgpt")
-            {accountKey=null;AccountInvalidated?.Invoke();return new([],null,null,L10n.T("s33E324A070D1")+(type??L10n.T("s4D8C1C5B4283"))+"）",false);}
+            {accountKey=null;AccountInvalidated?.Invoke(true);return new([],null,null,L10n.T("s33E324A070D1")+(type??L10n.T("s4D8C1C5B4283"))+"）",false);}
             var identity=ReadAccountKey(account);
             var key=identity.Key;
             AccountObservation=L10n.T("s5EE718BBC5FA")+identity.Description;
-            if(accountKey is not null&&key!=accountKey)AccountInvalidated?.Invoke();
+            if(accountKey is not null&&key!=accountKey)AccountInvalidated?.Invoke(true);
             accountKey=key;
             var revision=Volatile.Read(ref accountRevision);
             var result=await ReadRateLimitsAsync(ct);
             var after=await RequestAsync("account/read",new{refreshToken=false},ct);
             if(revision!=Volatile.Read(ref accountRevision)||!after.TryGetProperty("account",out var second)||second.ValueKind!=JsonValueKind.Object||ReadAccountKey(second).Key!=key||second.Text("type")!=type)
-            {accountKey=null;AccountInvalidated?.Invoke();return new([],null,null,L10n.T("s62896AA1C5E5"),false);}
+            {accountKey=null;AccountInvalidated?.Invoke(true);return new([],null,null,L10n.T("s62896AA1C5E5"),false);}
             if(key is null)
             {
                 if(reuseBackend)return new([],null,null,L10n.T("s5228C3F2BA5D"),false);
@@ -220,7 +220,7 @@ public sealed class CodexClient(DiagnosticLog log, LocalAccountFingerprint? fing
     public async Task LogoutAuthorizedAsync(string? executable,string isolatedHome,CancellationToken ct)
     {
         await requests.WaitAsync(ct);
-        try{await StartAsync(executable,isolatedHome,ct,false,true);await RequestAsync("account/logout",new{},ct);AccountInvalidated?.Invoke();}
+        try{await StartAsync(executable,isolatedHome,ct,false,true);await RequestAsync("account/logout",new{},ct);AccountInvalidated?.Invoke(true);}
         finally{await StopAsync();requests.Release();}
     }
     private async Task<JsonElement> RequestAsync(string method,object? parameters,CancellationToken ct)
@@ -322,7 +322,7 @@ public sealed class CodexClient(DiagnosticLog log, LocalAccountFingerprint? fing
                 else if(epoch==generation)
                 {
                     if(root.Text("method")=="account/login/completed"&&root.TryGetProperty("params",out var login))loginEvents.Writer.TryWrite(login.Clone());
-                    if(root.Text("method")=="account/updated"){Interlocked.Increment(ref accountRevision);accountKey=null;AccountInvalidated?.Invoke();}
+                    if(root.Text("method")=="account/updated"){Interlocked.Increment(ref accountRevision);accountKey=null;AccountInvalidated?.Invoke(false);}
                     if(root.Text("method")=="account/rateLimits/updated"&&root.TryGetProperty("params",out var value))QuotaUpdated?.Invoke(value.Clone());
                 }
             }

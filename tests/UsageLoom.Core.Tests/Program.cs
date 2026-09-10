@@ -263,7 +263,7 @@ Test("稳定估算合并区间、延迟确认、累计加权和迟到重算",() 
     var updated=TemporalCapacity.CalculateStable(observations,events.Append(E("late",2,100)),at.AddMinutes(12));
     Check(updated.Intervals.Count==3&&updated.Cache!.Windows.Single().Tokens==2300);
     var dip=TemporalCapacity.CalculateStable([O(0,0),O(1,2),O(2,1),O(5,4),O(8,4)],[E("old",1,999),E("new",4,100)],at.AddMinutes(8));
-    Check(dip.Cache!.Windows.Single().Tokens==100);
+    Check(dip.Cache!.Windows.Count==0); // A transient rollback is quarantined, not a lower sampling baseline.
     Check(dip.PendingBaselineUsed["codex:weekly"]==4);
     foreach(var barrier in new[]{O(4,3) with{Account="b"},O(4,3) with{Plan="pro"},O(4,3) with{Barrier=true},O(4,3) with{Windows=[]}})
         Check(TemporalCapacity.CalculateStable([O(0,0),O(3,3),barrier],events,at.AddMinutes(12)).Intervals.Count==0);
@@ -384,6 +384,89 @@ Test("重启推定用量需审计和前后快照核验，不修改原始归属",
     Check(RestartCapacityVerification.Verify([e],ledger.Append(O(4) with{Barrier=true}),[proof],at.AddMinutes(6))[0]==e);
     Check(RestartCapacityVerification.Verify([e],new[]{O(0),O(3) with{Account="b"},O(5)},[proof],at.AddMinutes(6))[0]==e);
 });
+Test("重启确认可以迟到并跨软失败，但不能跨身份与周期",() =>
+{
+    var at=DateTimeOffset.UtcNow;var reset=at.AddDays(7);
+    QuotaObservation O(int m)=>new(at.AddMinutes(m),"a","pro",Pricing.CatalogVersion,[new("codex:primary","weekly",12,10080,reset)]);
+    var e=new UsageEvent("gap","s","p","gpt-5.4","main",at.AddMinutes(2),"",new(100)){AccountScope="a",AccountAttribution="restart-inferred"};
+    var proof=new RestartCapacityEvidence("a",at,at.AddMinutes(1),at.AddMinutes(3),["gap"],"restart-inferred");
+    var ledger=new[]{O(0),O(3) with{Barrier=true,BarrierReason="query-failure",Windows=[]},O(10),O(11) with{Barrier=true,BarrierReason="query-failure",Account=null,Plan=null,Windows=[]},O(30)};
+    Check(RestartCapacityVerification.Verify([e],ledger,[proof],at.AddMinutes(31))[0].AccountAttribution=="restart-verified");
+    Check(RestartCapacityVerification.Verify([e],ledger,[proof],at.AddMinutes(20))[0]==e);
+    Check(RestartCapacityVerification.Verify([e],ledger.Append(O(15) with{Account="b"}),[proof],at.AddMinutes(31))[0]==e);
+});
+Test("异常快照保留已确认样本但不跨异常计算",() =>
+{
+    var at=DateTimeOffset.UtcNow;var reset=at.AddDays(7);
+    QuotaObservation O(int m,double used)=>new(at.AddMinutes(m),"a","pro",Pricing.CatalogVersion,[new("codex:primary","weekly",used,10080,reset)]);
+    UsageEvent E(string id,int m)=>new(id,"s","p","gpt-5.4","main",at.AddMinutes(m),"",new(100)){AccountScope="a"};
+    foreach(var bad in new[]{O(7,1),O(7,4) with{Windows=[]},O(7,double.NaN)})
+    {
+        var ledger=new[]{O(0,0),O(3,3),O(6,4),bad,O(9,4),O(12,7),O(15,7)};
+        var result=TemporalCapacity.CalculateStable(ledger,[E("a",2),E("gap",8),E("b",11)],at.AddMinutes(20));
+        Check(result.Cache!.Windows.Single().Percent==6);
+        Check(!result.Intervals.SelectMany(i=>i.EventIds).Contains("gap"));
+        Check(ledger[3]==bad);
+    }
+});
+Test("短断网增长可核验续接且重算幂等，旧异账号坏记录不阻断",() =>
+{
+    var at=DateTimeOffset.UtcNow;var reset=at.AddDays(7);
+    QuotaObservation O(int m,double used)=>new(at.AddMinutes(m),"a","pro",Pricing.CatalogVersion,[new("codex:primary","weekly",used,10080,reset)]);
+    UsageEvent E(string id,int m)=>new(id,"s","p","gpt-5.4","main",at.AddMinutes(m),"",new(100)){AccountScope="a"};
+    var ledger=new[]{O(0,0),O(3,3),O(6,4),O(7,4) with{Barrier=true,BarrierReason="query-failure",Windows=[]},O(9,5),O(12,6),O(15,6)};
+    var events=new[]{E("first",2),E("gap",8),E("after",11),E("old",-100) with{Timestamp=null,AccountScope="b"}};
+    var result=TemporalCapacity.CalculateStable(ledger,events,at.AddMinutes(20));
+    Check(result.Cache!.Windows.Single().Percent==6&&result.Cache.Windows.Single().Tokens==300);
+    var again=TemporalCapacity.CalculateStable(ledger.Reverse().Concat([ledger[0]]),events.Concat([events[0]]),at.AddMinutes(20));
+    Check(System.Text.Json.JsonSerializer.Serialize(result)==System.Text.Json.JsonSerializer.Serialize(again));
+    var unknown=TemporalCapacity.CalculateStable(ledger,events.Select(e=>e.Id=="gap"?e with{AccountScope=null}:e),at.AddMinutes(20));
+    Check(unknown.Interruptions.Any(i=>i.Reason=="unverified-ownership"));
+});
+Test("冲突快照与冲突事件不参与估算，UTC 偏移与重复输入一致",() =>
+{
+    var at=DateTimeOffset.UtcNow;var reset=at.AddDays(7);
+    QuotaObservation O(int m,double used)=>new(at.AddMinutes(m),"a","pro",Pricing.CatalogVersion,[new("codex:primary","weekly",used,10080,reset)]);
+    var e=new UsageEvent("e","s","p","unknown","main",at.AddMinutes(1),"",new(100)){AccountScope="a"};
+    var ledger=new[]{O(0,0),O(3,3),O(6,3)};
+    var a=TemporalCapacity.CalculateStable(ledger,[e],at.AddMinutes(8));
+    var b=TemporalCapacity.CalculateStable(ledger.Select(o=>o with{At=o.At.ToOffset(TimeSpan.FromHours(8))}),[e],at.AddMinutes(8));
+    Check(a.Cache!.Windows.Single()==b.Cache!.Windows.Single());
+    var conflict=TemporalCapacity.CalculateStable(ledger,[e,e with{Tokens=new(999)}],at.AddMinutes(8));
+    Check(conflict.Cache!.Windows.Count==0&&conflict.Intervals.Single().Exclusion is not null);
+    Check(TemporalCapacity.CalculateStable(ledger.Append(O(3,9)),[e],at.AddMinutes(8)).Cache!.Windows.Count==0);
+    var schedule=new CapacityBatchSchedule(at);schedule.MarkDirty();Check(schedule.TryBegin(at.AddHours(-1)));
+});
+Test("重启待核验状态跨读取持久保留，终点不随再次启动扩张",() =>
+{
+    var home=Path.Combine(Path.GetTempPath(),"UsageLoom-pending-"+Guid.NewGuid().ToString("N"));var store=new HistoryStore(Path.Combine(home,"data"));var at=DateTimeOffset.UtcNow;
+    store.SaveRestartCheckpoint("a",home,at,at.AddSeconds(1));
+    var first=store.ReadPendingRestart(at.AddMinutes(1))!;
+    var second=new HistoryStore(Path.Combine(home,"data")).ReadPendingRestart(at.AddMinutes(5))!;
+    Check(first.Since==second.Since&&second.RecoveryOpenedAt==at.AddMinutes(1));
+    store.SaveRestartCheckpoint("a",home,at.AddMinutes(10),at.AddMinutes(11));
+    Check(store.ReadPendingRestart(at.AddMinutes(12))!.Since==at);
+    Check(store.AttributeRestartGap(second,"a",home,second.RecoveryOpenedAt!.Value)==0);
+    Check(store.ReadPendingRestart(at.AddMinutes(15)) is null);
+});
+Test("区间历史和当前缓存一次事务提交",() =>
+{
+    var directory=Path.Combine(Path.GetTempPath(),"UsageLoom-atomic-"+Guid.NewGuid().ToString("N"));
+    var store=new HistoryStore(directory);var at=DateTimeOffset.UtcNow;
+    var cache=new CapacityCache(4,"a","pro",Pricing.CatalogVersion,at,[new("weekly","weekly",at.AddDays(7),3,3,100,1,100,1,0)]);
+    store.SaveTemporalIntervals([], [cache],4,cache,true);
+    Check(store.ReadCapacity()!.Windows.Single().Tokens==100);
+    using(var connection=new Microsoft.Data.Sqlite.SqliteConnection("Data Source="+Path.Combine(directory,"usage-v2.sqlite")))
+    {
+        connection.Open();using var command=connection.CreateCommand();
+        command.CommandText="CREATE TRIGGER fail_capacity BEFORE INSERT ON metadata WHEN NEW.key='weekly_capacity_v1' BEGIN SELECT RAISE(ABORT,'test write failure'); END";command.ExecuteNonQuery();
+        var failed=false;try{store.SaveTemporalIntervals([],[],4,cache with{Account="b"},true);}catch(Microsoft.Data.Sqlite.SqliteException){failed=true;}
+        Check(failed&&store.ReadCapacity()!.Account=="a"&&store.ReadCapacityHistory().Any(c=>c.Account=="a"));
+        command.CommandText="DROP TRIGGER fail_capacity";command.ExecuteNonQuery();
+    }
+    store.SaveTemporalIntervals([],[],4,null,true);
+    Check(store.ReadCapacity() is null);
+});
 Test("反复查询失败不永久截断后续快照确认",() =>
 {
     var at=DateTimeOffset.UtcNow;var reset=at.AddDays(7);
@@ -429,6 +512,9 @@ Test("后台估算拒绝旧扫描、账号套餐快照和设置世代",() =>
     var events=new object();var at=DateTimeOffset.UtcNow;
     var quota=new QuotaState([],null,at,"ok",true,"a") with{Plan="pro"};
     var stamp=new CapacityInputStamp(events,1,2,"a","pro",at);
+    var sameValue=stamp with{Windows=[]};
+    Check(sameValue.Matches(events,1,2,quota with{FetchedAt=at.AddMinutes(1)},true,false));
+    Check(!sameValue.Matches(events,1,2,quota with{FetchedAt=at.AddMinutes(1),Windows=[new("codex:weekly","weekly",4,10080,at.AddDays(7))]},true,false));
     Check(stamp.Matches(events,1,2,quota,true,false));
     Check(!stamp.Matches(new object(),1,2,quota,true,false));
     Check(!stamp.Matches(events,2,2,quota,true,false)&&!stamp.Matches(events,1,3,quota,true,false));
@@ -1389,7 +1475,7 @@ AsyncTest("模拟 RPC 响应穿插事件不会丢失",async()=>
 });
 AsyncTest("独立后端未登录时不借用桌面身份且撤下旧额度",async()=>
 {
-    await using var client=FakeClient("signed-out");var invalidated=false;client.AccountInvalidated+=()=>invalidated=true;
+    await using var client=FakeClient("signed-out");var invalidated=false;client.AccountInvalidated+=hard=>{Check(!hard);invalidated=true;};
     var result=await client.ReadAsync(null,"unused",default);
     Check(invalidated&&!result.Fresh&&result.Windows.Count==0&&result.AccountKey is null&&result.IsLocalAccount&&result.AccountLabel=="本地账户"&&result.ResetCount is null);
 });

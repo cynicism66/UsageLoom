@@ -7,7 +7,10 @@ using UsageLoom.Core;
 namespace UsageLoom.Storage;
 
 public sealed record RestartFileBoundary(long Created,int Records,string Prefix);
-public sealed record RestartCheckpoint(string Account,string Home,DateTimeOffset Since,DateTimeOffset ClosedAt,Dictionary<string,RestartFileBoundary> Files);
+public sealed record RestartCheckpoint(string Account,string Home,DateTimeOffset Since,DateTimeOffset ClosedAt,Dictionary<string,RestartFileBoundary> Files)
+{
+    public DateTimeOffset? RecoveryOpenedAt { get; init; }
+}
 public sealed partial class HistoryStore
 {
     public List<RestartCapacityEvidence> ReadRestartCapacityEvidence()
@@ -30,8 +33,32 @@ public sealed partial class HistoryStore
             var boundaries=ReadIndexes().ToDictionary(p=>p.Key,p=>new RestartFileBoundary(p.Value.Created,p.Value.Records.Count,RecordsHash(p.Value.Records)),StringComparer.OrdinalIgnoreCase);
             var checkpoint=new RestartCheckpoint(account,Path.GetFullPath(home),since,closedAt,boundaries);
             using var connection=Open();using var command=connection.CreateCommand();
-            command.CommandText="INSERT INTO metadata(key,value) VALUES('restart_attribution_v1',$value) ON CONFLICT(key) DO UPDATE SET value=excluded.value";
+            command.CommandText="INSERT OR IGNORE INTO metadata(key,value) VALUES('restart_attribution_v1',$value)";
             command.Parameters.AddWithValue("$value",JsonSerializer.Serialize(checkpoint));command.ExecuteNonQuery();
+        }
+    }
+    public RestartCheckpoint? ReadPendingRestart(DateTimeOffset openedAt)
+    {
+        lock(writerGate)
+        {
+            using var connection=Open();using var tx=connection.BeginTransaction();using var command=connection.CreateCommand();command.Transaction=tx;
+            command.CommandText="SELECT value FROM metadata WHERE key='restart_attribution_v1'";
+            if(command.ExecuteScalar() is not string json)return null;
+            RestartCheckpoint? checkpoint;
+            try{checkpoint=JsonSerializer.Deserialize<RestartCheckpoint>(json);}catch(JsonException){return null;}
+            if(checkpoint is null||checkpoint.Files is null)return null;
+            checkpoint=checkpoint with{RecoveryOpenedAt=checkpoint.RecoveryOpenedAt??openedAt};
+            command.CommandText="UPDATE metadata SET value=$value WHERE key='restart_attribution_v1'";
+            command.Parameters.AddWithValue("$value",JsonSerializer.Serialize(checkpoint));command.ExecuteNonQuery();tx.Commit();
+            return checkpoint;
+        }
+    }
+    public void DiscardPendingRestart()
+    {
+        lock(writerGate)
+        {
+            using var connection=Open();using var command=connection.CreateCommand();
+            command.CommandText="DELETE FROM metadata WHERE key='restart_attribution_v1'";command.ExecuteNonQuery();
         }
     }
     // Consumed once at startup. A crash or unsuccessful login must not replay an old handoff.
@@ -111,6 +138,11 @@ public sealed partial class HistoryStore
                 audit.Transaction=transaction;audit.CommandText="INSERT INTO metadata(key,value) VALUES($key,$value)";
                 audit.Parameters.AddWithValue("$key","restart-inference-"+Guid.NewGuid().ToString("N"));
                 audit.Parameters.AddWithValue("$value",JsonSerializer.Serialize(new{checkpoint.Account,checkpoint.Since,checkpoint.ClosedAt,OpenedAt=openedAt,Events=events.Select(item=>item.Id).ToArray(),Reason="restart-inferred"}));audit.ExecuteNonQuery();
+            }
+            using(var complete=connection.CreateCommand())
+            {
+                complete.Transaction=transaction;complete.CommandText="DELETE FROM metadata WHERE key='restart_attribution_v1' AND json_extract(value,'$.Since')=json_extract($checkpoint,'$.Since') AND json_extract(value,'$.Account')=json_extract($checkpoint,'$.Account')";
+                complete.Parameters.AddWithValue("$checkpoint",JsonSerializer.Serialize(checkpoint));complete.ExecuteNonQuery();
             }
             cancellationToken.ThrowIfCancellationRequested();transaction.Commit();return events.Count;
         }

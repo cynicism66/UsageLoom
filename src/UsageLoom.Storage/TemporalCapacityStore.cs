@@ -52,7 +52,7 @@ public sealed partial class HistoryStore
         }
         return recovered;
     }
-    public void SaveTemporalIntervals(IReadOnlyList<CapacityInterval> intervals,IReadOnlyList<CapacityCache>? history=null,int algorithmVersion=3)
+    public void SaveTemporalIntervals(IReadOnlyList<CapacityInterval> intervals,IReadOnlyList<CapacityCache>? history=null,int algorithmVersion=3,CapacityCache? current=null,bool saveCurrent=false)
     {
         lock(writerGate)
         {
@@ -82,6 +82,14 @@ public sealed partial class HistoryStore
                 {
                     command.Parameters.Clear();command.Parameters.AddWithValue("$id",i.ToString());command.Parameters.AddWithValue("$at",history[i].SavedAt.ToUniversalTime().ToString("O"));command.Parameters.AddWithValue("$payload",JsonSerializer.Serialize(history[i]));command.ExecuteNonQuery();
                 }
+            }
+            if(saveCurrent)
+            {
+                if(current is not null)ArchiveCapacity(c,transaction,current);
+                command.Parameters.Clear();
+                command.CommandText=current is null?"DELETE FROM metadata WHERE key='weekly_capacity_v1'":"INSERT INTO metadata(key,value) VALUES('weekly_capacity_v1',$value) ON CONFLICT(key) DO UPDATE SET value=excluded.value";
+                if(current is not null)command.Parameters.AddWithValue("$value",JsonSerializer.Serialize(current));
+                command.ExecuteNonQuery();
             }
             transaction.Commit();
         }

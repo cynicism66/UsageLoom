@@ -15,7 +15,7 @@ public static class RestartCapacityVerification
                 proof.Since>proof.ClosedAt||proof.ClosedAt>proof.OpenedAt||proof.OpenedAt-proof.Since>TimeSpan.FromMinutes(15))continue;
             var before=ledger.LastOrDefault(o=>o.At<=proof.Since&&!o.Barrier);
             var after=ledger.FirstOrDefault(o=>o.At>=proof.OpenedAt&&!o.Barrier);
-            if(before is null||after is null||proof.Since-before.At>TimeSpan.FromMinutes(5)||after.At-proof.OpenedAt>TimeSpan.FromMinutes(5)||
+            if(before is null||after is null||proof.Since-before.At>TimeSpan.FromMinutes(5)||after.At-proof.OpenedAt>TimeSpan.FromMinutes(60)||
                 indexedThrough<after.At.AddMinutes(2)||before.Account!=proof.Account||after.Account!=proof.Account||
                 before.Plan!=after.Plan||before.PricingVersion!=Pricing.CatalogVersion||after.PricingVersion!=before.PricingVersion)continue;
             var window=before.Windows.FirstOrDefault(w=>w.IsPrimary&&w.Minutes==10080);
@@ -23,11 +23,13 @@ public static class RestartCapacityVerification
                 window?.ResetsAt is {} reset&&reset>o.At&&o.Windows.Any(w=>w.Key==window.Key&&w.ResetsAt is {} r&&Math.Abs((r-reset).TotalMinutes)<=2&&
                     double.IsFinite(w.Used)&&w.Used>=window.Used&&w.Used<=100);
             if(window is null||!double.IsFinite(window.Used)||window.Used<0||!Matches(after))continue;
-            if(ledger.Any(o=>o.At>before.At&&o.At<=after.At&&(o.Barrier||!Matches(o))))continue;
-            var confirmation=ledger.FirstOrDefault(o=>o.At>=after.At.AddMinutes(2)&&o.At<=after.At.AddMinutes(5)&&!o.Barrier&&Matches(o));
-            if(confirmation is null||indexedThrough<confirmation.At||ledger.Any(o=>o.At>after.At&&o.At<=confirmation.At&&(o.Barrier||!Matches(o))))continue;
+            bool Soft(QuotaObservation o)=>o.Barrier&&o.BarrierReason=="query-failure"&&
+                (o.Account is null||o.Account==proof.Account)&&(o.Plan is null||o.Plan==before.Plan)&&o.PricingVersion==before.PricingVersion;
+            if(ledger.Any(o=>o.At>before.At&&o.At<=after.At&&!Soft(o)&&(o.Barrier||!Matches(o))))continue;
+            var confirmation=ledger.FirstOrDefault(o=>o.At>=after.At.AddMinutes(2)&&!o.Barrier&&Matches(o));
+            if(confirmation is null||indexedThrough<confirmation.At||ledger.Any(o=>o.At>after.At&&o.At<=confirmation.At&&!Soft(o)&&(o.Barrier||!Matches(o))))continue;
             var used=window.Used;var rollback=false;
-            foreach(var o in ledger.Where(o=>o.At>before.At&&o.At<=confirmation.At))
+            foreach(var o in ledger.Where(o=>o.At>before.At&&o.At<=confirmation.At&&!Soft(o)))
             {
                 var current=o.Windows.First(w=>w.Key==window.Key).Used;
                 if(current<used){rollback=true;break;}used=current;

@@ -21,7 +21,7 @@ public static class TemporalCapacity
     public static TemporalCapacityResult Calculate(IEnumerable<QuotaObservation> observations,IEnumerable<UsageEvent> events,CancellationToken cancellationToken=default,DateTimeOffset? indexedThrough=null,IReadOnlyList<UsageUncertainty>? uncertainRanges=null)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        var ordered=observations.OrderBy(o=>o.At).DistinctBy(o=>o.At).ToArray();
+        var ordered=CapacityObservations.Prepare(observations);
         var stable=indexedThrough is not null;var version=stable?4:3;
         var confirmed=new HashSet<(DateTimeOffset,string)>();
         if(stable)
@@ -30,7 +30,7 @@ public static class TemporalCapacity
             foreach(var o in ordered.Reverse())
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                if(o.Barrier&&o.BarrierReason=="query-failure"&&next is not null&&
+                if(CapacityObservations.Soft(o)&&next is not null&&
                     (o.Account is null||o.Account==next.Account)&&(o.Plan is null||o.Plan==next.Plan)&&o.PricingVersion==next.PricingVersion)
                     continue; // A transport gap does not invalidate later same-cycle confirmation.
                 if(o.Barrier||o.Account is null||o.Plan is null||o.PricingVersion!=Pricing.CatalogVersion){future.Clear();next=o;continue;}
@@ -51,8 +51,9 @@ public static class TemporalCapacity
             }
         }
         var allEvents=events.ToArray();
+        var conflictingIds=allEvents.GroupBy(e=>e.Id).Where(g=>g.Distinct().Skip(1).Any()).Select(g=>g.Key).ToHashSet();
         var rows=allEvents.Where(e=>e.Timestamp is not null&&!string.Equals(e.Model,"gpt-5.3-codex-spark",StringComparison.OrdinalIgnoreCase))
-            .DistinctBy(e=>e.Id).OrderBy(e=>e.Timestamp).ToArray();
+            .DistinctBy(e=>e.Id).OrderBy(e=>e.Timestamp).ThenBy(e=>e.Id,StringComparer.Ordinal).ToArray();
         int After(DateTimeOffset at)
         {
             int lo=0,hi=rows.Length;
@@ -81,14 +82,19 @@ public static class TemporalCapacity
             // An unavailable identity during a transport failure is not evidence
             // of an account switch. Carry comparison context in memory only;
             // successful recovery must still verify the actual identity below.
-            if(o.Barrier&&o.BarrierReason=="query-failure"&&last?.Account is not null&&last.Plan is not null&&
-                (!last.Barrier||last.BarrierReason=="query-failure")&&o.PricingVersion==last.PricingVersion&&
+            if(CapacityObservations.Soft(o)&&last?.Account is not null&&last.Plan is not null&&
+                (!last.Barrier||CapacityObservations.Soft(last))&&o.PricingVersion==last.PricingVersion&&
                 (o.Account is null||o.Account==last.Account)&&(o.Plan is null||o.Plan==last.Plan))
                 o=o with{Account=o.Account??last.Account,Plan=o.Plan??last.Plan};
-            if(o.Barrier&&o.BarrierReason=="query-failure"&&last is not null&&o.Account is not null&&
+            if(CapacityObservations.Soft(o)&&last is not null&&o.Account is not null&&
                 o.Account==last.Account&&o.Plan==last.Plan&&o.PricingVersion==last.PricingVersion&&o.PricingVersion==Pricing.CatalogVersion)
             {
                 foreach(var key in anchors.Keys.ToArray())SuspendPending(key,last,true,o.At);
+                if(o.BarrierReason=="snapshot-unavailable")
+                {
+                    foreach(var p in pendingAnchors)interruptions.Add(new(p.Key,p.Start.At,o.At,"snapshot-unavailable"));
+                    pendingAnchors.Clear();
+                }
                 foreach(var pair in totals.Where(p=>p.Value.Samples>0))
                 {
                     var used=last.Windows.FirstOrDefault(w=>w.Key==pair.Key)?.Used??pair.Value.LastUsed;
@@ -120,7 +126,7 @@ public static class TemporalCapacity
                     }
                     var resume=suspended.FindLastIndex(s=>s.Key==w.Key&&s.Reset>o.At&&Math.Abs((s.Reset-reset).TotalMinutes)<=2);
                     totals.Remove(w.Key);segments[w.Key]=++generation;
-                    if((differentCycle||last?.BarrierReason=="query-failure")&&resume>=0)
+                    if((differentCycle||last is not null&&CapacityObservations.Soft(last))&&resume>=0)
                     {
                         var saved=suspended[resume];suspended.RemoveAt(resume);
                         if(w.Used>=saved.Used)
@@ -135,11 +141,16 @@ public static class TemporalCapacity
                     {
                         var p=pendingAnchors[pendingIndex];pendingAnchors.RemoveAt(pendingIndex);
                         var elapsed=o.At-p.End.At;
-                        var verified=rows[After(p.Start.At)..After(o.At)].All(e=>e.AccountScope==o.Account&&e.AccountAttribution!="restart-inferred");
+                        var verified=rows[After(p.Start.At)..After(o.At)].All(e=>e.AccountScope==o.Account&&e.AccountAttribution!="restart-inferred"&&!conflictingIds.Contains(e.Id));
+                        var grew=w.Used>p.EndWindow.Used;
+                        var gapUsage=rows[After(p.End.At)..After(o.At)];
                         var safe=stable&&confirmed.Contains((o.At,w.Key))&&p.Start.Account==o.Account&&p.Start.Plan==o.Plan&&
-                            p.Start.PricingVersion==o.PricingVersion&&w.Used==p.EndWindow.Used&&elapsed>TimeSpan.Zero&&
+                            p.Start.PricingVersion==o.PricingVersion&&w.Used>=p.EndWindow.Used&&
+                            (!grew||p.Timeout&&elapsed<=TimeSpan.FromMinutes(5)&&gapUsage.Length>0)&&elapsed>TimeSpan.Zero&&
                             elapsed<=TimeSpan.FromMinutes(60)&&(!p.Timeout||elapsed<=TimeSpan.FromMinutes(5)||
-                                !allEvents.Any(e=>e.Timestamp>p.InterruptedAt&&e.Timestamp<=o.At))&&verified&&!allEvents.Any(e=>e.Timestamp is null)&&
+                                !allEvents.Any(e=>e.Timestamp>p.InterruptedAt&&e.Timestamp<=o.At))&&verified&&!allEvents.Any(e=>e.Timestamp is null&&
+                                    !string.Equals(e.Model,"gpt-5.3-codex-spark",StringComparison.OrdinalIgnoreCase)&&
+                                    (e.AccountScope is null||e.AccountScope==o.Account))&&
                             uncertainRanges?.Any(r=>r.Overlaps(p.Start.At,o.At))!=true&&
                             (p.Timeout||!allEvents.Any(e=>e.Timestamp>p.End.At&&e.Timestamp<=o.At));
                         if(safe)anchors[w.Key]=(p.Start,p.Window);
@@ -153,7 +164,7 @@ public static class TemporalCapacity
                 if(delta<=0)continue; // Keep flat observations, but pair the whole plateau when it moves.
                 if(stable&&(delta<3||!confirmed.Contains((o.At,w.Key))))continue;
                 var part=rows[After(a.Observation.At)..After(o.At)];
-                string? exclusion=part.Length==0?"no-timed-usage":part.Any(e=>e.AccountScope!=o.Account||e.AccountAttribution=="restart-inferred")?"unverified-ownership":null;
+                string? exclusion=part.Length==0?"no-timed-usage":part.Any(e=>e.AccountScope!=o.Account||e.AccountAttribution=="restart-inferred"||conflictingIds.Contains(e.Id))?"unverified-ownership":null;
                 if(uncertainRanges?.Any(r=>r.Overlaps(a.Observation.At,o.At))==true)exclusion="uncertain-history";
                 var tokens=part.Sum(e=>e.Tokens.Total);
                 if(tokens<=0)exclusion??="no-timed-usage";
