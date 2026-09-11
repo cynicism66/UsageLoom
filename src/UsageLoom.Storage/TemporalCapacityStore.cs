@@ -17,7 +17,7 @@ public sealed partial class HistoryStore
     {
         using var c=Open();using var command=c.CreateCommand();
         command.CommandText="CREATE TABLE IF NOT EXISTS quota_observations(at TEXT PRIMARY KEY,payload TEXT NOT NULL)";command.ExecuteNonQuery();
-        command.CommandText="SELECT payload FROM quota_observations ORDER BY at";using var reader=command.ExecuteReader();var result=new List<QuotaObservation>();
+        command.CommandText="SELECT payload FROM quota_observations WHERE at>=COALESCE((SELECT value FROM metadata WHERE key='capacity_observation_floor'),'') ORDER BY at";using var reader=command.ExecuteReader();var result=new List<QuotaObservation>();
         while(reader.Read())if(JsonSerializer.Deserialize<QuotaObservation>(reader.GetString(0)) is {} o)result.Add(o);
         // Preserve correlated failure evidence so log rotation cannot undo recovery.
         // The original observation ledger remains unchanged.

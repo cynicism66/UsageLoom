@@ -449,6 +449,58 @@ Test("重启待核验状态跨读取持久保留，终点不随再次启动扩�
     Check(store.AttributeRestartGap(second,"a",home,second.RecoveryOpenedAt!.Value)==0);
     Check(store.ReadPendingRestart(at.AddMinutes(15)) is null);
 });
+Test("清除计算历史备份完整且重启重算不会复活旧样本",() =>
+{
+    var folder=Path.Combine(Path.GetTempPath(),"UsageLoom-clear-"+Guid.NewGuid().ToString("N"));var store=new HistoryStore(folder);var at=DateTimeOffset.UtcNow;
+    var cache=new CapacityCache(4,"a","pro",Pricing.CatalogVersion,at,[new("codex:weekly","weekly",at.AddDays(7),6,6,100,1,100,2,0)]);
+    store.SaveTemporalIntervals([], [cache],4,cache,true);
+    var observation=new QuotaObservation(at,"a","pro",Pricing.CatalogVersion,[new("codex:weekly","weekly",10,10080,at.AddDays(7))]);
+    store.SaveQuotaObservation(observation);
+    var cutoff=at.AddMinutes(1);var backup=store.MaintainCapacity(true,cutoff);
+    Check(File.Exists(backup));
+    using(var c=new Microsoft.Data.Sqlite.SqliteConnection("Data Source="+backup))
+    {
+        c.Open();using var cmd=c.CreateCommand();cmd.CommandText="SELECT count(*) FROM temporal_capacity_history";
+        Check(Convert.ToInt32(cmd.ExecuteScalar())==1,"备份必须保留清除前的估算");
+    }
+    var loaded=new HistoryStore(folder);
+    Check(loaded.ReadCapacity() is null&&loaded.ReadValidCapacityHistory().Count==0);
+    Check(loaded.ReadQuotaObservations().Single().Barrier);
+    loaded.SaveQuotaObservation(observation with{At=at.AddSeconds(30)});
+    Check(loaded.ReadQuotaObservations().Count==1,"晚写入的旧快照不得越过清除起点");
+    var calculated=TemporalCapacity.Calculate(loaded.ReadQuotaObservations(),[]);
+    loaded.SaveTemporalIntervals(calculated.Intervals,calculated.History,4,null,true);
+    Check(new HistoryStore(folder).ReadValidCapacityHistory().Count==0);
+    using var raw=new Microsoft.Data.Sqlite.SqliteConnection("Data Source="+Path.Combine(folder,"usage-v2.sqlite"));raw.Open();
+    using var count=raw.CreateCommand();count.CommandText="SELECT count(*) FROM quota_observations";
+    Check(Convert.ToInt32(count.ExecuteScalar())==3,"保留原始快照供核验");
+});
+Test("重新采样保留历史但明确切断旧区间且拒绝无效额度",() =>
+{
+    var folder=Path.Combine(Path.GetTempPath(),"UsageLoom-restart-"+Guid.NewGuid().ToString("N"));var store=new HistoryStore(folder);var at=DateTimeOffset.UtcNow;
+    var cache=new CapacityCache(4,"a","pro",Pricing.CatalogVersion,at,[new("codex:weekly","weekly",at.AddDays(7),6,6,100,1,100,2,0)]);
+    store.SaveTemporalIntervals([], [cache],4,cache,true);
+    var observation=new QuotaObservation(at,"a","pro",Pricing.CatalogVersion,[new("codex:weekly","weekly",10,10080,at.AddDays(7))]);
+    store.SaveQuotaObservation(observation);
+    var rejected=false;try{store.MaintainCapacity(false,at.AddMinutes(1));}catch(InvalidOperationException){rejected=true;}
+    Check(rejected&&store.ReadCapacity() is not null);
+    var boundary=at.AddMinutes(1);Check(File.Exists(store.MaintainCapacity(false,boundary,observation)));
+    var loaded=new HistoryStore(folder);var rows=loaded.ReadQuotaObservations();
+    Check(rows.Count==3&&rows[1].Barrier&&rows[1].BarrierReason=="explicit-boundary"&&rows[2].At==boundary.AddTicks(1));
+    Check(loaded.ReadCapacity() is null&&loaded.ReadValidCapacityHistory().Count==1);
+    var result=TemporalCapacity.Calculate(rows,[]);
+    Check(result.Intervals.Count==0,"不得把重采样前后的百分点连接成区间");
+});
+Test("维护事务失败保留旧历史及当前缓存",() =>
+{
+    var folder=Path.Combine(Path.GetTempPath(),"UsageLoom-maintenance-"+Guid.NewGuid().ToString("N"));var store=new HistoryStore(folder);var at=DateTimeOffset.UtcNow;
+    var cache=new CapacityCache(4,"a","pro",Pricing.CatalogVersion,at,[new("codex:weekly","weekly",at.AddDays(7),6,6,100,1,100,2,0)]);
+    store.SaveTemporalIntervals([], [cache],4,cache,true);
+    store.SaveQuotaObservation(new(at,"a","pro",Pricing.CatalogVersion,[]));
+    var failed=false;try{store.MaintainCapacity(true,at);}catch(Microsoft.Data.Sqlite.SqliteException){failed=true;}
+    Check(failed&&store.ReadCapacity() is not null&&store.ReadValidCapacityHistory().Count==1);
+    Check(store.ReadQuotaObservations().Single().Account=="a","清除起点与删除必须一起回滚");
+});
 Test("区间历史和当前缓存一次事务提交",() =>
 {
     var directory=Path.Combine(Path.GetTempPath(),"UsageLoom-atomic-"+Guid.NewGuid().ToString("N"));
@@ -1440,6 +1492,31 @@ AsyncTest("新会话首次扫描仅归属连续账号观察期间的新增记录
     await restarted.ScanAsync(home,default,accountScope:"B");
     Check(store.Read().Single(e=>e.Session=="restart").AccountScope is null);
 });
+AsyncTest("首轮扫描开始后写入的新会话 Token 按文件捕获时间归属",async()=>
+{
+    foreach(var newline in new[]{true,false})
+    {
+        var home=Fixture("during-scan-"+newline);var store=new HistoryStore(Path.Combine(home,"data"));var scanner=new IncrementalHistory(store);
+        await scanner.ScanAsync(home,default,accountScope:"A");
+        await Task.Delay(50);
+        var file=Path.Combine(home,"sessions","fresh.jsonl");
+        await File.WriteAllLinesAsync(file,[Meta("during-scan"),Model()]);
+        var wrote=false;
+        var progress=new InlineScanProgress(_=>
+        {
+            if(wrote)return;wrote=true;
+            // Runs synchronously inside the scanner, before it captures file.Length.
+            File.AppendAllText(file,Count(80,20,timestamp:DateTimeOffset.UtcNow.ToString("O"))+"\n"+
+                Count(160,40,timestamp:DateTimeOffset.UtcNow.AddHours(1).ToString("O"))+(newline?"\n":""));
+        });
+        await scanner.ScanAsync(home,default,progress,accountScope:"A");
+        var rows=store.Read();Check(wrote&&rows.Count==2);
+        Check(rows.Where(e=>e.AccountScope=="A").Sum(e=>e.Tokens.Total)==100,"during-scan first record lost attribution");
+        Check(rows.Where(e=>e.AccountScope is null).Sum(e=>e.Tokens.Total)==100,"future record must remain unassigned");
+        await scanner.ScanAsync(home,default,accountScope:"A");
+        Check(store.Read().Count==2&&store.Read().Sum(e=>e.Tokens.Total)==200,"rescan duplicated usage");
+    }
+});
 AsyncTest("两万条事件性能样例与跨重启追加一致性",async()=>
 {
     var home=Fixture("scale");const int files=200,rows=100;
@@ -1762,3 +1839,8 @@ finally
 }
 Console.WriteLine($"结果：{tests.Count - failures}/{tests.Count} 通过");
 Environment.ExitCode = failures == 0 ? 0 : 1;
+
+sealed class InlineScanProgress(Action<string> report):IProgress<string>
+{
+    public void Report(string value)=>report(value);
+}

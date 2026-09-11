@@ -33,6 +33,15 @@ internal sealed partial class Dashboard
         estimates.Children.Add(new TextBlock{Text=app.CapacityCacheStatus,FontSize=12,Opacity=.65,TextWrapping=TextWrapping.Wrap});
         estimates.Children.Add(Button(L10n.T("s4C6D9D73BFC8"),ShowCapacityHistory));
         estimates.Children.Add(Button(L10n.T("capacity.calculateNow"),async()=>await app.CalculateCapacityNowAsync()));
+        foreach(var action in new[]{"repair","clear","restart"})
+            estimates.Children.Add(Button(L10n.T("maintenance."+action),()=>ShowCapacityMaintenance(action)));
+        if(app.NavigationCheck)
+        {
+            foreach(var action in new[]{"repair","clear","restart"})
+                if(estimates.Children.OfType<Button>().Count(b=>b.Content as string==L10n.T("maintenance."+action))!=1)
+                    throw new InvalidOperationException("Capacity maintenance entry missing: "+action);
+            Program.Log.Write("INFO","NavigationTest","Three capacity maintenance entries attached to estimate settings");
+        }
         capacityStatusText=new TextBlock{Text=app.CapacityCalculationStatus,TextWrapping=TextWrapping.Wrap};
         estimates.Children.Add(capacityStatusText);
         estimates.Children.Add(new TextBlock{Text=L10n.T("capacity.batchNote"),TextWrapping=TextWrapping.Wrap,Opacity=.65});
@@ -40,13 +49,39 @@ internal sealed partial class Dashboard
         var calculation=new StackPanel{Spacing=10};
         calculation.Children.Add(new TextBlock{Text=L10n.T("s0F58A8B1B0E1"),TextWrapping=TextWrapping.Wrap,FontSize=12,Opacity=.7});
         calculation.Children.Add(new TextBlock{Text=L10n.T("capacity.stableNote"),TextWrapping=TextWrapping.Wrap,FontSize=12,Opacity=.7});
-        calculation.Children.Add(Button(L10n.T("s89CE4722B00F"),async()=>
-        {
-            var dialog=new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title=L10n.T("s7561011AB974"),Content=L10n.T("sA975EF949AB2"),PrimaryButtonText=L10n.T("sCB5D682BAC3D"),CloseButtonText=L10n.T("s2CD0F3BE8738"),DefaultButton=ContentDialogButton.Close};
-            if(await dialog.ShowAsync()==ContentDialogResult.Primary)await app.ResetCapacityAsync();
-        }));
         estimates.Children.Add(StableExpander.Configure(new Expander{Header=L10n.T("s6B5C96B6A49F"),IsExpanded=false,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,Content=calculation}));
         return StableExpander.Configure(new Expander{Header=L10n.T("sD9EBFF4C171F"),IsExpanded=false,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,Content=estimates});
+    }
+    private bool capacityMaintenanceDialogOpen;
+    private async Task ShowCapacityMaintenance(string action)
+    {
+        if(capacityMaintenanceDialogOpen)return;
+        capacityMaintenanceDialogOpen=true;
+        try
+        {
+            var title=L10n.T("maintenance."+action);
+            var dialog=new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title=title,
+                Content=new TextBlock{Text=L10n.T("maintenance."+action+"Confirm"),TextWrapping=TextWrapping.Wrap},
+                PrimaryButtonText=title,CloseButtonText=L10n.T("s2CD0F3BE8738"),DefaultButton=ContentDialogButton.Close};
+            if(await dialog.ShowAsync()!=ContentDialogResult.Primary)return;
+            string report;
+            try
+            {
+                report=await app.MaintainCapacityAsync(action);
+                if(action=="repair"&&app.Quota.AccountKey is {} account)
+                {
+                    var candidates=app.CapacityRepairCandidates();
+                    if(candidates.Count>0)await ShowAttribution(candidates,account);
+                    await app.CalculateCapacityNowAsync();
+                    report+="\n"+L10n.F("maintenance.remaining",app.CapacityRepairCandidates().Count)+"\n"+app.CapacityCalculationStatus;
+                }
+            }
+            catch(Exception ex){report=L10n.T("maintenance.failed")+"\n"+Privacy.Redact(ex.Message);}
+            await new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title=title,
+                Content=new ScrollViewer{MaxHeight=360,Content=new TextBlock{Text=report,TextWrapping=TextWrapping.Wrap}},
+                CloseButtonText=L10n.T("s2CD0F3BE8738")}.ShowAsync();
+        }
+        finally{capacityMaintenanceDialogOpen=false;}
     }
     private async Task ShowAttribution(List<UsageEvent> rows,string account)
     {

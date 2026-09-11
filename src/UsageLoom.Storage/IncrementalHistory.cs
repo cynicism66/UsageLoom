@@ -94,6 +94,9 @@ public sealed class IncrementalHistory(HistoryStore store)
                     progress?.Report($"正在增量索引：已处理 {records.Count} 个文件");
                     await using var file=new FileStream(path,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete,65536,FileOptions.Asynchronous|FileOptions.SequentialScan);
                     var capturedLength=file.Length;var written=info.LastWriteTimeUtc.Ticks;var created=info.CreationTimeUtc.Ticks;
+                    // Bind timestamps to this file's captured byte prefix, not the
+                    // beginning of the whole scan (other files may take time).
+                    var capturedAt=DateTimeOffset.UtcNow;
                     var paginationReplay=false;
                     if(old is not null)
                     {
@@ -106,8 +109,8 @@ public sealed class IncrementalHistory(HistoryStore store)
                     var recordAccountScope=old is not null&&!string.IsNullOrWhiteSpace(accountScope)&&previousAccount==accountScope&&string.Equals(previousHome,home,StringComparison.OrdinalIgnoreCase)&&string.Equals(old.AccountScope,accountScope,StringComparison.Ordinal)?accountScope:null;
                     DateTimeOffset? newFileSince=null;
                     if(old is null&&!rebuild&&!string.IsNullOrWhiteSpace(accountScope)&&accountScope==previousAccount&&
-                        string.Equals(home,previousHome,StringComparison.OrdinalIgnoreCase)&&scanStarted>=previousAt&&
-                        info.CreationTimeUtc>previousAt.UtcDateTime&&info.CreationTimeUtc<=scanStarted.UtcDateTime)
+                        string.Equals(home,previousHome,StringComparison.OrdinalIgnoreCase)&&scanStarted>=previousAt&&capturedAt>=scanStarted&&
+                        info.CreationTimeUtc>previousAt.UtcDateTime&&info.CreationTimeUtc<=capturedAt.UtcDateTime)
                     {recordAccountScope=accountScope;newFileSince=previousAt;}
                     while(file.Position<capturedLength)
                     {
@@ -119,7 +122,7 @@ public sealed class IncrementalHistory(HistoryStore store)
                             if(buffer[i]==(byte)'\n')
                             {
                                 if(oversized)fileWarnings++;
-                                else Compact(line.ToArray(),compact,ref fileWarnings,ref integrityWarnings,recordAccountScope,newFileSince,scanStarted);
+                                else Compact(line.ToArray(),compact,ref fileWarnings,ref integrityWarnings,recordAccountScope,newFileSince,capturedAt);
                                 line.SetLength(0);oversized=false;offset=blockStart+i+1;
                             }
                             else if(!oversized)
@@ -132,7 +135,7 @@ public sealed class IncrementalHistory(HistoryStore store)
                     {
                         var complete=false;
                         try{using var tail=JsonDocument.Parse(Encoding.UTF8.GetString(line.ToArray()).TrimStart('\uFEFF'));complete=true;}catch(JsonException){}
-                        if(complete){Compact(line.ToArray(),compact,ref fileWarnings,ref integrityWarnings,recordAccountScope,newFileSince,scanStarted);offset=capturedLength;}
+                        if(complete){Compact(line.ToArray(),compact,ref fileWarnings,ref integrityWarnings,recordAccountScope,newFileSince,capturedAt);offset=capturedLength;}
                     }
                     // 只有不完整末行回退到行首；下次追加从该字节位置重读。
                     line.Dispose();
@@ -222,7 +225,7 @@ public sealed class IncrementalHistory(HistoryStore store)
         while(consumed<length){var read=await file.ReadAsync(buffer.AsMemory(0,(int)Math.Min(buffer.Length,length-consumed)),ct);if(read==0)throw new IOException("索引前缀缺失");hash.AppendData(buffer,0,read);consumed+=read;}
         return Convert.ToHexString(hash.GetHashAndReset());
     }
-    private static void Compact(byte[] bytes,List<string> records,ref int warnings,ref int integrityWarnings,string? accountScope,DateTimeOffset? newFileSince=null,DateTimeOffset scanStarted=default)
+    private static void Compact(byte[] bytes,List<string> records,ref int warnings,ref int integrityWarnings,string? accountScope,DateTimeOffset? newFileSince=null,DateTimeOffset capturedAt=default)
     {
         if(bytes.Length==0)return;
         try
@@ -257,7 +260,7 @@ public sealed class IncrementalHistory(HistoryStore store)
                 minimal["type"]="token_count";minimal["info"]=counters;
             }
             else return;
-            if(newFileSince is {} since&&(!DateTimeOffset.TryParse(root.Text("timestamp"),out var timestamp)||timestamp<=since||timestamp>scanStarted))accountScope=null;
+            if(newFileSince is {} since&&(!DateTimeOffset.TryParse(root.Text("timestamp"),out var timestamp)||timestamp<=since||timestamp>capturedAt))accountScope=null;
             long? ordinal=root.TryGetProperty("ordinal",out var sequence)&&sequence.ValueKind==JsonValueKind.Number&&sequence.TryGetInt64(out var position)?position:null;
             records.Add(JsonSerializer.Serialize(new{type,timestamp=root.Text("timestamp"),ordinal,account_scope=accountScope,payload=minimal}));
         }

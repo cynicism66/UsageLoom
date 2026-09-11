@@ -82,6 +82,7 @@ public sealed partial class LoomApp : Application
     }
     private IReadOnlyList<WeeklyCapacityEstimate> ObserveCapacity(QuotaState quota,bool force=false)
     {
+        if(capacityMaintenanceBusy)return WeeklyCapacity;
         if(!Config.CapacityEnabled)return [];
         if(!IsDemo)
         {
@@ -194,17 +195,9 @@ public sealed partial class LoomApp : Application
         Changed?.Invoke();
         if(capacityTask is {} work)await work;
     }
-    internal async Task ResetCapacityAsync()
-    {
-        if(IsDemo){Message=L10n.T("s80323CB58044");return;}
-        capacityEpoch++;if(capacityTask is {} work)await work;
-        RecordCapacityObservation(Quota,true);await Task.Run(()=>store.SaveCapacity(null));capacityEstimator.Reset();capacityDisplayIdentity=null;WeeklyCapacity=[];
-        if(historyLoaded&&Quota.Fresh)WeeklyCapacity=ObserveCapacity(Quota);
-        Message=L10n.T("sE8381D29D4E7");
-        Program.Log.Write("INFO","CapacityCache",Message);Changed?.Invoke();
-    }
     internal Task SetCapacityEnabledAsync(bool enabled)
     {
+        if(capacityMaintenanceBusy)return Task.CompletedTask;
         capacityEpoch++;Config.CapacityEnabled=enabled;
         RecordCapacityObservation(Quota,true);
         if(!IsDemo)Config.Save();
@@ -222,7 +215,7 @@ public sealed partial class LoomApp : Application
     }
     private async Task ConfirmAttributionCoreAsync(IReadOnlyList<UsageEvent> preview,string account)
     {
-        if(IsDemo||!Quota.Fresh||Quota.AccountKey!=account||scanning||refreshing||attributionBusy)
+        if(IsDemo||!Quota.Fresh||Quota.AccountKey!=account||scanning||refreshing||attributionBusy||capacityMaintenanceBusy||quitting)
             throw new InvalidOperationException(L10n.T("attribution.retry"));
         attributionBusy=true;capacityEpoch++;
         try
@@ -441,7 +434,7 @@ public sealed partial class LoomApp : Application
     internal Task RefreshQuotaAsync(bool manual)
     {
         if(IsDemo){Message=L10n.T("s987E3F3AAADE");Changed?.Invoke();return Task.CompletedTask;}
-        if (quitting || attributionBusy || Authorizing || refreshing || (!manual && !Config.AutoRefresh)) return quotaTask ?? Task.CompletedTask;
+        if (quitting || capacityMaintenanceBusy || attributionBusy || Authorizing || refreshing || (!manual && !Config.AutoRefresh)) return quotaTask ?? Task.CompletedTask;
         refreshing = true; lastAttempt = DateTimeOffset.Now;
         Quota=Quota.ClearUnverifiedSnapshot(L10n.T("s5FFA5AB58038"));
         var epoch = configurationGeneration;
@@ -501,7 +494,7 @@ public sealed partial class LoomApp : Application
     {
         if(IsDemo){Message=L10n.T("s04AC6333CEB4");Changed?.Invoke();return Task.CompletedTask;}
         if(rebuild&&scanning){Message=L10n.T("s3706DC826F7D");Changed?.Invoke();return Task.CompletedTask;}
-        if (quitting || scanning || attributionBusy) return scanTask ?? Task.CompletedTask;
+        if (quitting || capacityMaintenanceBusy || scanning || attributionBusy) return scanTask ?? Task.CompletedTask;
         scanning = true;
         historyRevision++;
         var home = Config.CodexHome;
@@ -580,6 +573,7 @@ public sealed partial class LoomApp : Application
     }
     internal async Task SaveSettingsAsync()
     {
+        if(capacityMaintenanceBusy)throw new InvalidOperationException(L10n.T("maintenance.busy"));
         if(Authorizing)throw new InvalidOperationException(L10n.T("s3B5CB5F80AA4"));
         var source=CurrentCapacitySource();
         var sourceChanged=!appliedCapacitySource.Matches(source);
@@ -642,6 +636,7 @@ public sealed partial class LoomApp : Application
         if (capacityTask is not null) await capacityTask;
         if (cleanupTask is not null) await cleanupTask;
         if (attributionTask is not null){try{await attributionTask;}catch(Exception ex){Program.Log.Write("WARN","Attribution",ex.Message);}}
+        if (capacityMaintenanceTask is not null){try{await capacityMaintenanceTask;}catch(Exception ex){Program.Log.Write("WARN","CapacityMaintenance",ex.Message);}}
         if(!IsDemo&&Quota.Fresh)
         {
             try{incremental?.SaveExitCheckpoint(Quota.AccountKey,Config.CodexHome,DateTimeOffset.UtcNow);}
@@ -666,7 +661,7 @@ public sealed partial class LoomApp : Application
     internal Task AuthorizeAsync(bool logout=false)
     {
         if(IsDemo){Message=L10n.T("s8253A60AB040");Changed?.Invoke();return Task.CompletedTask;}
-        if(Authorizing||quitting)return authorizationTask??Task.CompletedTask;
+        if(Authorizing||quitting||capacityMaintenanceBusy)return authorizationTask??Task.CompletedTask;
         client.AttributionIdentity.Clear();
         CancelIdentityScan();
         Authorizing=true;
