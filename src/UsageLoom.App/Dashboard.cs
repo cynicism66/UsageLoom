@@ -475,6 +475,7 @@ internal sealed partial class Dashboard : Window
             {
                 var estimate=quota.Fresh?app.WeeklyCapacity.FirstOrDefault(e=>e.WindowKey==window.Key&&e.ObservedPercent>=5&&e.Samples>=2):null;
                 var summary=new StackPanel{Spacing=2,HorizontalAlignment=HorizontalAlignment.Right,VerticalAlignment=VerticalAlignment.Center};
+                if(estimate?.HistoricalAt is not null)summary.Children.Add(new TextBlock{Text=L10n.T("capacity.historyReference"),FontSize=12,Opacity=.75,TextWrapping=TextWrapping.Wrap});
                 summary.Children.Add(new TextBlock{Text=estimate?.EstimatedDollars is {} dollars?L10n.F("s1F2CD6B8A261", dollars):quota.Fresh?L10n.T("s3568603BDEE3"):L10n.T("s1D50FA7450FD"),FontSize=24,TextWrapping=TextWrapping.Wrap,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
                 summary.Children.Add(new TextBlock{Text=estimate?.HistoricalAt is {} historical?L10n.F("capacity.previousAt",historical.ToLocalTime()):estimate is {} result?L10n.F("sEC62E3CDF86A", result.PricingCoverage):L10n.T("s8FCEC6C0C12E"),FontSize=12,Opacity=.65,TextWrapping=TextWrapping.Wrap});
                 var infoRow=new Grid{ColumnSpacing=6,HorizontalAlignment=HorizontalAlignment.Right};

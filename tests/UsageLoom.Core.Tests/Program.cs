@@ -301,6 +301,121 @@ Test("周期短暂切换恢复已确认样本，不跨异常区间累计",() =>
     var rollback=observations.ToArray();rollback[5]=O(15,2);rollback[6]=O(18,2);
     Check(TemporalCapacity.CalculateStable(rollback,events,at.AddMinutes(25)).Cache!.Windows.Count==0);
 });
+static (DateTimeOffset At,DateTimeOffset Reset,QuotaObservation[] Ledger,UsageEvent[] Events) InterruptedCycleFixture()
+{
+    var at=new DateTimeOffset(2026,9,10,0,0,0,TimeSpan.Zero);var reset=at.AddDays(1);
+    QuotaObservation O(int m,double used)=>new(at.AddMinutes(m),"a","pro",Pricing.CatalogVersion,[new("codex:weekly","weekly",used,10080,reset)]);
+    UsageEvent E(string id,int m)=>new(id,"s","p","gpt-5.4","main",at.AddMinutes(m),"",new(100)){AccountScope="a"};
+    return(at,reset,[O(0,0),O(3,3),O(6,4),O(7,4) with{Barrier=true,BarrierReason="query-failure",Windows=[]},O(20,4),O(23,7),O(26,7)],
+        [E("first",2),E("gap",10),E("later",22)]);
+}
+Test("中断诊断按当前周期隔离，正常换周和提前重置不带回旧警告",()=>
+{
+    var (at,reset,ledger,events)=InterruptedCycleFixture();
+    var before=TemporalCapacity.CalculateStable(ledger,events,at.AddMinutes(30));
+    var old=before.Interruptions.Single();
+    Check(old.From==at.AddMinutes(3)&&old.To==at.AddMinutes(20)&&old.Reset==reset&&old.Reason=="continuity-not-proven");
+    Check(old.Account=="a"&&old.Plan=="pro"&&old.PricingVersion==Pricing.CatalogVersion);
+    Check(before.Cache!.Windows.Single().Percent==6&&before.Cache.Windows.Single().Tokens==200);
+    foreach(var start in new[]{reset,at.AddHours(1)})
+    {
+        var nextReset=start.AddDays(7);
+        QuotaObservation O(int m,double used)=>new(start.AddMinutes(m),"a","pro",Pricing.CatalogVersion,[new("codex:weekly","weekly",used,10080,nextReset)]);
+        var currentEvent=new UsageEvent("new-cycle","s","p","gpt-5.4","main",start.AddMinutes(2),"",new(300)){AccountScope="a"};
+        var result=TemporalCapacity.CalculateStable(ledger.Concat([O(0,0),O(3,3),O(6,3)]),events.Append(currentEvent),start.AddMinutes(10));
+        Check(result.Interruptions.Count==0,"换周期后不得把旧周期中断显示成当前故障");
+        Check(result.ActiveInterruptions.Contains(old)&&result.AllInterruptions.Contains(old),"隔离展示不能删除可审计历史");
+        Check(result.Cache!.Windows.Single() is {Percent:3,Tokens:300,Samples:1} sample&&sample.ResetsAt==nextReset);
+        Check(result.History.Any(h=>h.Windows.Any(w=>w.ResetsAt==reset&&w.Percent==6&&w.Tokens==200)),"旧样本应作为历史保留");
+        Check(result.Intervals.Any(i=>i.Reset==reset)&&result.Intervals.Any(i=>i.Reset==nextReset));
+    }
+});
+Test("短暂周期切换回来恢复本周期警告而不混入另一个周期",()=>
+{
+    var (at,reset,ledger,events)=InterruptedCycleFixture();
+    var original=TemporalCapacity.CalculateStable(ledger,events,at.AddMinutes(30)).Interruptions.Single();
+    QuotaObservation O(int m,double used,bool other)=>new(at.AddMinutes(m),"a","pro",Pricing.CatalogVersion,[new("codex:weekly","weekly",used,10080,other?reset.AddDays(2):reset)]);
+    var switched=ledger.Concat([O(30,10,true),O(33,10,true)]).ToArray();
+    var other=TemporalCapacity.CalculateStable(switched,events,at.AddMinutes(45));
+    Check(other.Interruptions.Count==0&&other.ActiveInterruptions.Contains(original));
+    var returned=TemporalCapacity.CalculateStable(switched.Concat([O(36,7,false),O(39,7,false)]),events,at.AddMinutes(45));
+    Check(returned.Interruptions.SequenceEqual([original]),"暂时切换不能永久丢弃原周期真实中断");
+    Check(returned.Cache!.Windows.Single() is {Percent:6,Tokens:200,Samples:2} sample&&sample.ResetsAt==reset);
+    Check(!returned.Intervals.SelectMany(i=>i.EventIds).Contains("gap"),"提示隔离不能放宽中断用量的安全条件");
+});
+Test("中断周期匹配使用两分钟容差且不依赖 UTC 表示形式",()=>
+{
+    var (at,reset,ledger,events)=InterruptedCycleFixture();
+    var old=TemporalCapacity.CalculateStable(ledger,events,at.AddMinutes(30)).Interruptions.Single();
+    foreach(var seconds in new[]{-121,-120,0,120,121})
+    {
+        var current=new QuotaObservation(at.AddMinutes(30),"a","pro",Pricing.CatalogVersion,[new("codex:weekly","weekly",7,10080,reset.AddSeconds(seconds))]);
+        var result=TemporalCapacity.CalculateStable(ledger.Append(current),events,at.AddMinutes(40));
+        var same=Math.Abs(seconds)<=120;
+        Check(old.Matches(current)==same&&result.Interruptions.Contains(old)==same,$"reset offset {seconds}");
+        Check(result.AllInterruptions.Contains(old));
+        Check(old.Matches(current with{At=current.At.ToOffset(TimeSpan.FromHours(8)),Windows=current.Windows.Select(w=>w with{ResetsAt=w.ResetsAt!.Value.ToOffset(TimeSpan.FromHours(8))}).ToList()})==same);
+    }
+    var normal=TemporalCapacity.CalculateStable(ledger,events,at.AddMinutes(30));
+    var reordered=TemporalCapacity.CalculateStable(ledger.Reverse().Concat([ledger[0]]),events.Concat([events[0]]),at.AddMinutes(30));
+    Check(JsonSerializer.Serialize(normal)==JsonSerializer.Serialize(reordered),"重复、倒序输入不得增加中断诊断");
+    var offset=TemporalCapacity.CalculateStable(ledger.Select(o=>o with{At=o.At.ToOffset(TimeSpan.FromHours(8)),Windows=o.Windows.Select(w=>w with{ResetsAt=w.ResetsAt!.Value.ToOffset(TimeSpan.FromHours(8))}).ToList()}),events,at.AddMinutes(30));
+    Check(normal.Interruptions.SequenceEqual(offset.Interruptions)&&normal.ActiveInterruptions.SequenceEqual(offset.ActiveInterruptions)&&normal.AllInterruptions.SequenceEqual(offset.AllInterruptions));
+});
+Test("账号套餐定价和显式硬边界不会复活同周期旧中断",()=>
+{
+    var (at,reset,ledger,events)=InterruptedCycleFixture();
+    var old=TemporalCapacity.CalculateStable(ledger,events,at.AddMinutes(30)).Interruptions.Single();
+    var current=new QuotaObservation(at.AddMinutes(30),"a","pro",Pricing.CatalogVersion,[new("codex:weekly","weekly",7,10080,reset)]);
+    foreach(var boundary in new[]{current with{Account="b"},current with{Plan="other"},current with{PricingVersion="different"},
+        current with{Barrier=true,BarrierReason="explicit-boundary",Account=null,Plan=null,Windows=[]},current with{Barrier=true,BarrierReason="conflicting-snapshot"}})
+    {
+        var result=TemporalCapacity.CalculateStable(ledger.Concat([boundary,current with{At=at.AddMinutes(33)}]),events,at.AddMinutes(40));
+        Check(result.Interruptions.Count==0&&result.ActiveInterruptions.Count==0,"硬边界返回相同身份也不能复活旧警告");
+        Check(result.AllInterruptions.Contains(old),"硬边界之前诊断只进入完整历史");
+        Check(!old.Matches(boundary));
+    }
+    Check(!new CapacityInterruption(old.Key,old.From,old.To,old.Reason).Matches(current),"没有周期元数据的旧诊断不能冒充当前故障");
+    Check(!old.Matches(current with{At=old.To.AddTicks(-1)}),"旧快照不能展示未来发生的中断");
+    Check(!(old with{From=old.To.AddTicks(1)}).Matches(current),"反向时间区间不应视为有效中断");
+});
+Test("中断只匹配有效主周额度窗口，窗口切换和无效快照不泄漏旧提示",()=>
+{
+    var (at,reset,ledger,events)=InterruptedCycleFixture();
+    var old=TemporalCapacity.CalculateStable(ledger,events,at.AddMinutes(30)).Interruptions.Single();
+    var current=new QuotaObservation(at.AddMinutes(30),"a","pro",Pricing.CatalogVersion,[new("codex:weekly","weekly",7,10080,reset)]);
+    foreach(var windows in new List<QuotaWindow>[]
+        {[],[new("codex:other","weekly",7,10080,reset)],[new("spark:weekly","weekly",7,10080,reset)],
+            [new("codex:weekly","five-hour",7,300,reset)],[new("codex:weekly","weekly",7,10080,null)],
+            [new("codex:weekly","weekly",7,10080,current.At)],[new("codex:weekly","weekly",double.NaN,10080,reset)],
+            [new("codex:weekly","weekly",double.PositiveInfinity,10080,reset)],[new("codex:weekly","weekly",-1,10080,reset)],
+            [new("codex:weekly","weekly",101,10080,reset)]})
+    {
+        var snapshot=current with{Windows=windows};
+        Check(!old.Matches(snapshot));
+        var result=TemporalCapacity.CalculateStable(ledger.Append(snapshot),events,at.AddMinutes(40));
+        Check(result.Interruptions.Count==0&&result.AllInterruptions.Contains(old));
+    }
+    var otherKey=new CapacityInterruption("spark:weekly",old.From,old.To,old.Reason)
+        {Account="a",Plan="pro",PricingVersion=Pricing.CatalogVersion,Reset=reset};
+    Check(!otherKey.Matches(current with{Windows=[new("spark:weekly","weekly",7,10080,reset)]}));
+});
+Test("新周期自身的中断可见，软失败保留周期归属且旧周期仅供诊断",()=>
+{
+    var (at,reset,ledger,events)=InterruptedCycleFixture();
+    var original=TemporalCapacity.CalculateStable(ledger,events,at.AddMinutes(30)).Interruptions.Single();
+    var start=at.AddHours(1);var nextReset=start.AddDays(7);
+    var newLedger=ledger.Select(o=>o with{At=o.At.AddHours(1),Windows=o.Windows.Select(w=>w with{ResetsAt=nextReset}).ToList()}).ToArray();
+    var newEvents=events.Select(e=>e with{Id="new-"+e.Id,Timestamp=e.Timestamp!.Value.AddHours(1)}).ToArray();
+    var result=TemporalCapacity.CalculateStable(ledger.Concat(newLedger),events.Concat(newEvents),start.AddMinutes(30));
+    var current=result.Interruptions.Single();
+    Check(current.Reset==nextReset&&current.From==start.AddMinutes(3)&&current.To==start.AddMinutes(20));
+    Check(result.AllInterruptions.Contains(original)&&result.AllInterruptions.Contains(current));
+    Check(result.Cache!.Windows.Single() is {Percent:6,Tokens:200,Samples:2} sample&&sample.ResetsAt==nextReset);
+    var failure=newLedger[^1] with{At=start.AddMinutes(27),Barrier=true,BarrierReason="query-failure",Windows=[]};
+    var paused=TemporalCapacity.CalculateStable(ledger.Concat(newLedger).Append(failure),events.Concat(newEvents),start.AddMinutes(30));
+    Check(paused.Interruptions.Count==0&&paused.ActiveInterruptions.Contains(current),"无有效当前快照时不冒充当前确认，保留可恢复诊断");
+});
 Test("查询超时恢复已确认样本，保留硬边界与历史证据",() =>
 {
     var at=DateTimeOffset.UtcNow;var reset=at.AddDays(7);
@@ -594,6 +709,118 @@ Test("首次索引就绪立即重算旧采样起点，重启保持 8/6",() =>
     var roundtrip=System.Text.Json.JsonSerializer.Deserialize<CapacityCache>(System.Text.Json.JsonSerializer.Serialize(estimator.Export()));
     estimator.Restore(roundtrip);estimator.InitializeTemporal(quota);
     Check(estimator.DescribeProgress(quota,0,true).Contains("8/6")&&estimator.Export()!.Windows.Single().Percent==6);
+});
+Test("稳定采样区分累计百分点、等待快照、等待日志与待核验",() =>
+{
+    var now=DateTimeOffset.Now;var reset=now.AddDays(6);const string key="codex:primary";
+    var quota=new QuotaState([new(key,"weekly",5,10080,reset)],null,now,"ok",true,"a"){Plan="pro"};
+    var cache=new CapacityCache(4,"a","pro",Pricing.CatalogVersion,now,[new(key,"weekly",reset,3,3,300,1m,300,1,0)]);
+    var tracker=new WeeklyCapacityEstimator();
+    var baseline=new Dictionary<string,double>{{key,3}};
+    void Apply(CapacityPendingSample? pending)=>tracker.ApplyTemporal(quota,cache,300,null,baseline,
+        pending is null?null:new Dictionary<string,CapacityPendingSample>{{key,pending}});
+    Apply(new(key,reset,3,5,false,false,false));
+    foreach(var time in new[]{now,now.AddMinutes(3),now.AddMinutes(30)})
+    {
+        var text=tracker.DescribeProgress(quota with{FetchedAt=time},300,true);
+        Check(text.Contains("5/6")&&text.Contains("已确认 3")&&text.Contains("未计入 2")&&text.Contains("还差 1"));
+        Check(!text.Contains("待确认 2")&&!text.Contains("等待间隔至少 2 分钟"));
+    }
+    // Advancing a fresh quota cannot reuse old evidence to claim the new block is ready.
+    quota=quota with{Windows=[quota.Windows[0] with{Used=6}]};
+    Check(tracker.DescribeProgress(quota,300,true).Contains("等待本轮计算"));
+    Apply(new(key,reset,3,6,true,false,false));
+    Check(tracker.DescribeProgress(quota,300,true).Contains("等待间隔至少 2 分钟"));
+    Apply(new(key,reset,3,6,true,true,false));
+    Check(tracker.DescribeProgress(quota,300,true).Contains("等待日志索引完整"));
+    Apply(new(key,reset,3,6,true,true,true));
+    Check(tracker.DescribeProgress(quota,300,true).Contains("等待本轮核验结果"));
+    Check(tracker.DescribeProgress(quota,300,true).Contains("6/6"));
+    quota=quota with{Windows=[quota.Windows[0] with{Used=7}]};
+    Check(tracker.DescribeProgress(quota,300,true).Contains("等待本轮计算"));
+    Apply(new(key,reset.AddDays(7),3,7,true,true,true));
+    Check(tracker.DescribeProgress(quota,300,true).Contains("等待本轮计算"));
+    Apply(new(key,reset,0,7,true,true,true));
+    Check(tracker.DescribeProgress(quota,300,true).Contains("等待本轮计算"));
+    Check(CapacitySamplingProgress.Describe(2.99999,new(key,reset,3,6,true,true,true)).Contains("尚不足 3"));
+    Check(!CapacitySamplingProgress.Describe(2.99999,new(key,reset,3,6,true,true,true)).Contains("等待本轮核验结果"));
+});
+Test("采样阶段从同一套快照及索引证据提取，不提前采纳未完成区间",() =>
+{
+    var at=DateTimeOffset.UtcNow;var reset=at.AddDays(7);const string key="codex:primary";
+    QuotaObservation O(int minute,double used)=>new(at.AddMinutes(minute),"a","pro",Pricing.CatalogVersion,[new(key,"weekly",used,10080,reset)]);
+    UsageEvent E(string id,int minute)=>new(id,"s","p","gpt-5.4","main",at.AddMinutes(minute),"2026-09-12",new(300)){AccountScope="a"};
+    var events=new[]{E("first",2),E("second",9)};
+    var waitingSnapshot=TemporalCapacity.CalculateStable([O(0,0),O(3,3)],events,at.AddMinutes(30));
+    Check(waitingSnapshot.Intervals.Count==0);
+    Check(waitingSnapshot.PendingSamples[key] is {HasThresholdSnapshot:true,HasLaterSnapshot:false});
+    var waitingLogs=TemporalCapacity.CalculateStable([O(0,0),O(3,3),O(6,3)],events,at.AddMinutes(4));
+    Check(waitingLogs.Intervals.Count==0);
+    Check(waitingLogs.PendingSamples[key] is {HasThresholdSnapshot:true,HasLaterSnapshot:true,LogsReady:false});
+    var accepted=TemporalCapacity.CalculateStable([O(0,0),O(3,3),O(6,3)],events,at.AddMinutes(6));
+    Check(accepted.Cache!.Windows.Single().Percent==3&&accepted.Intervals.Count==1);
+    Check(accepted.PendingSamples[key] is {BaselineUsed:3,Used:3,HasThresholdSnapshot:false});
+    var collecting=TemporalCapacity.CalculateStable([O(0,0),O(3,3),O(6,3),O(10,5),O(40,5)],events,at.AddMinutes(40));
+    Check(collecting.Cache!.Windows.Single().Percent==3&&collecting.Intervals.Count==1);
+    Check(collecting.PendingSamples[key] is {BaselineUsed:3,Used:5,HasThresholdSnapshot:false});
+    var complete=TemporalCapacity.CalculateStable([O(0,0),O(3,3),O(6,3),O(10,6),O(13,6)],events,at.AddMinutes(13));
+    Check(complete.Cache!.Windows.Single() is {Percent:6,Samples:2,Tokens:600});
+    Check(complete.PendingSamples[key] is {BaselineUsed:6,Used:6,HasThresholdSnapshot:false});
+});
+Test("周展示识别提前重置、额度回退及窗口变化，不受五小时窗口影响",() =>
+{
+    var at=DateTimeOffset.UtcNow;var weekly=new QuotaWindow("codex:primary","weekly",51,10080,at.AddDays(4));
+    var shortWindow=new QuotaWindow("codex:secondary","5h",10,300,at.AddHours(3));
+    Check(!CapacitySamplingProgress.WeeklyContextChanged([weekly,shortWindow],[weekly with{Used=52},shortWindow with{Used=0,ResetsAt=at.AddHours(5)}]));
+    Check(CapacitySamplingProgress.WeeklyContextChanged([weekly],[weekly with{Used=0,ResetsAt=at.AddDays(7)}]));
+    Check(CapacitySamplingProgress.WeeklyContextChanged([weekly],[weekly with{Used=50}]));
+    Check(!CapacitySamplingProgress.WeeklyContextChanged([weekly],[weekly with{ResetsAt=weekly.ResetsAt!.Value.AddSeconds(120)}]));
+    Check(CapacitySamplingProgress.WeeklyContextChanged([weekly],[weekly with{ResetsAt=weekly.ResetsAt!.Value.AddSeconds(121)}]));
+    Check(CapacitySamplingProgress.WeeklyContextChanged([weekly],[weekly with{Key="codex:new"}]));
+    Check(CapacitySamplingProgress.WeeklyContextChanged([weekly],[]));
+    Check(CapacitySamplingProgress.WeeklyContextChanged([],[weekly]));
+    Check(CapacitySamplingProgress.WeeklyContextChanged([weekly],[weekly with{ResetsAt=null}]));
+});
+Test("新周期与历史参考不泄漏旧采样进度",() =>
+{
+    var now=DateTimeOffset.Now;var reset=now.AddDays(6);const string key="codex:primary";
+    var quota=new QuotaState([new(key,"weekly",8,10080,reset)],null,now,"ok",true,"a"){Plan="pro"};
+    var cache=new CapacityCache(4,"a","pro",Pricing.CatalogVersion,now,[new(key,"weekly",reset,6,6,600,1m,600,2,0)]);
+    var tracker=new WeeklyCapacityEstimator();tracker.ApplyTemporal(quota,cache,0,null,new Dictionary<string,double>{{key,6}});
+    Check(tracker.DescribeProgress(quota,0,true).Contains("8/6"));
+    foreach(var changed in new[]{quota with{Plan="plus"},quota with{Windows=[quota.Windows[0] with{ResetsAt=reset.AddDays(7),Used=2}]},quota with{Windows=[quota.Windows[0] with{Used=2}]},quota with{Windows=[quota.Windows[0] with{Used=7}]}})
+        Check(!tracker.DescribeProgress(changed,0,true).Contains("8/6")&&tracker.DescribeProgress(changed,0,true).Contains("正在更新采样状态"));
+    Check(!tracker.DescribeProgress(quota with{AccountKey="b"},0,true).Contains("8/6"));
+    Check(tracker.DescribeProgress(quota with{Windows=[quota.Windows[0] with{ResetsAt=reset.AddSeconds(30)}]},0,true).Contains("8/6"));
+    var newQuota=quota with{Windows=[quota.Windows[0] with{ResetsAt=reset.AddDays(7),Used=2}]};
+    tracker.Restore(cache);tracker.InitializeTemporal(newQuota);
+    Check(tracker.DisplayCurrent.Single().HistoricalAt is not null);
+    Check(tracker.DescribeProgress(newQuota,0,true).Contains("0/6")&&!tracker.DescribeProgress(newQuota,0,true).Contains("8/6"));
+    var empty=new CapacityCache(4,"a","pro",Pricing.CatalogVersion,now,[]);
+    tracker.ApplyTemporal(newQuota,empty,0,null,new Dictionary<string,double>{{key,0}});
+    Check(tracker.DisplayCurrent.Single().HistoricalAt is not null&&tracker.DescribeProgress(newQuota,0,true).Contains("2/6"));
+    Check(L10n.T("capacity.previous").Contains("历史参考"));
+    Check(L10n.F("capacity.previousAt",now).Contains("非最新记录时间"));
+});
+Test("额度上下文改变立即切历史参考，确认新区间后恢复当前估算",() =>
+{
+    var now=DateTimeOffset.Now;var reset=now.AddDays(4);const string key="codex:primary";
+    var quota=new QuotaState([new(key,"weekly",51,10080,reset)],null,now,"ok",true,"a"){Plan="pro"};
+    var cache=new CapacityCache(4,"a","pro",Pricing.CatalogVersion,now,[new(key,"weekly",reset,51,12,1200,12m,1200,4,0)]);
+    foreach(var next in new[]{quota with{Windows=[quota.Windows[0] with{Used=0,ResetsAt=now.AddDays(7)}]},quota with{Windows=[quota.Windows[0] with{Used=50}]}})
+    {
+        var tracker=new WeeklyCapacityEstimator();tracker.ApplyTemporal(quota,cache,0,null);
+        Check(tracker.DisplayCurrent.Single().HistoricalAt is null);
+        Check(CapacitySamplingProgress.WeeklyContextChanged(quota.PrimaryWindows,next.PrimaryWindows));
+        tracker.InitializeTemporal(next);
+        Check(tracker.DisplayCurrent.Single().HistoricalAt is not null);
+        Check(tracker.DescribeProgress(next,0,true).Contains("0/6"));
+        var nextCache=new CapacityCache(4,"a","pro",Pricing.CatalogVersion,now,
+            [new(key,"weekly",next.Windows[0].ResetsAt!.Value,next.Windows[0].Used,6,600,9m,600,2,0)]);
+        tracker.ApplyTemporal(next,nextCache,0,null);
+        Check(tracker.DisplayCurrent.Single() is {HistoricalAt:null,ObservedPercent:6,Samples:2});
+        Check(tracker.DisplayCurrent.Single().EstimatedDollars==150m);
+    }
 });
 Test("后台估算拒绝旧扫描、账号套餐快照和设置世代",() =>
 {

@@ -6,12 +6,29 @@ public sealed record QuotaObservation(DateTimeOffset At,string? Account,string? 
     public string? BarrierReason { get; init; }
 }
 public sealed record CapacityInterval(string Key,DateTimeOffset From,DateTimeOffset To,string Account,string Plan,DateTimeOffset Reset,double Percent,long Tokens,decimal Cost,long Priced,string[] EventIds,string? Exclusion);
-public sealed record CapacityInterruption(string Key,DateTimeOffset From,DateTimeOffset To,string Reason);
+public sealed record CapacityInterruption(string Key,DateTimeOffset From,DateTimeOffset To,string Reason)
+{
+    public string? Account { get; init; }
+    public string? Plan { get; init; }
+    public string? PricingVersion { get; init; }
+    public DateTimeOffset? Reset { get; init; }
+    public bool Matches(QuotaObservation current)=>!current.Barrier&&From<=To&&To<=current.At&&!string.IsNullOrWhiteSpace(Account)&&
+        !string.IsNullOrWhiteSpace(Plan)&&Account==current.Account&&Plan==current.Plan&&
+        PricingVersion==UsageLoom.Core.Pricing.CatalogVersion&&PricingVersion==current.PricingVersion&&
+        Reset is {} interruptedReset&&current.Windows.Any(w=>w.Key==Key&&w.IsPrimary&&w.Minutes==10080&&
+            double.IsFinite(w.Used)&&w.Used>=0&&w.Used<=100&&w.ResetsAt is {} reset&&reset>current.At&&
+            Math.Abs((reset-interruptedReset).TotalMinutes)<=2);
+}
 public sealed record TemporalCapacityResult(CapacityCache? Cache,List<CapacityInterval> Intervals,DateTimeOffset? PendingFrom,List<CapacityCache> History)
 {
     // Display-only anchors; unfinished intervals must not enter estimates or archives.
     public Dictionary<string,double> PendingBaselineUsed { get; init; } = [];
+    public Dictionary<string,CapacityPendingSample> PendingSamples { get; init; } = [];
     public List<CapacityInterruption> Interruptions { get; init; } = [];
+    // Survives temporary cycle switches, but never crosses an identity/source hard boundary.
+    public List<CapacityInterruption> ActiveInterruptions { get; init; } = [];
+    // Diagnostic history only. Never display an old cycle's warnings as current failures.
+    public List<CapacityInterruption> AllInterruptions { get; init; } = [];
 }
 
 public static class TemporalCapacity
@@ -24,6 +41,7 @@ public static class TemporalCapacity
         var ordered=CapacityObservations.Prepare(observations);
         var stable=indexedThrough is not null;var version=stable?4:3;
         var confirmed=new HashSet<(DateTimeOffset,string)>();
+        var snapshotConfirmed=new HashSet<(DateTimeOffset,string)>();
         if(stable)
         {
             var future=new Dictionary<string,(QuotaObservation End,QuotaWindow Next)>();QuotaObservation? next=null;
@@ -43,7 +61,11 @@ public static class TemporalCapacity
                         future[w.Key]=(o,w);
                     else
                     {
-                        if(f.End.At>=o.At.AddMinutes(2)&&indexedThrough>=o.At.AddMinutes(2))confirmed.Add((o.At,w.Key));
+                        if(f.End.At>=o.At.AddMinutes(2))
+                        {
+                            snapshotConfirmed.Add((o.At,w.Key));
+                            if(indexedThrough>=o.At.AddMinutes(2))confirmed.Add((o.At,w.Key));
+                        }
                         future[w.Key]=(f.End,w);
                     }
                 }
@@ -74,6 +96,13 @@ public static class TemporalCapacity
             pendingAnchors.Add((key,start.Observation,start.Window,end,endWindow,timeout,interruptedAt??end.At));
         }
         var interruptions=new List<CapacityInterruption>();
+        var allInterruptions=new List<CapacityInterruption>();
+        void Interrupt(string key,QuotaObservation start,QuotaWindow window,DateTimeOffset to,string reason)
+        {
+            var item=new CapacityInterruption(key,start.At,to,reason)
+                {Account=start.Account,Plan=start.Plan,PricingVersion=start.PricingVersion,Reset=window.ResetsAt};
+            interruptions.Add(item);allInterruptions.Add(item);
+        }
         QuotaObservation? last=null;
         foreach(var observation in ordered)
         {
@@ -92,7 +121,7 @@ public static class TemporalCapacity
                 foreach(var key in anchors.Keys.ToArray())SuspendPending(key,last,true,o.At);
                 if(o.BarrierReason=="snapshot-unavailable")
                 {
-                    foreach(var p in pendingAnchors)interruptions.Add(new(p.Key,p.Start.At,o.At,"snapshot-unavailable"));
+                    foreach(var p in pendingAnchors)Interrupt(p.Key,p.Start,p.Window,o.At,"snapshot-unavailable");
                     pendingAnchors.Clear();
                 }
                 foreach(var pair in totals.Where(p=>p.Value.Samples>0))
@@ -154,9 +183,9 @@ public static class TemporalCapacity
                             uncertainRanges?.Any(r=>r.Overlaps(p.Start.At,o.At))!=true&&
                             (p.Timeout||!allEvents.Any(e=>e.Timestamp>p.End.At&&e.Timestamp<=o.At));
                         if(safe)anchors[w.Key]=(p.Start,p.Window);
-                        else interruptions.Add(new(w.Key,p.Start.At,o.At,
+                        else Interrupt(w.Key,p.Start,p.Window,o.At,
                             !verified?"unverified-ownership":uncertainRanges?.Any(r=>r.Overlaps(p.Start.At,o.At))==true?"uncertain-history":
-                            !confirmed.Contains((o.At,w.Key))?"awaiting-confirmation":"continuity-not-proven"));
+                            !confirmed.Contains((o.At,w.Key))?"awaiting-confirmation":"continuity-not-proven");
                     }
                     continue;
                 }
@@ -185,7 +214,25 @@ public static class TemporalCapacity
         }
         var cache=last is not null&&!last.Barrier&&last.Account is not null&&last.Plan is not null&&last.PricingVersion==Pricing.CatalogVersion?
             new CapacityCache(version,last.Account,last.Plan,Pricing.CatalogVersion,last.At,totals.Values.Where(t=>t.Samples>0).ToList()):null;
+        // Explain unfinished samples with the same endpoint evidence as the
+        // calculation. These fields are display-only and never accept a block.
+        var pendingSamples=new Dictionary<string,CapacityPendingSample>();
+        if(stable&&last is not null&&!last.Barrier)
+        foreach(var (key,anchor) in anchors)
+        {
+            if(anchor.Window.ResetsAt is not {} reset||last.Windows.FirstOrDefault(w=>w.Key==key) is not {} current)continue;
+            var candidate=ordered.Where(o=>!o.Barrier&&o.At>anchor.Observation.At&&o.Account==last.Account&&o.Plan==last.Plan&&
+                o.PricingVersion==last.PricingVersion&&o.Windows.Any(w=>w.Key==key&&w.IsPrimary&&w.Minutes==10080&&
+                    w.ResetsAt is {} r&&Math.Abs((r-reset).TotalMinutes)<=2&&w.Used-anchor.Window.Used>=3))
+                .OrderByDescending(o=>snapshotConfirmed.Contains((o.At,key))).ThenBy(o=>o.At).FirstOrDefault();
+            pendingSamples[key]=new(key,reset,anchor.Window.Used,current.Used,candidate is not null,
+                candidate is not null&&snapshotConfirmed.Contains((candidate.At,key)),
+                candidate is not null&&indexedThrough>=candidate.At.AddMinutes(2)&&
+                    uncertainRanges?.Any(r=>r.Overlaps(anchor.Observation.At,candidate.At))!=true);
+        }
         return new(cache,intervals,anchors.Count>0?anchors.Values.Min(a=>a.Observation.At):null,history.Values.ToList())
-        {PendingBaselineUsed=anchors.ToDictionary(p=>p.Key,p=>p.Value.Window.Used),Interruptions=interruptions};
+        {PendingBaselineUsed=anchors.ToDictionary(p=>p.Key,p=>p.Value.Window.Used),PendingSamples=pendingSamples,
+            Interruptions=last is null?[]:interruptions.Where(i=>i.Matches(last)).ToList(),
+            ActiveInterruptions=interruptions,AllInterruptions=allInterruptions};
     }
 }

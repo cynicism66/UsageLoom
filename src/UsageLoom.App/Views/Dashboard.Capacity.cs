@@ -29,7 +29,8 @@ internal sealed partial class Dashboard
                 estimates.Children.Add(new TextBlock{Text=estimate.DollarLow is {} low&&estimate.DollarHigh is {} high?L10n.F("capacity.range",low,high):L10n.T("capacity.rangePending"),TextWrapping=TextWrapping.Wrap,Opacity=.7});
             }
         }
-        else estimates.Children.Add(new TextBlock{Text=app.WeeklyCapacityProgress,TextWrapping=TextWrapping.Wrap});
+        estimates.Children.Add(new TextBlock{Text=L10n.T("capacity.currentSamplingTitle"),FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
+        estimates.Children.Add(new TextBlock{Text=app.WeeklyCapacityProgress,TextWrapping=TextWrapping.Wrap});
         estimates.Children.Add(new TextBlock{Text=app.CapacityCacheStatus,FontSize=12,Opacity=.65,TextWrapping=TextWrapping.Wrap});
         estimates.Children.Add(Button(L10n.T("s4C6D9D73BFC8"),ShowCapacityHistory));
         estimates.Children.Add(Button(L10n.T("capacity.calculateNow"),async()=>await app.CalculateCapacityNowAsync()));

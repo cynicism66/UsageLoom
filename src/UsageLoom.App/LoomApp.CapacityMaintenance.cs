@@ -48,7 +48,7 @@ public sealed partial class LoomApp
                         Quota.PrimaryWindows.Where(w=>w.Minutes==10080).ToList()):null;
                     backup=await Task.Run(()=>store.MaintainCapacity(action=="clear",at,baseline),lifetime.Token);
                     capacityEstimator.Reset();capacityDisplayIdentity=null;capacityDisplayWindows=[];
-                    capacityInterruptionCount=0;capacityInterruptionDetails="";WeeklyCapacity=[];capacityLastCalculated=null;
+                    capacityInterruptions=[];WeeklyCapacity=[];capacityLastCalculated=null;
                     capacityFeedback=L10n.T("maintenance."+action+"Done");
                     capacityBatch.CompleteRevalidation();
                     if(action=="restart")RestoreCapacity();

@@ -6,9 +6,9 @@ Windows 11 上的 Codex 用量与额度面板。无需登录即可统计本机 T
 
 UsageLoom 是独立开源项目，不隶属于 OpenAI。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.8.6
+## Windows 桌面版 0.8.7
 
-0.8.6：确认 Token 归属后立即重新核验估算；独立续验账号身份，避免额度查询退避导致归属空档。[发布说明](docs/releases/RELEASE-0.8.6.md)
+0.8.7：中断提示只对应当前周周期；区分累计百分点、等待快照和等待日志，历史估算明确标为参考。[发布说明](docs/releases/RELEASE-0.8.7.md)
 
 0.7.5：额度周期短暂变化后恢复原周期的有效样本，并增加脱敏查询来源诊断。[发布说明](docs/releases/RELEASE-0.7.5.md)
 
