@@ -12,6 +12,8 @@ if(args.Length>=2&&args[0]=="--fake-rpc")
         using var document=JsonDocument.Parse(line);var message=document.RootElement;
         if(!message.TryGetProperty("id",out var identifier))continue;
         var id=identifier.GetInt32();var method=message.GetProperty("method").GetString();
+        if(scenario.StartsWith("identity-")&&method is not "initialize" and not "account/read")
+            throw new Exception("独立身份续验不得请求额度、标题、登录或刷新凭据");
         if(method=="initialize")Console.WriteLine(JsonSerializer.Serialize(new{id,result=new{}}));
         else if(method=="thread/list"&&scenario=="bad-thread-json")Console.WriteLine("{invalid}");
         else if(method=="thread/list")Console.WriteLine(JsonSerializer.Serialize(new{id,result=new{data=new[]{new{id="account-a",sessionId="session-root",name="可读会话标题",preview="不应作为标题"}},nextCursor=(string?)null}}));
@@ -28,8 +30,11 @@ if(args.Length>=2&&args[0]=="--fake-rpc")
             reads++;
             var refresh=message.GetProperty("params").GetProperty("refreshToken").GetBoolean();
             if(refresh&&scenario!="auth-once")throw new Exception("不允许强制刷新凭据");
+            if(scenario is "identity-network" or "identity-auth")
+            {Console.WriteLine(JsonSerializer.Serialize(new{id,error=new{code=scenario=="identity-auth"?401:-32000,message=scenario=="identity-auth"?"unauthorized: token expired":"error sending request: dns error: no such host"}}));await Console.Out.FlushAsync();continue;}
+            if(scenario=="identity-notification"&&reads==1)Console.WriteLine("{\"method\":\"account/updated\",\"params\":{\"authMode\":\"chatgpt\"}}");
             object? account=scenario=="signed-out"?null:scenario.StartsWith("no-identity")?new{type="chatgpt",email=scenario=="no-identity-switch"&&reads>1?"other@example.com":"synthetic@example.com"}:
-                new{type="chatgpt",accountId=scenario=="switch"&&reads>1?"account-b":"account-a",planType="test"};
+                new{type="chatgpt",accountId=(scenario is "switch" or "identity-switch")&&reads>1?"account-b":"account-a",planType="test"};
             Console.WriteLine(JsonSerializer.Serialize(new{id,result=new{account}}));
         }
         else if(method=="account/rateLimits/read")
@@ -367,6 +372,37 @@ Test("周估算五分钟批量门控，空闲跳过且手动可立即计算",() 
     Check(!schedule.TryBegin(at.AddMinutes(20)));schedule.MarkDirty();Check(schedule.TryBegin(at.AddMinutes(20)));
     schedule.MarkDirty();Check(!schedule.TryBegin(at.AddMinutes(21)));Check(schedule.TryBegin(at.AddMinutes(21),true));
     Check(!schedule.TryBegin(at.AddMinutes(25)));schedule.MarkDirty();Check(schedule.TryBegin(at.AddMinutes(26)));
+});
+Test("归属确认立即重算且失败重试不清除待核验状态",() =>
+{
+    var at=DateTimeOffset.UtcNow;var schedule=new CapacityBatchSchedule(at);
+    Check(schedule.TryBegin(at,true));
+    var confirmedAt=at.AddSeconds(1);
+    schedule.RequestRevalidation(confirmedAt);
+    Check(schedule.RevalidationPending&&schedule.NextAt==confirmedAt&&schedule.TryBegin(confirmedAt),"不能等待原五分钟批次");
+    Check(schedule.RevalidationPending,"启动计算不等于核验成功");
+    schedule.RetrySoon(confirmedAt);Check(schedule.RevalidationPending&&schedule.Dirty);
+    Check(!schedule.TryBegin(confirmedAt.AddSeconds(4))&&schedule.TryBegin(confirmedAt.AddSeconds(5)));
+    Check(schedule.RevalidationPending);
+    schedule.CompleteRevalidation();Check(!schedule.RevalidationPending);
+    schedule.RequestRevalidation(at.AddMinutes(1));schedule.MarkDirty();
+    Check(schedule.RevalidationPending&&schedule.Dirty,"索引或额度未就绪时继续等待，不冒充完成");
+});
+Test("补归属后重新计算撤下旧归属原因但保留真实连续性问题",() =>
+{
+    var at=DateTimeOffset.UtcNow;var reset=at.AddDays(7);
+    QuotaObservation O(int m,double used)=>new(at.AddMinutes(m),"a","pro",Pricing.CatalogVersion,[new("codex:weekly","weekly",used,10080,reset)]);
+    var eventRow=new UsageEvent("confirmed","s","p","gpt-5.4","main",at.AddMinutes(2),"",new(100));
+    var normal=new[]{O(0,0),O(3,3),O(6,3)};
+    var before=TemporalCapacity.CalculateStable(normal,[eventRow],at.AddMinutes(10));
+    Check(before.Intervals.Any(i=>i.Exclusion=="unverified-ownership"));
+    var confirmed=eventRow with{AccountScope="a",AccountAttribution="user-confirmed"};
+    var after=TemporalCapacity.CalculateStable(normal,[confirmed],at.AddMinutes(10));
+    Check(after.Intervals.All(i=>i.Exclusion is null)&&after.Cache!.Windows.Single().Tokens==100);
+    var gap=new[]{O(0,0),O(1,0) with{Barrier=true,BarrierReason="query-failure",Windows=[]},O(15,3),O(18,3)};
+    var blocked=TemporalCapacity.CalculateStable(gap,[confirmed],at.AddMinutes(20));
+    Check(blocked.Interruptions.Any(i=>i.Reason=="continuity-not-proven"));
+    Check(blocked.Interruptions.All(i=>i.Reason!="unverified-ownership"),"不能继续展示已经解决的归属问题");
 });
 Test("重启推定用量需审计和前后快照核验，不修改原始归属",() =>
 {
@@ -1584,6 +1620,71 @@ Test("账号确认独立于额度，有效期、换源、失效与时钟回拨�
     identity.Clear();Check(identity.Get(home,at) is null);
     identity.Observe(null,home,at);Check(identity.Get(home,at) is null);
     Check(new AttributionIdentity().Get(home,at) is null);
+});
+Test("账号续验提前于五分钟失效且换源与时钟回拨立即重验",()=>
+{
+    var at=DateTimeOffset.UtcNow;var identity=new AttributionIdentity();var home=Path.GetTempPath();
+    Check(identity.NeedsRenewal(home,at));identity.Observe("a",home,at);
+    Check(!identity.NeedsRenewal(home,at.AddMinutes(3).AddTicks(-1)));
+    Check(identity.NeedsRenewal(home,at.AddMinutes(3))&&identity.Get(home,at.AddMinutes(3))=="a");
+    Check(identity.NeedsRenewal(home,at.AddMinutes(5).AddTicks(1))&&identity.Get(home,at.AddMinutes(5).AddTicks(1)) is null);
+    Check(identity.NeedsRenewal(Path.Combine(home,"changed"),at));Check(identity.NeedsRenewal(home,at.AddTicks(-1)));
+    identity.Clear();Check(identity.NeedsRenewal(home,at));
+});
+AsyncTest("独立账号续验仅请求只读身份且不借用额度缓存",async()=>
+{
+    await using var client=FakeClient("identity-only");var home=Fixture("identity-renew-only");
+    Check(await client.RenewAttributionIdentityAsync(null,home,default));
+    var scope=client.AttributionIdentity.Get(home,DateTimeOffset.UtcNow);Check(scope is not null&&client.ThreadNames.Count==0);
+    client.AttributionIdentity.Observe(scope,home,DateTimeOffset.UtcNow.AddMinutes(-3));
+    Check(client.AttributionIdentity.NeedsRenewal(home,DateTimeOffset.UtcNow));
+    Check(await client.RenewAttributionIdentityAsync(null,home,default));
+    Check(client.AttributionIdentity.Get(home,DateTimeOffset.UtcNow)==scope&&!client.AttributionIdentity.NeedsRenewal(home,DateTimeOffset.UtcNow));
+    Check(client.AttributionIdentity.Get(home,DateTimeOffset.UtcNow.AddMinutes(6)) is null);
+});
+AsyncTest("长额度退避期间独立续验保持新增 Token 归属且不补旧记录",async()=>
+{
+    var home=Fixture("identity-renew-scan");var file=Path.Combine(home,"sessions","a.jsonl");
+    var store=new HistoryStore(Path.Combine(home,"data"));var scanner=new IncrementalHistory(store);
+    await using var failedQuota=FakeClient("network-always");
+    try{await failedQuota.ReadAsync(null,home,default);}catch(CodexRpcException){}
+    var scope=failedQuota.AttributionIdentity.Get(home,DateTimeOffset.UtcNow);Check(scope is not null);
+    await File.WriteAllLinesAsync(file,[Meta("renew-scan"),Model(),Count(80,20)]);
+    await scanner.ScanAsync(home,default,accountScope:scope);
+    await using var renewal=FakeClient("identity-only");
+    renewal.AttributionIdentity.Observe(scope,home,DateTimeOffset.UtcNow.AddMinutes(-3));
+    Check(await renewal.RenewAttributionIdentityAsync(null,home,default));
+    await File.AppendAllTextAsync(file,Count(160,40)+"\n");
+    await scanner.ScanAsync(home,default,accountScope:renewal.AttributionIdentity.Get(home,DateTimeOffset.UtcNow));
+    Check(store.Read().Where(e=>e.AccountScope==scope).Sum(e=>e.Tokens.Total)==100);
+    Check(store.Read().Where(e=>e.AccountScope is null).Sum(e=>e.Tokens.Total)==100);
+});
+AsyncTest("独立续验传输失败保留未过期身份而明确认证失败撤销",async()=>
+{
+    foreach(var scenario in new[]{"identity-network","identity-auth"})
+    {
+        await using var client=FakeClient(scenario);var at=DateTimeOffset.UtcNow;var invalidated=0;
+        client.AccountInvalidated+=_=>invalidated++;client.AttributionIdentity.Observe("old","unused",at);
+        var failed=false;try{await client.RenewAttributionIdentityAsync(null,"unused",default);}catch(CodexRpcException){failed=true;}
+        Check(failed&&!client.IsConnected);
+        Check(scenario=="identity-network"?client.AttributionIdentity.Get("unused",DateTimeOffset.UtcNow)=="old"&&invalidated==0:
+            client.AttributionIdentity.Get("unused",DateTimeOffset.UtcNow) is null&&invalidated>0);
+        Check(client.AttributionIdentity.Get("unused",at.AddMinutes(6)) is null);
+    }
+});
+AsyncTest("独立续验识别换号、通知竞争和未登录而不沿用旧身份",async()=>
+{
+    foreach(var scenario in new[]{"identity-switch","identity-notification","signed-out"})
+    {
+        await using var client=FakeClient(scenario);var invalidated=0;client.AccountInvalidated+=_=>invalidated++;
+        client.AttributionIdentity.Observe("old","unused",DateTimeOffset.UtcNow);
+        Check(!await client.RenewAttributionIdentityAsync(null,"unused",default),scenario);
+        Check(invalidated>0&&client.AttributionIdentity.Get("unused",DateTimeOffset.UtcNow) is null,scenario);
+    }
+    await using var changed=FakeClient("identity-only");var hard=0;changed.AccountInvalidated+=value=>{if(value)hard++;};
+    changed.AttributionIdentity.Observe("different-old-account","unused",DateTimeOffset.UtcNow.AddMinutes(-6));
+    Check(await changed.RenewAttributionIdentityAsync(null,"unused",default));
+    Check(hard==1&&changed.AttributionIdentity.Get("unused",DateTimeOffset.UtcNow)!="different-old-account");
 });
 AsyncTest("额度失败期间及恢复首轮扫描仍使用独立确认账号，不补旧历史",async()=>
 {

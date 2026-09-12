@@ -12,6 +12,16 @@ public sealed class AttributionIdentity
         lock(gate){account=string.IsNullOrWhiteSpace(key)?null:key;home=Path.GetFullPath(source);verifiedAt=at;}
     }
     public void Clear(){lock(gate){account=null;home=null;}}
+    public bool NeedsRenewal(string source,DateTimeOffset now)
+    {
+        lock(gate)return string.IsNullOrWhiteSpace(account)||now<verifiedAt||now-verifiedAt>=TimeSpan.FromMinutes(3)||
+            !string.Equals(home,Path.GetFullPath(source),StringComparison.OrdinalIgnoreCase);
+    }
+    // Comparison only: an expired identity must never be used to assign usage.
+    internal string? LastKnown(string source)
+    {
+        lock(gate)return string.Equals(home,Path.GetFullPath(source),StringComparison.OrdinalIgnoreCase)?account:null;
+    }
     public string? Get(string source,DateTimeOffset now)
     {
         lock(gate)return now>=verifiedAt&&now-verifiedAt<=TimeSpan.FromMinutes(5)&&

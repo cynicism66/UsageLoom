@@ -16,7 +16,7 @@ internal sealed partial class Dashboard
         if(capacityInfoFlyout is null)return;
         if(!app.Config.CapacityEnabled){capacityInfoFlyout.Hide();return;}
         var estimate=app.Quota.Fresh?app.WeeklyCapacity.FirstOrDefault(e=>e.ObservedPercent>=5&&e.Samples>=2):null;
-        capacityInfoText.Text=(estimate is null?"":L10n.F("s99933FEC8200",estimate.DollarDisplay,UsageNumbers.Compact(estimate.EstimatedTokens),estimate.PricingCoverage)+"\n"+
+        capacityInfoText.Text=(estimate is null?"":(app.CapacityRevalidationPending?L10n.T("attribution.previousEstimate")+"\n":"")+L10n.F("s99933FEC8200",estimate.DollarDisplay,UsageNumbers.Compact(estimate.EstimatedTokens),estimate.PricingCoverage)+"\n"+
             (estimate.HistoricalAt is {} saved?L10n.F("capacity.previousAt",saved.ToLocalTime())+"\n":""))+app.WeeklyCapacityProgress;
     }
 

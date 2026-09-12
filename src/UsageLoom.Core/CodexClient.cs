@@ -6,7 +6,7 @@ using System.Threading.Channels;
 
 namespace UsageLoom.Core;
 
-public sealed class CodexClient(DiagnosticLog log, LocalAccountFingerprint? fingerprints = null) : IAsyncDisposable
+public sealed partial class CodexClient(DiagnosticLog log, LocalAccountFingerprint? fingerprints = null) : IAsyncDisposable
 {
     private Process? process;
     private readonly ConcurrentDictionary<int,TaskCompletionSource<JsonElement>> pending = new();

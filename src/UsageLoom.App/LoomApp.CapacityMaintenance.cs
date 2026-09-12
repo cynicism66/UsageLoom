@@ -20,7 +20,7 @@ public sealed partial class LoomApp
     private async Task<string> MaintainCapacityCoreAsync(string action)
     {
         if(action is not ("repair" or "clear" or "restart"))throw new ArgumentException("Unknown maintenance action");
-        if(IsDemo||capacityMaintenanceBusy||scanning||refreshing||attributionBusy||Authorizing||quitting)
+        if(IsDemo||capacityMaintenanceBusy||scanning||refreshing||identityRefreshing||attributionBusy||Authorizing||quitting)
             throw new InvalidOperationException(L10n.T("maintenance.busy"));
         if(action!="clear"&&(!Config.CapacityEnabled||!Quota.Fresh||Quota.AccountKey is null||
             !Quota.PrimaryWindows.Any(w=>w.Minutes==10080&&w.ResetsAt>DateTimeOffset.UtcNow)))
@@ -50,6 +50,7 @@ public sealed partial class LoomApp
                     capacityEstimator.Reset();capacityDisplayIdentity=null;capacityDisplayWindows=[];
                     capacityInterruptionCount=0;capacityInterruptionDetails="";WeeklyCapacity=[];capacityLastCalculated=null;
                     capacityFeedback=L10n.T("maintenance."+action+"Done");
+                    capacityBatch.CompleteRevalidation();
                     if(action=="restart")RestoreCapacity();
                 }
                 capacityBatch.MarkDirty();
