@@ -5,8 +5,13 @@ public sealed record CapacitySample(string Key,string Label,DateTimeOffset Reset
     public decimal? DollarLow { get; init; }
     public decimal? DollarHigh { get; init; }
     public int RangeSamples { get; init; }
+    public UsagePricingProfile? PricingProfile { get; init; }
 }
-public sealed record CapacityCache(int Version,string Account,string Plan,string PricingVersion,DateTimeOffset SavedAt,List<CapacitySample> Windows);
+public sealed record CapacityCache(int Version,string Account,string Plan,string PricingVersion,DateTimeOffset SavedAt,List<CapacitySample> Windows)
+{
+    // Missing in legacy JSON means unverified evidence, not an upgraded estimate.
+    public int EvidenceVersion { get; init; }
+}
 
 public sealed record WeeklyCapacityEstimate(
     string WindowKey,
@@ -24,6 +29,11 @@ public sealed record WeeklyCapacityEstimate(
     public double PricingCoverage { get; init; }
     public decimal? DollarLow { get; init; }
     public decimal? DollarHigh { get; init; }
+    public int EvidenceVersion { get; init; }
+    public UsagePricingProfile? PricingProfile { get; init; }
+    public bool HasCurrentPricingEvidence=>EvidenceVersion==UsagePricingProfile.CurrentVersion&&PricingProfile?.IsValidFor(ObservedTokens)==true;
+    public string EvidenceSummary=>HasCurrentPricingEvidence?L10n.F("capacity.evidenceSummary",PricingProfile!.ActualCoverage,PricingProfile.RequestedCoverage,PricingProfile.UnknownCoverage):
+        L10n.T(HistoricalAt is null?"capacity.evidenceLegacy":"capacity.evidenceLegacyHistorical");
     public string DollarDisplay => EstimatedDollars is {} dollars?L10n.F("s1F2CD6B8A261", dollars)+(PricingCoverage<99.999?L10n.T("sD08FAC75B598"):""):L10n.T("s5D0032761903");
     public string ScopeNote => L10n.T("sAF8F04571120");
 }
@@ -50,6 +60,8 @@ public sealed class WeeklyCapacityEstimator
         public int RangeSamples { get; set; }
         public CapacityPendingSample? PendingSample { get; set; }
         public double LatestAppliedUsed { get; set; }
+        public UsagePricingProfile? PricingProfile { get; set; }
+        public int EvidenceVersion { get; set; }
     }
 
     private readonly Dictionary<string,WindowState> states=new(StringComparer.Ordinal);
@@ -68,9 +80,10 @@ public sealed class WeeklyCapacityEstimator
     }
     public CapacityCache? Export()=>string.IsNullOrWhiteSpace(accountKey)||string.IsNullOrWhiteSpace(plan)?null:
         new(temporal?temporalVersion:2,accountKey,plan,Pricing.CatalogVersion,DateTimeOffset.Now,states.Where(pair=>pair.Value.Samples>0&&pair.Value.ResetsAt is not null).Select(pair=>
-        {var s=pair.Value;return new CapacitySample(pair.Key,s.Label,s.ResetsAt!.Value,s.BaselineUsed,s.ObservedPercent,s.ObservedTokens,s.ObservedCost,s.PricedTokens,s.Samples,s.ExcludedIntervals){DollarLow=s.DollarLow,DollarHigh=s.DollarHigh,RangeSamples=s.RangeSamples};}).ToList());
+        {var s=pair.Value;return new CapacitySample(pair.Key,s.Label,s.ResetsAt!.Value,s.BaselineUsed,s.ObservedPercent,s.ObservedTokens,s.ObservedCost,s.PricedTokens,s.Samples,s.ExcludedIntervals){DollarLow=s.DollarLow,DollarHigh=s.DollarHigh,RangeSamples=s.RangeSamples,PricingProfile=s.PricingProfile};}).ToList())
+        {EvidenceVersion=states.Values.Where(s=>s.Samples>0).All(s=>s.EvidenceVersion==UsagePricingProfile.CurrentVersion)?UsagePricingProfile.CurrentVersion:0};
 
-    public string DescribeProgress(QuotaState quota,long localTokenTotal,bool historyLoaded)
+    public string DescribeProgress(QuotaState quota,long localTokenTotal,bool historyLoaded,bool compact=false)
     {
         if(quota.IsLocalAccount)return L10n.T("s94FCDB5088E1");
         if(!quota.Fresh)return L10n.T("s0F5B641F7850");
@@ -86,17 +99,17 @@ public sealed class WeeklyCapacityEstimator
             // cycle's confirmed count with the new cycle, even during that short interval.
             if(plan!=quota.Plan?.Trim().ToLowerInvariant()||NewWindow(state.ResetsAt,window.ResetsAt)||
                 !double.IsFinite(window.Used)||window.Used<state.LatestAppliedUsed-.0001)
-                return L10n.T("capacity.stageCurrentCycle");
+                return L10n.T(compact?"capacity.compactStageCurrentCycle":"capacity.stageCurrentCycle");
             var pending=percent;
             var evidence=state.PendingSample;
             if(evidence is not null&&(evidence.Key!=window.Key||NewWindow(evidence.Reset,window.ResetsAt)||
                 Math.Abs(evidence.BaselineUsed-state.BaselineUsed)>.0001||!double.IsFinite(evidence.Used)||
                 evidence.Used<window.Used-.0001))evidence=null;
-            return L10n.F("capacity.stableProgress",state.ObservedPercent+pending,state.Samples,state.ObservedPercent,pending)+
-                "\n"+CapacitySamplingProgress.Describe(pending,evidence);
+            return L10n.F(compact?"capacity.compactProgress":"capacity.stableProgress",state.ObservedPercent+pending,state.Samples,state.ObservedPercent,pending)+
+                "\n"+CapacitySamplingProgress.Describe(pending,evidence,compact);
         }
         var stage=state.Samples>0?L10n.F("s4C059D23076E", state.ObservedPercent, state.Samples):percent>0?L10n.T("sBBBF41C18FDD"):tokens>0?L10n.T("s56E6E4044346"):L10n.T("s374E804CF4EB");
-        return L10n.F("s62ED6CB79078", stage, tokens, percent, state.Samples, state.ExcludedIntervals);
+        return compact?stage:L10n.F("s62ED6CB79078", stage, tokens, percent, state.Samples, state.ExcludedIntervals);
     }
 
     public IReadOnlyList<WeeklyCapacityEstimate> Observe(QuotaState quota,long localTokenTotal,Estimate? price=null)
@@ -174,7 +187,7 @@ public sealed class WeeklyCapacityEstimator
             var state=pair.Value;
             var confidence=state.ExcludedIntervals>0?L10n.T("sAA9E366F68D3"):state.ObservedPercent>=10&&state.Samples>=3?L10n.T("sDFBAD24E7F4A"):state.ObservedPercent>=5&&state.Samples>=2?L10n.T("sA567BDAA1136"):L10n.T("sAA9E366F68D3");
             if(temporalVersion==4)confidence=L10n.T(state.ObservedPercent>=30&&state.Samples>=6?"capacity.mature":state.ObservedPercent>=12&&state.Samples>=4?"capacity.developing":"capacity.preliminary");
-            return new WeeklyCapacityEstimate(pair.Key,state.Label,state.ObservedTokens*100d/state.ObservedPercent,state.ObservedTokens,state.ObservedPercent,state.Samples,state.ExcludedIntervals,confidence,state.ResetsAt){EstimatedDollars=state.PricedTokens>0?state.ObservedCost*100m/(decimal)state.ObservedPercent:null,PricingCoverage=100d*state.PricedTokens/state.ObservedTokens,DollarLow=state.RangeSamples>=3?state.DollarLow:null,DollarHigh=state.RangeSamples>=3?state.DollarHigh:null};
+            return new WeeklyCapacityEstimate(pair.Key,state.Label,state.ObservedTokens*100d/state.ObservedPercent,state.ObservedTokens,state.ObservedPercent,state.Samples,state.ExcludedIntervals,confidence,state.ResetsAt){EstimatedDollars=state.PricedTokens>0?state.ObservedCost*100m/(decimal)state.ObservedPercent:null,PricingCoverage=100d*state.PricedTokens/state.ObservedTokens,DollarLow=state.RangeSamples>=3?state.DollarLow:null,DollarHigh=state.RangeSamples>=3?state.DollarHigh:null,PricingProfile=state.PricingProfile,EvidenceVersion=state.EvidenceVersion};
         }).OrderByDescending(value=>value.ObservedPercent).ToList();
 
     // Display-only fallback: never feed an old window into Observe or Export.
@@ -192,7 +205,7 @@ public sealed class WeeklyCapacityEstimator
                 if(old.Sample is not {} s)continue;
                 current.RemoveAll(e=>e.WindowKey==key);
                 current.Add(new(key,s.Label,s.Tokens*100d/s.Percent,s.Tokens,s.Percent,s.Samples,s.Excluded,L10n.T("capacity.previous"),s.ResetsAt)
-                {HistoricalAt=old.Cache.SavedAt,EstimatedDollars=s.Priced>0?s.Cost*100m/(decimal)s.Percent:null,PricingCoverage=100d*s.Priced/s.Tokens,DollarLow=s.RangeSamples>=3?s.DollarLow:null,DollarHigh=s.RangeSamples>=3?s.DollarHigh:null});
+                {HistoricalAt=old.Cache.SavedAt,EstimatedDollars=s.Priced>0?s.Cost*100m/(decimal)s.Percent:null,PricingCoverage=100d*s.Priced/s.Tokens,DollarLow=s.RangeSamples>=3?s.DollarLow:null,DollarHigh=s.RangeSamples>=3?s.DollarHigh:null,PricingProfile=s.PricingProfile,EvidenceVersion=old.Cache.EvidenceVersion});
             }
             return current;
         }
@@ -231,7 +244,7 @@ public sealed class WeeklyCapacityEstimator
             var baseline=cache is not null&&cache.Account==accountKey&&cache.Plan==plan&&pendingBaselineUsed?.TryGetValue(window.Key,out var used)==true?used:window.Used;
             var pendingSample=pendingSamples?.GetValueOrDefault(window.Key);
             states[window.Key]=new WindowState{Label=window.Label,ResetsAt=window.ResetsAt,BaselineUsed=baseline,BaselineTokens=localTotal,BaselinePrice=price,
-                ObservedPercent=s?.Percent??0,ObservedTokens=s?.Tokens??0,ObservedCost=s?.Cost??0,PricedTokens=s?.Priced??0,Samples=s?.Samples??0,ExcludedIntervals=s?.Excluded??0,DollarLow=s?.DollarLow,DollarHigh=s?.DollarHigh,RangeSamples=s?.RangeSamples??0,PendingSample=pendingSample,LatestAppliedUsed=window.Used};
+                ObservedPercent=s?.Percent??0,ObservedTokens=s?.Tokens??0,ObservedCost=s?.Cost??0,PricedTokens=s?.Priced??0,Samples=s?.Samples??0,ExcludedIntervals=s?.Excluded??0,DollarLow=s?.DollarLow,DollarHigh=s?.DollarHigh,RangeSamples=s?.RangeSamples??0,PendingSample=pendingSample,LatestAppliedUsed=window.Used,PricingProfile=s?.PricingProfile,EvidenceVersion=cache?.EvidenceVersion??0};
         }
     }
 

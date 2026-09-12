@@ -2149,6 +2149,10 @@ Test("语言仅改变展示且不改变账号窗口与计价",()=>
     }
     finally{L10n.Language=before;}
 });
+PricingReliabilityTests.Run(Test);
+CapacityReliabilityTests.Run(Test);
+AsyncTest("模式时间线与真实扫描链路",ModeScannerTests.Run);
+ModeStorageTests.Run(AsyncTest,fixtureRoot);
 try
 {
     foreach (var entry in tests)

@@ -4,6 +4,8 @@ UsageLoom 将 Provider 专用的数据读取逻辑与 Provider 中立的报告�
 
 当前主产品已是 C#、.NET 10、WinUI 3 和 Windows App SDK 实现的 Windows 桌面／系统托盘应用。App 负责界面和生命周期，Core 负责解析、计价和估算，Storage 负责索引与持久化，详见[目录指南](REPOSITORY_LAYOUT.md)。
 
+桌面计价链路将计数账本与模式证据分开维护：`IncrementalHistory` 的原始计数索引继续用于去重、归属和重启验证，独立白名单模式副索引由 `UsageModeTimeline` 按线程与时间匹配到可靠的单请求用量。`Pricing` 决定适用 API 单价和条件说明；`TemporalCapacity` 只对通过原有连续性校验的区间计价，并用 `UsagePricingProfile` 保存有效样本的模式证据和工作负载构成。模式元数据版本、模式证据版本、价格目录版本及采样算法版本分别管理，不用一次计价补齐重置账号级采样。
+
 下文保留 JavaScript 原型架构作为历史参考，路径均相对于 `legacy/codex-plugin`；MCP 组件不是桌面程序的运行依赖。
 
 项目方向受到 `zJay26/codex-usage`（详细的本地用量归因）和 `Nirlep5252/CodexBarWindows`（实时额度窗口与紧凑的多 Provider 展示）这两类互补体验启发，详见[项目缘起](PROJECT_ORIGINS.md)。这里描述的是产品目标之间的关系，不表示项目之间共享源码。

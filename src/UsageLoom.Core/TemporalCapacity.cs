@@ -5,7 +5,10 @@ public sealed record QuotaObservation(DateTimeOffset At,string? Account,string? 
 {
     public string? BarrierReason { get; init; }
 }
-public sealed record CapacityInterval(string Key,DateTimeOffset From,DateTimeOffset To,string Account,string Plan,DateTimeOffset Reset,double Percent,long Tokens,decimal Cost,long Priced,string[] EventIds,string? Exclusion);
+public sealed record CapacityInterval(string Key,DateTimeOffset From,DateTimeOffset To,string Account,string Plan,DateTimeOffset Reset,double Percent,long Tokens,decimal Cost,long Priced,string[] EventIds,string? Exclusion)
+{
+    public UsagePricingProfile? PricingProfile { get; init; }
+}
 public sealed record CapacityInterruption(string Key,DateTimeOffset From,DateTimeOffset To,string Reason)
 {
     public string? Account { get; init; }
@@ -198,22 +201,24 @@ public static class TemporalCapacity
                 var tokens=part.Sum(e=>e.Tokens.Total);
                 if(tokens<=0)exclusion??="no-timed-usage";
                 var price=exclusion is null?Pricing.Summarize(part):null;
-                intervals.Add(new(w.Key,a.Observation.At,o.At,o.Account!,o.Plan!,reset,delta,tokens,price?.Cost??0,price?.Priced??0,part.Select(e=>e.Id).ToArray(),exclusion));
+                var profile=exclusion is null?UsagePricingProfile.From(part):null;
+                intervals.Add(new(w.Key,a.Observation.At,o.At,o.Account!,o.Plan!,reset,delta,tokens,price?.Cost??0,price?.Priced??0,part.Select(e=>e.Id).ToArray(),exclusion){PricingProfile=profile});
                 var t=totals.GetValueOrDefault(w.Key)??new(w.Key,w.Label,reset,w.Used,0,0,0,0,0,0);
                 totals[w.Key]=t with{LastUsed=w.Used,ResetsAt=reset,Percent=t.Percent+(exclusion is null?delta:0),Tokens=checked(t.Tokens+(exclusion is null?tokens:0)),Cost=t.Cost+(price?.Cost??0),Priced=t.Priced+(price?.Priced??0),Samples=t.Samples+(exclusion is null?1:0),Excluded=t.Excluded+(exclusion is null?0:1)};
+                if(profile is not null)totals[w.Key]=totals[w.Key] with{PricingProfile=UsagePricingProfile.Merge(t.PricingProfile,profile)};
                 if(stable&&price is {Priced:>0})
                 {
                     var value=price.Cost*100m/(decimal)delta;
                     totals[w.Key]=totals[w.Key] with{RangeSamples=t.RangeSamples+1,DollarLow=t.DollarLow is {} low?Math.Min(low,value):value,DollarHigh=t.DollarHigh is {} high?Math.Max(high,value):value};
                 }
                 var updated=totals[w.Key];
-                if(updated.Samples>0)history[segments[w.Key]+"|"+w.Key]=new(version,o.Account!,o.Plan!,Pricing.CatalogVersion,o.At,[updated]);
+                if(updated.Samples>0)history[segments[w.Key]+"|"+w.Key]=new(version,o.Account!,o.Plan!,Pricing.CatalogVersion,o.At,[updated]){EvidenceVersion=UsagePricingProfile.CurrentVersion};
                 anchors[w.Key]=(o,w);
             }
             last=o;
         }
         var cache=last is not null&&!last.Barrier&&last.Account is not null&&last.Plan is not null&&last.PricingVersion==Pricing.CatalogVersion?
-            new CapacityCache(version,last.Account,last.Plan,Pricing.CatalogVersion,last.At,totals.Values.Where(t=>t.Samples>0).ToList()):null;
+            new CapacityCache(version,last.Account,last.Plan,Pricing.CatalogVersion,last.At,totals.Values.Where(t=>t.Samples>0).ToList()){EvidenceVersion=UsagePricingProfile.CurrentVersion}:null;
         // Explain unfinished samples with the same endpoint evidence as the
         // calculation. These fields are display-only and never accept a block.
         var pendingSamples=new Dictionary<string,CapacityPendingSample>();

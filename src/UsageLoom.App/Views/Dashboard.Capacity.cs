@@ -27,6 +27,8 @@ internal sealed partial class Dashboard
                     Metric(L10n.T("s758E9EDBBD77"),$"{estimate.EstimatedTokens:N0}",L10n.F("s46B941557FE8", estimate.Confidence))},2,300));
                 estimates.Children.Add(new TextBlock{Text=L10n.F("s779F484C5099", estimate.Samples, estimate.ObservedTokens, estimate.ObservedPercent)+(estimate.ExcludedIntervals>0?L10n.F("sBF4A33F67127", estimate.ExcludedIntervals):""),TextWrapping=TextWrapping.Wrap,Opacity=.7});
                 estimates.Children.Add(new TextBlock{Text=estimate.DollarLow is {} low&&estimate.DollarHigh is {} high?L10n.F("capacity.range",low,high):L10n.T("capacity.rangePending"),TextWrapping=TextWrapping.Wrap,Opacity=.7});
+                estimates.Children.Add(new TextBlock{Text=estimate.EvidenceSummary,TextWrapping=TextWrapping.Wrap,Opacity=.7});
+                estimates.Children.Add(Button(L10n.T("capacity.valuationDetails"),()=>ShowCapacityPricingDetails(estimate)));
             }
         }
         estimates.Children.Add(new TextBlock{Text=L10n.T("capacity.currentSamplingTitle"),FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
@@ -132,6 +134,9 @@ internal sealed partial class Dashboard
                     var scope=record.Version==4&&record.PricingVersion==Pricing.CatalogVersion?L10n.T("s266D6CF4495A"):L10n.T("s6662BBA41E7D");
                     var dollars=sample.Priced>0?$"${sample.Cost*100m/(decimal)sample.Percent:N2}":L10n.T("s2CE9AC771C39");
                     entries.Children.Add(new TextBlock{Text=L10n.F("s403BBCA72EE4", record.SavedAt.ToLocalTime(), (same?L10n.T("sB56996D44E4A"):L10n.T("s92E27D68CB29")), record.Plan, sample.ResetsAt.ToLocalTime(), (ready?L10n.T("s86011ED09937"):L10n.T("s2C63A632051B")), scope, record.Version, dollars, UsageNumbers.Compact(sample.Tokens*100d/sample.Percent), 100d*sample.Priced/sample.Tokens, sample.Samples, sample.Percent, record.PricingVersion),TextWrapping=TextWrapping.Wrap,FontSize=13});
+                    var evidence=record.EvidenceVersion==UsagePricingProfile.CurrentVersion&&sample.PricingProfile?.IsValidFor(sample.Tokens)==true;
+                    entries.Children.Add(new TextBlock{Text=evidence?L10n.F("capacity.evidenceSummary",sample.PricingProfile!.ActualCoverage,
+                        sample.PricingProfile.RequestedCoverage,sample.PricingProfile.UnknownCoverage):L10n.T("capacity.evidenceLegacyHistorical"),TextWrapping=TextWrapping.Wrap,FontSize=12,Opacity=.7});
                 }
                 previous.IsEnabled=pageIndex>0;next.IsEnabled=records.Count==20;pageLabel.Text=L10n.F("s94289AA33F49", pageIndex+1);
             }

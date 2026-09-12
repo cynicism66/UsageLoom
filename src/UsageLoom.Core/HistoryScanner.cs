@@ -53,6 +53,7 @@ public sealed class HistoryScanner
         IReadOnlyDictionary<string,IReadOnlyList<string>>? indexedRecords=null,IReadOnlyDictionary<string,IReadOnlyList<string>>? ancestryRecords=null)
     {
         var inherited=await InheritedUsage.Prefixes(home,cancellationToken,ancestryRecords??indexedRecords);
+        var modeTimeline=await UsageModeTimeline.ReadAsync(home,cancellationToken,ancestryRecords??indexedRecords,inherited);
         var events=new List<UsageEvent>();var highWater=new Dictionary<string,TokenUsage>();var seen=new HashSet<string>();
         var segments=new Dictionary<string,int>();var snapshots=new HashSet<string>();
         var warnings=0;var files=0;var sources=new List<string>();
@@ -170,6 +171,7 @@ public sealed class HistoryScanner
                 catch(Exception ex)when(ex is IOException or UnauthorizedAccessException){warnings++;}
             }
         }
+        for(var i=0;i<events.Count;i++)events[i]=events[i] with{Pricing=modeTimeline.Apply(events[i])};
         return new(events,files,warnings,DateTimeOffset.Now){Sources=sources};
     }
     private static bool IsChildTurn(string? turn,string owner)=>Guid.TryParse(turn,out _)&&Guid.TryParse(owner,out _)&&turn![14]=='7'&&owner[14]=='7'&&string.CompareOrdinal(turn,owner)>=0;
@@ -212,5 +214,5 @@ public sealed class HistoryScanner
             }
         }
     }
-    private static bool Relevant(string text)=>text.Contains("\"session_meta\"")||text.Contains("\"turn_context\"")||text.Contains("\"token_count\"")||text.Contains("\"task_started\"");
+    private static bool Relevant(string text)=>text.Contains("\"session_meta\"")||text.Contains("\"turn_context\"")||text.Contains("\"token_count\"")||text.Contains("\"task_started\"")||text.Contains("\"thread_settings_applied\"");
 }

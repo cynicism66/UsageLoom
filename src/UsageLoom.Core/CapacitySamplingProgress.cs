@@ -20,18 +20,19 @@ public static class CapacitySamplingProgress
             !double.IsFinite(w.Used)||w.Used<old.Used);
     }
 
-    public static string Describe(double pending,CapacityPendingSample? evidence)
+    public static string Describe(double pending,CapacityPendingSample? evidence,bool compact=false)
     {
-        if(!double.IsFinite(pending)||pending<0)return L10n.T("capacity.stageChecking");
-        if(pending<.0001)return L10n.T("capacity.stageWaitingUsage");
+        string Key(string name)=>"capacity."+(compact?"compactStage":"stage")+name;
+        if(!double.IsFinite(pending)||pending<0)return L10n.T(Key("Checking"));
+        if(pending<.0001)return L10n.T(Key("WaitingUsage"));
         // A rounded "3/3, 0 more" would contradict the calculation threshold.
         if(pending<MinimumBlockPercent&&MinimumBlockPercent-pending<.1)
-            return L10n.T("capacity.stageCollectingFractional");
+            return L10n.T(Key("CollectingFractional"));
         if(pending<MinimumBlockPercent)
-            return L10n.F("capacity.stageCollecting",pending,MinimumBlockPercent,MinimumBlockPercent-pending);
-        if(evidence is not {HasThresholdSnapshot:true})return L10n.T("capacity.stageChecking");
-        if(!evidence.HasLaterSnapshot)return L10n.T("capacity.stageWaitingSnapshot");
-        if(!evidence.LogsReady)return L10n.T("capacity.stageWaitingLogs");
-        return L10n.T("capacity.stageReady");
+            return L10n.F(Key("Collecting"),pending,MinimumBlockPercent,MinimumBlockPercent-pending);
+        if(evidence is not {HasThresholdSnapshot:true})return L10n.T(Key("Checking"));
+        if(!evidence.HasLaterSnapshot)return L10n.T(Key("WaitingSnapshot"));
+        if(!evidence.LogsReady)return L10n.T(Key("WaitingLogs"));
+        return L10n.T(Key("Ready"));
     }
 }

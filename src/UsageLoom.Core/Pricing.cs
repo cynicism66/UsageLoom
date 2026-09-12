@@ -2,7 +2,13 @@ namespace UsageLoom.Core;
 
 public sealed record Price(decimal Input,decimal? Cached,decimal? Write,decimal Output);
 public sealed record PricingContext(long? RequestInputTokens = null, bool? SessionLongContext = null,
-    string ServiceTier = "standard", bool? FastMode = null, bool? RegionalProcessing = null, DateOnly? ValuationDate = null);
+    string ServiceTier = "standard", bool? FastMode = null, bool? RegionalProcessing = null, DateOnly? ValuationDate = null)
+{
+    public string? RequestedServiceTier { get; init; }
+    public string? ActualServiceTier { get; init; }
+    public string? ReasoningEffort { get; init; }
+    public string ServiceTierEvidence { get; init; } = "unknown";
+}
 public sealed record ModelPrice(string Model, Price Rates, Uri Source, DateOnly CheckedOn, DateOnly? EffectiveFrom,
     DateOnly? EffectiveUntil, string LongContextScope = "none", bool CacheLongMultiplierKnown = false,
     bool AstraServiceTiers = false, bool RegionalSurcharge = false, DateOnly? PromotionAtLeastThrough = null);
@@ -10,8 +16,11 @@ public sealed record Estimate(decimal Cost,long Priced,long Unpriced,string? Rea
 {
     public ModelPrice? Basis { get; init; }
     public IReadOnlyList<string> Notes { get; init; } = [];
+    public string EffectiveServiceTier { get; init; } = "unknown";
+    public string ServiceTierEvidence { get; init; } = "unknown";
+    public bool HasConditionalAssumptions { get; init; }
     public bool HasAmount => Priced > 0;
-    public string Status => !HasAmount ? L10n.T("sD291741C0009") : Unpriced > 0 ? L10n.T("sDA0A0E663B9F") : Notes.Count > 0 ? L10n.T("sD88D41E8FFC9") : L10n.T("s387A9E6023DB");
+    public string Status => !HasAmount ? L10n.T("sD291741C0009") : Unpriced > 0 ? L10n.T("sDA0A0E663B9F") : HasConditionalAssumptions ? L10n.T("sD88D41E8FFC9") : L10n.T("s387A9E6023DB");
     public string DisplayAmount => HasAmount ? "$" + Cost.ToString("N4", System.Globalization.CultureInfo.InvariantCulture) : L10n.T("s3A59B074671D");
 }
 public static class Pricing
@@ -19,6 +28,8 @@ public static class Pricing
     // 有日期的离线目录；未覆盖的模型/子分类保持未知，不推断订阅账单。
     public const string VerifiedDate="2026-09-07";
     public const string CatalogVersion="2026-09-07.1";
+    // Mode evidence can be refreshed without invalidating quota-cycle history.
+    public const int EvidenceVersion=1;
     private static ModelPrice Entry(string model,Price price,string scope="none",bool cache=false,bool regional=false,bool tiers=false,DateOnly? promo=null) =>
         new(model,price,new Uri("https://developers.openai.com/api/docs/models/"+model),new(2026,9,7),null,null,scope,cache,tiers,regional,promo);
     private static readonly Dictionary<string,ModelPrice> Catalog=new(StringComparer.OrdinalIgnoreCase)
@@ -40,14 +51,47 @@ public static class Pricing
     };
     public static IReadOnlyList<ModelPrice> Entries => Catalog.Values.ToList();
     public static ModelPrice? Find(string model) => Catalog.GetValueOrDefault(Aliases.GetValueOrDefault(model.Trim())??model.Trim());
+    private static string NormalizeTier(string? tier)=>tier?.Trim().ToLowerInvariant() switch
+    {
+        null or "" or "auto" or "unknown"=>"unknown",
+        "default" or "standard"=>"standard",
+        "fast" or "priority"=>"fast",
+        var other=>other
+    };
+    public static (string Tier,string Evidence) ResolveMode(PricingContext? context)
+    {
+        if(context is null)return ("unknown","unknown");
+        // The serving response may downgrade a requested Fast/priority mode.
+        // Legacy flags never override an explicit request or actual response.
+        if(context.ActualServiceTier is not null)
+        {
+            var actual=NormalizeTier(context.ActualServiceTier);
+            return (actual,actual is "standard" or "fast" or "flex" or "batch"?"actual-response":"unknown");
+        }
+        if(context.RequestedServiceTier is not null)return (NormalizeTier(context.RequestedServiceTier),"request-setting");
+        var tier=NormalizeTier(context.ServiceTier);
+        var evidence=context.ServiceTierEvidence?.Trim().ToLowerInvariant();
+        if(evidence=="actual-response")return (tier,tier is "standard" or "fast" or "flex" or "batch"?evidence:"unknown");
+        if(evidence=="request-setting")return (tier,evidence);
+        if(context.FastMode==true)
+            return tier is "standard" or "fast" or "unknown"?("fast","legacy-explicit"):("unknown","conflicting-settings");
+        if(tier is not ("standard" or "unknown"))return (tier,"legacy-explicit");
+        if(tier=="standard"&&(context.FastMode==false||context.ServiceTier.Trim().Equals("default",StringComparison.OrdinalIgnoreCase)||evidence=="legacy-explicit"))
+            return ("standard","legacy-explicit");
+        // "standard" was the old constructor default, not evidence of a mode.
+        return ("unknown","unknown");
+    }
     public static Estimate Calculate(UsageEvent item) => Calculate(item.Model,item.Tokens,context:item.Pricing);
     public static Estimate Calculate(string model,TokenUsage usage,Price? testPrice=null,PricingContext? context=null)
     {
-        if(!usage.Valid)return new(0,0,0,L10n.T("sF9E2ACA3E990"));
+        var mode=ResolveMode(context);
+        var conditional=mode.Evidence!="actual-response"||mode.Tier=="unknown";
+        Estimate Finish(Estimate value)=>value with{EffectiveServiceTier=mode.Tier,ServiceTierEvidence=mode.Evidence,HasConditionalAssumptions=conditional};
+        if(!usage.Valid)return Finish(new(0,0,0,L10n.T("sF9E2ACA3E990")));
         var basis=testPrice is null?Find(model):null;
-        if(testPrice is null&&basis is null)return new(0,0,usage.Total,L10n.T("s3587FDFBCD55"));
+        if(testPrice is null&&basis is null)return Finish(new(0,0,usage.Total,L10n.T("s3587FDFBCD55")));
         var price=testPrice??basis!.Rates;
-        if(price.Input<0||price.Output<0||price.Cached<0||price.Write<0)return new(0,0,usage.Total,L10n.T("s8F286EFB2196"));
+        if(price.Input<0||price.Output<0||price.Cached<0||price.Write<0)return Finish(new(0,0,usage.Total,L10n.T("s8F286EFB2196")));
         var notes=new List<string>();context??=new();
         decimal inputMultiplier=1,outputMultiplier=1,cacheMultiplier=1,tierMultiplier=1,regionalMultiplier=1;
         bool cachedKnown=price.Cached is not null,writeKnown=price.Write is not null;
@@ -55,19 +99,19 @@ public static class Pricing
         {
             var date=context.ValuationDate??DateOnly.FromDateTime(DateTime.UtcNow);
             if(basis.EffectiveFrom is {} from&&date<from||basis.EffectiveUntil is {} until&&date>until)
-                return new(0,0,usage.Total,L10n.T("sC7E6C42BEAB7")){Basis=basis};
+                return Finish(new(0,0,usage.Total,L10n.T("sC7E6C42BEAB7")){Basis=basis});
             if(basis.PromotionAtLeastThrough is {} promotion&&date>promotion)
-                return new(0,0,usage.Total,L10n.T("sBB0BE596C59E")){Basis=basis};
-            if(date<basis.CheckedOn)notes.Add(L10n.T("s2E8249B0442A"));
-            if(date.DayNumber-basis.CheckedOn.DayNumber>30)notes.Add(L10n.T("sAF2FA3437014"));
+                return Finish(new(0,0,usage.Total,L10n.T("sBB0BE596C59E")){Basis=basis});
+            if(date<basis.CheckedOn){notes.Add(L10n.T("s2E8249B0442A"));conditional=true;}
+            if(date.DayNumber-basis.CheckedOn.DayNumber>30){notes.Add(L10n.T("sAF2FA3437014"));conditional=true;}
             bool? longContext=basis.LongContextScope switch
             {
                 "request"=>context.RequestInputTokens is {} tokens?tokens>272000:null,
                 "session"=>context.SessionLongContext,
                 _=>false
             };
-            if(context.RequestInputTokens<0)return new(0,0,usage.Total,L10n.T("sAD52BFE384DE")){Basis=basis};
-            if(longContext is null)notes.Add(L10n.T("sC35C094DD33A")+(basis.LongContextScope=="session"?L10n.T("sA97CF1B8D924"):L10n.T("s85146F1BDDBB"))+L10n.T("s7AC46C0C0315"));
+            if(context.RequestInputTokens<0)return Finish(new(0,0,usage.Total,L10n.T("sAD52BFE384DE")){Basis=basis});
+            if(longContext is null){notes.Add(L10n.T("sC35C094DD33A")+(basis.LongContextScope=="session"?L10n.T("sA97CF1B8D924"):L10n.T("s85146F1BDDBB"))+L10n.T("s7AC46C0C0315"));conditional=true;}
             if(longContext==true)
             {
                 inputMultiplier=2;outputMultiplier=1.5m;
@@ -75,42 +119,54 @@ public static class Pricing
                 else {cachedKnown=false;writeKnown=false;notes.Add(L10n.T("s8D55C01D0667"));}
                 notes.Add(L10n.T("sC78463BE656C")+(basis.CacheLongMultiplierKnown?L10n.T("sC59E57D6F6D9"):""));
             }
-            if(string.IsNullOrWhiteSpace(context.ServiceTier))
-                return new(0,0,usage.Total,L10n.T("s24E8280B52E2")){Basis=basis};
-            var tier=context.ServiceTier.Trim().ToLowerInvariant();
-            if(tier is not ("standard" or "default"))
+            if(context.ActualServiceTier is null&&context.RequestedServiceTier is null&&string.IsNullOrWhiteSpace(context.ServiceTier))
+                return Finish(new(0,0,usage.Total,L10n.T("s24E8280B52E2")){Basis=basis,Notes=notes});
+            if(mode.Evidence=="conflicting-settings")
             {
-                if(basis.AstraServiceTiers&&tier is "batch" or "flex")tierMultiplier=.5m;
-                else return new(0,0,usage.Total,L10n.T("sA4C8719CEF5D")){Basis=basis};
-                notes.Add(tier+L10n.T("s49575DC7CF26"));
+                notes.Add(L10n.T("pricing.modeConflict"));
+                return Finish(new(0,0,usage.Total,L10n.T("pricing.modeConflict")){Basis=basis,Notes=notes});
             }
-            if(context.FastMode==true)
+            else if(mode.Tier=="unknown")notes.Add(L10n.T("pricing.modeUnknown"));
+            else if(mode.Evidence=="request-setting")notes.Add(L10n.T("pricing.modeRequested"));
+            else if(mode.Evidence=="legacy-explicit")notes.Add(L10n.T("pricing.modeLegacy"));
+            // Tiers are alternatives, not stackable modifiers. Reasoning effort
+            // (including Ultra) changes token generation, not the token rates.
+            if(mode.Tier=="fast")
             {
-                if(!basis.AstraServiceTiers)return new(0,0,usage.Total,L10n.T("s2C035E06E1E7")){Basis=basis};
-                tierMultiplier*=2;notes.Add(L10n.T("s84151728B0A6"));
+                if(!basis.AstraServiceTiers)return Finish(new(0,0,usage.Total,L10n.T("s2C035E06E1E7")){Basis=basis,Notes=notes});
+                tierMultiplier=2;notes.Add(L10n.T("s84151728B0A6"));
             }
-            else if(context.FastMode is null&&basis.AstraServiceTiers)notes.Add(L10n.T("sDC38F7718D6F"));
+            else if(mode.Tier is "batch" or "flex")
+            {
+                if(!basis.AstraServiceTiers)return Finish(new(0,0,usage.Total,L10n.T("sA4C8719CEF5D")){Basis=basis,Notes=notes});
+                tierMultiplier=.5m;notes.Add(mode.Tier+L10n.T("s49575DC7CF26"));
+            }
+            else if(mode.Tier is not ("standard" or "unknown"))
+                return Finish(new(0,0,usage.Total,L10n.T("sA4C8719CEF5D")){Basis=basis,Notes=notes});
             if(context.RegionalProcessing==true)
             {
-                if(!basis.RegionalSurcharge)return new(0,0,usage.Total,L10n.T("s678CDE75E10E")){Basis=basis};
+                if(!basis.RegionalSurcharge)return Finish(new(0,0,usage.Total,L10n.T("s678CDE75E10E")){Basis=basis});
                 regionalMultiplier=1.1m;notes.Add(L10n.T("sB211C0FCB974"));
             }
-            else if(context.RegionalProcessing is null&&basis.RegionalSurcharge)notes.Add(L10n.T("s2FBE409A938C"));
+            else if(context.RegionalProcessing is null&&basis.RegionalSurcharge){notes.Add(L10n.T("s2FBE409A938C"));conditional=true;}
         }
         var regular=usage.Input-usage.Cached-usage.CacheWrite;
         var unpriced=(!cachedKnown?usage.Cached:0)+(!writeKnown?usage.CacheWrite:0);
         try
         {
             var cost=(regular*price.Input*inputMultiplier+usage.Cached*(cachedKnown?price.Cached??0:0)*cacheMultiplier+usage.CacheWrite*(writeKnown?price.Write??0:0)*cacheMultiplier+usage.Output*price.Output*outputMultiplier)*tierMultiplier*regionalMultiplier/1_000_000m;
-            return new(cost,usage.Total-unpriced,unpriced,unpriced>0?L10n.T("sE65E2196CC2E"):null){Basis=basis,Notes=notes};
+            return Finish(new(cost,usage.Total-unpriced,unpriced,unpriced>0?L10n.T("sE65E2196CC2E"):null){Basis=basis,Notes=notes});
         }
-        catch(OverflowException){return new(0,0,usage.Total,L10n.T("sD88C711F25F0")){Basis=basis};}
+        catch(OverflowException){return Finish(new(0,0,usage.Total,L10n.T("sD88C711F25F0")){Basis=basis});}
     }
     public static Estimate Summarize(IEnumerable<UsageEvent> events)
     {
         var values=events.Select(Calculate).ToList();
         return new(values.Sum(v=>v.Cost),values.Sum(v=>v.Priced),values.Sum(v=>v.Unpriced),
             string.Join("；",values.Select(v=>v.Reason).Where(r=>r is not null).Distinct()))
-            {Notes=values.SelectMany(v=>v.Notes).Distinct().ToList()};
+            {Notes=values.SelectMany(v=>v.Notes).Distinct().ToList(),
+                EffectiveServiceTier=values.Select(v=>v.EffectiveServiceTier).Distinct().ToArray() is [var tier]?tier:values.Count==0?"unknown":"mixed",
+                ServiceTierEvidence=values.Select(v=>v.ServiceTierEvidence).Distinct().ToArray() is [var evidence]?evidence:values.Count==0?"unknown":"mixed",
+                HasConditionalAssumptions=values.Any(v=>v.HasConditionalAssumptions)};
     }
 }

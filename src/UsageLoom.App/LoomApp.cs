@@ -63,16 +63,18 @@ public sealed partial class LoomApp : Application
     private IReadOnlyList<CapacityInterruption> capacityInterruptions=[];
     private string CurrentCapacityWarnings
     {
-        get
-        {
+        get=>DescribeCapacityWarnings(false);
+    }
+    private string DescribeCapacityWarnings(bool compact)
+    {
             var current=new QuotaObservation(DateTimeOffset.UtcNow,Quota.AccountKey,Quota.Plan?.Trim().ToLowerInvariant(),Pricing.CatalogVersion,
                 Quota.PrimaryWindows.ToList(),!Quota.Fresh);
             var active=capacityInterruptions.Where(i=>i.Matches(current)).ToArray();
             if(active.Length==0)return "";
+            if(compact)return "\n"+L10n.F("capacity.compactWarnings",active.Length);
             return "\n"+L10n.F("capacity.interrupted",active.Length)+"\n"+string.Join("\n",active.GroupBy(i=>i.Reason).Select(g=>
                 L10n.F("capacity.interruptionRange",L10n.F("capacity.reasonCount",L10n.T("capacity.reason."+g.Key),g.Count()),
                     g.Min(i=>i.From).ToLocalTime(),g.Max(i=>i.To).ToLocalTime())));
-        }
     }
     private CapacitySource appliedCapacitySource;
     private CapacitySource CurrentCapacitySource()=>new(Config.CliPath,Config.CodexHome,Config.AuthorizedAccount,Config.ReuseBackend);
@@ -300,9 +302,12 @@ public sealed partial class LoomApp : Application
     internal IReadOnlyDictionary<string,string> SessionNames { get; private set; }=new Dictionary<string,string>();
     internal IReadOnlyList<WeeklyCapacityEstimate> WeeklyCapacity { get; private set; }=[];
     internal string WeeklyCapacityProgress => !Config.CapacityEnabled?L10n.T("s40E9A224A0E3"):CapacityRevalidationPending?
-        L10n.T("attribution.revalidating")+(capacityFeedback==L10n.T("attribution.revalidating")?"":"\n"+capacityFeedback):preservedHistoryFiles>0?PreservedHistoryMessage:
+        L10n.T("capacity.revalidating")+(capacityFeedback==L10n.T("capacity.revalidating")?"":"\n"+capacityFeedback):preservedHistoryFiles>0?PreservedHistoryMessage:
         capacityEstimator.DescribeProgress(Quota,capacityTokenTotal,capacityHistoryReady)+
         CurrentCapacityWarnings;
+    internal string WeeklyCapacityCompactProgress => !Config.CapacityEnabled?L10n.T("s40E9A224A0E3"):CapacityRevalidationPending?
+        L10n.T("capacity.compactRevalidating"):preservedHistoryFiles>0?L10n.T("capacity.compactIndexReview"):
+        capacityEstimator.DescribeProgress(Quota,capacityTokenTotal,capacityHistoryReady,true)+DescribeCapacityWarnings(true);
     internal string HistoryStatus { get; private set; } = L10n.T("sA3A08B0EC497");
     internal string Message { get; private set; } = L10n.T("s5A253CCAEBA1");
     internal event Action? Changed;
@@ -379,6 +384,7 @@ public sealed partial class LoomApp : Application
             if(this.args.Contains("--preview-empty")){Events=[];Quota=QuotaState.LocalAccount;}
             if(this.args.Contains("--preview-weekly"))Quota=new([new("codex:weekly",L10n.T("s475811D50FA9"),18,10080,DateTimeOffset.Now.AddDays(3))],2,DateTimeOffset.Now,L10n.T("sB82002E0639F"),true,"demo","pro");
             if(this.args.Contains("--preview-weekly"))WeeklyCapacity=[new("codex:weekly",L10n.T("s475811D50FA9"),12800000,1280000,10,3,0,L10n.T("sDFBAD24E7F4A"),DateTimeOffset.Now.AddDays(3))];
+            if(CapacityUiCheck)ConfigureCapacityUiPreview();
             Message = L10n.T("sEFF3B8AB8B40");
         }
         else
@@ -587,11 +593,19 @@ public sealed partial class LoomApp : Application
             capacityUncertainRanges=indexed.UncertainRanges;
             capacityHistoryReady=indexed.PreservedFiles==0||indexed.UncertainRanges.Count>0&&indexed.UncertainRanges.All(r=>!r.IsUnknown);
             if(capacityHistoryReady)capacityIndexedThrough=report.ScannedAt;
+            if(indexed.ModeMetadataMigrated)
+            {
+                capacityEpoch++;
+                capacityBatch.RequestRevalidation(DateTimeOffset.UtcNow);
+                capacityFeedback=L10n.T("capacity.revalidating");
+            }
             WeeklyCapacity=ObserveCapacity(Quota);
             Message = L10n.F("sBF8AACAC3A69", (report.UsedCache ? L10n.T("s38BE587EDD10") : L10n.T("sB164E0EDAEC8")), report.Files, indexed.BytesParsed, report.Warnings, watch.ElapsedMilliseconds);
             if(indexed.PreservedFiles>0)Message+=" · "+PreservedHistoryMessage;
             if(verifyIntegrity)Message=L10n.T("s1AD7D8B010C8")+Message;
-            if(indexed.BackupPath is not null)Message=indexed.Migrated
+            if(indexed.BackupPath is not null)Message=indexed.ModeMetadataMigrated
+                ?L10n.F("pricing.metadataMigrated",Path.GetFileName(indexed.BackupPath))
+                :indexed.Migrated
                 ?L10n.F("sB389D366B4CF", (indexed.PreviousParserVersions.Contains(0)?L10n.T("sCA6ACDE43454"):L10n.T("s7B2F11B1DAF2")+string.Join(',',indexed.PreviousParserVersions)), Path.GetFileName(indexed.BackupPath), report.Warnings, indexed.DeferredFiles)
                 :L10n.F("sBAC47EE47B83", Path.GetFileName(indexed.BackupPath), report.Warnings, indexed.DeferredFiles);
             Program.Log.Write("INFO", "Scan", Message);

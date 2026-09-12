@@ -215,6 +215,7 @@ internal sealed partial class Dashboard : Window
                 DispatcherQueue.TryEnqueue(()=>{Native.GetWindowThreadProcessId(Native.GetForegroundWindow(),out var pid);if(!pinned&&pid!=Environment.ProcessId)Hide();});
         };
         app.Changed+=Render;Render();
+        StartCapacityUiCheck();
     }
     private void ApplyMinimumWindowWidth()
     {

@@ -159,7 +159,10 @@ public sealed partial class HistoryStore(string dataDirectory)
         if(replace)
         {
             using var clear=connection.CreateCommand();clear.Transaction=transaction;
-            clear.CommandText="DELETE FROM events; DELETE FROM scan_indexes; DELETE FROM metadata WHERE key!='weekly_capacity_v1';";
+            // Rebuilding derived logs must not erase the user's sampling floor
+            // or durable attribution/transport evidence. Only the physical
+            // index checkpoint becomes invalid after an explicit full rebuild.
+            clear.CommandText="DELETE FROM events; DELETE FROM scan_indexes; DELETE FROM metadata WHERE key IN ('last_scan','restart_attribution_v1');";
             clear.ExecuteNonQuery();
         }
         else if(replaceSessions is {Count:>0})

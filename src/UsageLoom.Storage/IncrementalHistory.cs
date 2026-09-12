@@ -9,6 +9,10 @@ public sealed record IndexedFile(string Path,int Version,long Offset,long Length
     string PrefixHash,[property: System.Text.Json.Serialization.JsonConverter(typeof(IndexRecordsConverter))] List<string> Records,int Warnings,string? AccountScope=null,int IntegrityWarnings=0)
 {
     public bool RetainedAhead { get; init; }
+    // Mode evidence is additive and independently versioned. Do not rewrite the
+    // counter ledger: restart checkpoints authenticate its original prefix.
+    public int ModeMetadataVersion { get; init; }
+    public List<string> ModeRecords { get; init; }=[];
 }
 public sealed record IncrementalResult(ScanReport Report,long BytesParsed,int FilesUpdated)
 {
@@ -18,6 +22,7 @@ public sealed record IncrementalResult(ScanReport Report,long BytesParsed,int Fi
     public IReadOnlyList<int> PreviousParserVersions { get; init; }=[];
     public int DeferredFiles { get; init; }
     public int PreservedFiles { get; init; }
+    public bool ModeMetadataMigrated { get; init; }
     public IReadOnlyList<UsageUncertainty> UncertainRanges { get; init; }=[];
 }
 
@@ -25,6 +30,7 @@ public sealed record IncrementalResult(ScanReport Report,long BytesParsed,int Fi
 public sealed class IncrementalHistory(HistoryStore store)
 {
     public const int ParserVersion=7;
+    public const int ModeMetadataVersion=1;
     private readonly SemaphoreSlim gate=new(1,1);
     private string? observedAccount,observedHome;
     private DateTimeOffset observedAt;
@@ -53,6 +59,7 @@ public sealed class IncrementalHistory(HistoryStore store)
             var unversionedHistory=!rebuild&&saved.Count==0&&store.HasEvents();
             var previousParserVersions=unversionedHistory?[0]:saved.Values.Select(index=>index.Version).Where(version=>version!=ParserVersion).Distinct().Order().ToArray();
             var migrating=previousParserVersions.Length>0;
+            var modeMigrating=!rebuild&&!migrating&&saved.Values.Any(index=>index.ModeMetadataVersion<ModeMetadataVersion);
             if(migrating)
             {
                 // Parser output is derived data. Reusing offsets or event identities from
@@ -78,7 +85,8 @@ public sealed class IncrementalHistory(HistoryStore store)
                 foreach(var path in Directory.EnumerateFiles(directory,"*.jsonl",new EnumerationOptions{RecurseSubdirectories=true,IgnoreInaccessible=false,AttributesToSkip=FileAttributes.ReparsePoint}).Order(StringComparer.OrdinalIgnoreCase))
                 {
                     ct.ThrowIfCancellationRequested();var info=new FileInfo(path);saved.TryGetValue(path,out var old);
-                    if(old is not null&&old.Length==info.Length&&old.Written==info.LastWriteTimeUtc.Ticks&&old.Created==info.CreationTimeUtc.Ticks)
+                    var refreshModes=old is not null&&(old.ModeMetadataVersion<ModeMetadataVersion||verifyIntegrity);
+                    if(old is not null&&!refreshModes&&old.Length==info.Length&&old.Written==info.LastWriteTimeUtc.Ticks&&old.Created==info.CreationTimeUtc.Ticks)
                     {
                         if(verifyIntegrity)
                         {
@@ -104,6 +112,12 @@ public sealed class IncrementalHistory(HistoryStore store)
                             paginationReplay=true;
                         else paginationReplay=await HashPrefix(file,old.Offset,ct)!=old.PrefixHash;
                     }
+                    var modeRecords=new List<string>(old?.ModeRecords??[]);
+                    if(refreshModes&&!paginationReplay)
+                    {
+                        modeRecords=MergeModes(modeRecords,await ReadModeRecords(file,capturedLength,ct));
+                        bytesParsed=checked(bytesParsed+capturedLength);
+                    }
                     file.Position=paginationReplay?0:old?.Offset??0;var offset=file.Position;var buffer=new byte[65536];var line=new MemoryStream();var oversized=false;
                     var compact=old is null||paginationReplay?new List<string>():new List<string>(old.Records);var fileWarnings=paginationReplay?0:old?.Warnings??0;var integrityWarnings=paginationReplay?0:old?.IntegrityWarnings??0;
                     var recordAccountScope=old is not null&&!string.IsNullOrWhiteSpace(accountScope)&&previousAccount==accountScope&&string.Equals(previousHome,home,StringComparison.OrdinalIgnoreCase)&&string.Equals(old.AccountScope,accountScope,StringComparison.Ordinal)?accountScope:null;
@@ -122,7 +136,7 @@ public sealed class IncrementalHistory(HistoryStore store)
                             if(buffer[i]==(byte)'\n')
                             {
                                 if(oversized)fileWarnings++;
-                                else Compact(line.ToArray(),compact,ref fileWarnings,ref integrityWarnings,recordAccountScope,newFileSince,capturedAt);
+                                else {var data=line.ToArray();CollectMode(data,modeRecords);Compact(data,compact,ref fileWarnings,ref integrityWarnings,recordAccountScope,newFileSince,capturedAt);}
                                 line.SetLength(0);oversized=false;offset=blockStart+i+1;
                             }
                             else if(!oversized)
@@ -135,7 +149,7 @@ public sealed class IncrementalHistory(HistoryStore store)
                     {
                         var complete=false;
                         try{using var tail=JsonDocument.Parse(Encoding.UTF8.GetString(line.ToArray()).TrimStart('\uFEFF'));complete=true;}catch(JsonException){}
-                        if(complete){Compact(line.ToArray(),compact,ref fileWarnings,ref integrityWarnings,recordAccountScope,newFileSince,capturedAt);offset=capturedLength;}
+                        if(complete){var data=line.ToArray();CollectMode(data,modeRecords);Compact(data,compact,ref fileWarnings,ref integrityWarnings,recordAccountScope,newFileSince,capturedAt);offset=capturedLength;}
                     }
                     // 只有不完整末行回退到行首；下次追加从该字节位置重读。
                     line.Dispose();
@@ -156,7 +170,8 @@ public sealed class IncrementalHistory(HistoryStore store)
                         if(integrityWarnings>0||!PaginatedContinuation.TryJoin(old!.Records,compact,out var joined,out retainedAhead)){Preserve(path,old!,integrityWarnings==0?compact:null);continue;}
                         compact=joined;
                     }
-                    var index=new IndexedFile(path,ParserVersion,offset,capturedLength,written,created,hash,compact,fileWarnings,string.IsNullOrWhiteSpace(accountScope)?null:accountScope,integrityWarnings){RetainedAhead=retainedAhead};
+                    var index=new IndexedFile(path,ParserVersion,offset,capturedLength,written,created,hash,compact,fileWarnings,string.IsNullOrWhiteSpace(accountScope)?null:accountScope,integrityWarnings)
+                        {RetainedAhead=retainedAhead,ModeMetadataVersion=ModeMetadataVersion,ModeRecords=modeRecords.Distinct(StringComparer.Ordinal).ToList()};
                     updated.Add(index);records[path]=compact;warnings+=fileWarnings;
                 }
             }
@@ -181,7 +196,13 @@ public sealed class IncrementalHistory(HistoryStore store)
                     if(!records.ContainsKey(index.Path)&&index.Version==ParserVersion&&affectedSessions.Contains(Owner(index.Path,index.Records)))records[index.Path]=index.Records;
             }
             var replayed=records.Values.Sum(value=>(long)value.Count);
-            var report=await new HistoryScanner().ScanAsync(home,ct,progress,records,ancestryRecords);
+            // Settings are collected separately and matched by effective time by
+            // the scanner. Appending them must not change counter replay order.
+            var modeIndexes=new Dictionary<string,IndexedFile>(saved,StringComparer.OrdinalIgnoreCase);
+            foreach(var index in updated)modeIndexes[index.Path]=index;
+            IReadOnlyDictionary<string,IReadOnlyList<string>> WithModes(Dictionary<string,IReadOnlyList<string>> source)=>
+                source.ToDictionary(pair=>pair.Key,pair=>(IReadOnlyList<string>)pair.Value.Concat(modeIndexes.GetValueOrDefault(pair.Key)?.ModeRecords??[]).ToArray(),StringComparer.OrdinalIgnoreCase);
+            var report=await new HistoryScanner().ScanAsync(home,ct,progress,WithModes(records),WithModes(ancestryRecords));
             report=report with{Warnings=report.Warnings+warnings+preserved.Count};
             if(rebuild)
             {
@@ -203,9 +224,22 @@ public sealed class IncrementalHistory(HistoryStore store)
                 var backup=store.ReplaceWithBackup(report,updated,ct);
                 return new(report,bytesParsed,updated.Count){BackupPath=backup,RecordsReplayed=replayed,Migrated=migrating,PreviousParserVersions=previousParserVersions,DeferredFiles=deferredFiles};
             }
+            // Preserve the complete database, including committed WAL pages,
+            // before the first metadata upgrade. No floor/proof/cache is deleted.
+            modeMigrating=modeMigrating&&updated.Any(index=>saved.TryGetValue(index.Path,out var previous)&&previous.ModeMetadataVersion<ModeMetadataVersion);
+            var modeBackup=modeMigrating?store.BackupCapacityData():null;
+            if(modeMigrating)
+            {
+                // Compare the same captured counter ledger with and without the
+                // sidecar. New log appends may legitimately correct categories or
+                // move a high-water event; comparing to the old database instead
+                // would permanently block a safe, ordinary incremental update.
+                var counterBaseline=await new HistoryScanner().ScanAsync(home,ct,indexedRecords:records,ancestryRecords:ancestryRecords);
+                ValidateModeUpgrade(counterBaseline.Events,report.Events);
+            }
             store.Save(report,ct,indexes:updated,replaceSessions:affectedSessions);
             completed=true;
-            return new(report,bytesParsed,updated.Count){RecordsReplayed=replayed,PreservedFiles=preserved.Count,UncertainRanges=uncertain.Values.ToArray()};
+            return new(report,bytesParsed,updated.Count){BackupPath=modeBackup,ModeMetadataMigrated=modeMigrating,RecordsReplayed=replayed,PreservedFiles=preserved.Count,UncertainRanges=uncertain.Values.ToArray()};
         }
         finally{if(completed&&!rebuild){observedAccount=accountScope;observedHome=home;observedAt=scanStarted;}gate.Release();}
     }
@@ -224,6 +258,72 @@ public sealed class IncrementalHistory(HistoryStore store)
         long consumed=0;
         while(consumed<length){var read=await file.ReadAsync(buffer.AsMemory(0,(int)Math.Min(buffer.Length,length-consumed)),ct);if(read==0)throw new IOException("索引前缀缺失");hash.AppendData(buffer,0,read);consumed+=read;}
         return Convert.ToHexString(hash.GetHashAndReset());
+    }
+    private static void ValidateModeUpgrade(IReadOnlyList<UsageEvent> previous,IReadOnlyList<UsageEvent> incoming)
+    {
+        var next=incoming.ToDictionary(item=>item.Id,StringComparer.Ordinal);
+        if(previous.Count!=incoming.Count)throw new InvalidDataException("模式证据升级改变了计数记录数量，旧数据已保留");
+        foreach(var old in previous)
+            if(!next.TryGetValue(old.Id,out var item)||old.Session!=item.Session||old.Tokens!=item.Tokens||
+                old.Timestamp!=item.Timestamp||old.Model!=item.Model||old.Segment!=item.Segment||
+                old.Source!=item.Source||old.AccountScope!=item.AccountScope||old.AccountAttribution!=item.AccountAttribution)
+                throw new InvalidDataException("模式证据升级改变了既有计数或时间边界，旧数据已保留");
+    }
+    private static List<string> MergeModes(IEnumerable<string> previous,IEnumerable<string> current)=>
+        previous.Concat(current).Distinct(StringComparer.Ordinal).ToList();
+
+    private static async Task<List<string>> ReadModeRecords(FileStream file,long length,CancellationToken ct)
+    {
+        file.Position=0;var result=new List<string>();var buffer=new byte[65536];using var line=new MemoryStream();var oversized=false;
+        while(file.Position<length)
+        {
+            var count=await file.ReadAsync(buffer.AsMemory(0,(int)Math.Min(buffer.Length,length-file.Position)),ct);
+            if(count==0)throw new IOException("模式证据读取期间来源被截断");
+            for(var i=0;i<count;i++)
+            {
+                if(buffer[i]==(byte)'\n')
+                {if(!oversized)CollectMode(line.ToArray(),result);line.SetLength(0);oversized=false;}
+                else if(!oversized)
+                {if(line.Length>=1_048_576){oversized=true;line.SetLength(0);}else line.WriteByte(buffer[i]);}
+            }
+        }
+        if(!oversized&&line.Length>0)CollectMode(line.ToArray(),result);
+        return result;
+    }
+    private static void CollectMode(byte[] bytes,List<string> records)
+    {
+        if(bytes.Length==0)return;
+        try
+        {
+            using var document=JsonDocument.Parse(Encoding.UTF8.GetString(bytes).TrimStart('\uFEFF'));
+            var root=document.RootElement;
+            if(root.ValueKind!=JsonValueKind.Object||!root.TryGetProperty("payload",out var payload)||payload.ValueKind!=JsonValueKind.Object)return;
+            var type=root.Text("type");var minimal=new Dictionary<string,object?>();
+            static void Copy(JsonElement source,Dictionary<string,object?> target,params string[] names)
+            {
+                // An explicit null/invalid value clears evidence; dropping its
+                // key would incorrectly inherit an earlier Fast configuration.
+                foreach(var name in names)
+                    if(source.TryGetProperty(name,out var field))
+                        target[name]=field.ValueKind==JsonValueKind.String&&field.GetString() is {Length:>0 and <=256} value?value:null;
+            }
+            if(type=="turn_context")
+            {
+                Copy(payload,minimal,"model","effort","reasoning_effort","service_tier","turn_id","thread_id");
+                // Even a model-only or invalid context is a request boundary.
+                // Keep its original thread/turn constraints outside Records.
+            }
+            else if(type=="event_msg"&&payload.Text("type")=="thread_settings_applied"&&
+                    payload.TryGetProperty("thread_settings",out var settings)&&settings.ValueKind==JsonValueKind.Object)
+            {
+                var values=new Dictionary<string,object?>();Copy(settings,values,"model","service_tier","reasoning_effort");
+                minimal["type"]="thread_settings_applied";Copy(payload,minimal,"thread_id");minimal["thread_settings"]=values;
+            }
+            else return;
+            long? ordinal=root.TryGetProperty("ordinal",out var sequence)&&sequence.ValueKind==JsonValueKind.Number&&sequence.TryGetInt64(out var position)?position:null;
+            records.Add(JsonSerializer.Serialize(new{type,timestamp=root.Text("timestamp"),ordinal,payload=minimal}));
+        }
+        catch(JsonException){} // Counter parsing owns integrity errors; never store the raw line.
     }
     private static void Compact(byte[] bytes,List<string> records,ref int warnings,ref int integrityWarnings,string? accountScope,DateTimeOffset? newFileSince=null,DateTimeOffset capturedAt=default)
     {
