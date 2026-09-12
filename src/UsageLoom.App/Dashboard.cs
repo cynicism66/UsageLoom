@@ -401,6 +401,7 @@ internal sealed partial class Dashboard : Window
         foreach(var button in actions.Children.OfType<Button>()){button.Background=accent;button.Foreground=new SolidColorBrush(ColorHelper.FromArgb(255,24,20,36));}
         pageScroll.ChangeView(null, 0, null);
         Render();
+        RevealCapacitySettings();
     }
     private void SetHistoryRange(int index)
     {
@@ -446,6 +447,7 @@ internal sealed partial class Dashboard : Window
         UpdateCapacityInfo();
         if(capacityStatusText is not null)capacityStatusText.Text=app.CapacityCalculationStatus;
         if(compact){RenderCompact();return;}
+        UpdateCapacitySettingsDetails();
         status.Text=compact||selectedPage=="quota"?app.Quota.Status:selectedPage is "overview" or "breakdown" or "sessions"?app.HistoryStatus:app.Message;
         ToolTipService.SetToolTip(status,status.Text);
         quotaPanel.Children.Clear();var quota=app.Quota;

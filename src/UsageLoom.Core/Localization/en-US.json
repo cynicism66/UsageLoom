@@ -19,6 +19,8 @@
 "capacity.compactEvidence":"Mode: response {0:0.#}% / setting {1:0.#}% / unknown {2:0.#}%",
 "capacity.compactEvidenceLegacy":"Mode evidence unverified; see valuation details.",
 "capacity.compactDetails":"Sampling and valuation details",
+"capacity.openSettings":"View details in settings",
+"capacity.cachedEvidence":"Quota is not up to date. The retained valuation evidence below is for reference only.",
 "capacity.noValuationEvidence":"No valuation evidence is available yet; waiting for valid samples. Current sampling status and verification reasons are shown above.",
 "pricing.modeUnknown":"Service tier is unknown. This is a conditional estimate using ordinary API base rates, not confirmed standard mode.",
 "pricing.modeRequested":"Estimated from the requested service tier; the actual response tier is unverified.",

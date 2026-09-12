@@ -5,6 +5,7 @@ namespace UsageLoom.App;
 public sealed partial class LoomApp
 {
     internal bool CapacityUiCheck=>IsDemo&&args.Contains("--smoke-test")&&args.Contains("--capacity-ui-check");
+    internal Dashboard? CapacitySettingsTestDashboard=>CapacityUiCheck?dashboard:null;
 
     internal void ConfigureCapacityUiPreview(bool historical=false,bool empty=false,bool revalidating=false)
     {

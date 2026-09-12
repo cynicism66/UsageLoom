@@ -10,30 +10,25 @@ internal sealed partial class Dashboard
 {
     private UIElement CapacitySettings()
     {
-        var quota=app.Quota;
         var estimates=new StackPanel{Spacing=10};
         var enabled=new ToggleSwitch{Header=L10n.T("s290DF536AEA0"),IsOn=app.Config.CapacityEnabled,OnContent=L10n.Language=="en-US"?"On":"开",OffContent=L10n.Language=="en-US"?"Off":"关"};
         enabled.Toggled+=async(_,_)=>await app.SetCapacityEnabledAsync(enabled.IsOn);
         estimates.Children.Add(enabled);
         estimates.Children.Add(new TextBlock{Text=L10n.T("s12A977A8C9EB"),TextWrapping=TextWrapping.Wrap});
         estimates.Children.Add(new TextBlock{Text=L10n.T("s49E8E1E2DCE1"),FontSize=18,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
-        if(app.Config.CapacityEnabled&&quota.Fresh&&quota.HasQuotaDisplay&&app.WeeklyCapacity.Any(e=>e.ObservedPercent>=5&&e.Samples>=2))
-        {
-            foreach(var estimate in app.WeeklyCapacity.Where(e=>e.ObservedPercent>=5&&e.Samples>=2))
-            {
-                if(estimate.HistoricalAt is {} historical)estimates.Children.Add(new TextBlock{Text=L10n.F("capacity.previousAt",historical.ToLocalTime()),TextWrapping=TextWrapping.Wrap});
-                estimates.Children.Add(ResponsiveCards(new List<UIElement>{
-                    Metric(L10n.T("s53D9E8B59877"),estimate.DollarDisplay,L10n.F("s1EA0E159E65E", estimate.PricingCoverage)),
-                    Metric(L10n.T("s758E9EDBBD77"),$"{estimate.EstimatedTokens:N0}",L10n.F("s46B941557FE8", estimate.Confidence))},2,300));
-                estimates.Children.Add(new TextBlock{Text=L10n.F("s779F484C5099", estimate.Samples, estimate.ObservedTokens, estimate.ObservedPercent)+(estimate.ExcludedIntervals>0?L10n.F("sBF4A33F67127", estimate.ExcludedIntervals):""),TextWrapping=TextWrapping.Wrap,Opacity=.7});
-                estimates.Children.Add(new TextBlock{Text=estimate.DollarLow is {} low&&estimate.DollarHigh is {} high?L10n.F("capacity.range",low,high):L10n.T("capacity.rangePending"),TextWrapping=TextWrapping.Wrap,Opacity=.7});
-                estimates.Children.Add(new TextBlock{Text=estimate.EvidenceSummary,TextWrapping=TextWrapping.Wrap,Opacity=.7});
-                estimates.Children.Add(Button(L10n.T("capacity.valuationDetails"),()=>ShowCapacityPricingDetails(estimate)));
-            }
-        }
+        capacityEstimateContent=new StackPanel{Spacing=10};
+        capacityEstimateState=null;
+        estimates.Children.Add(capacityEstimateContent);
         estimates.Children.Add(new TextBlock{Text=L10n.T("capacity.currentSamplingTitle"),FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
-        estimates.Children.Add(new TextBlock{Text=app.WeeklyCapacityProgress,TextWrapping=TextWrapping.Wrap});
-        estimates.Children.Add(new TextBlock{Text=app.CapacityCacheStatus,FontSize=12,Opacity=.65,TextWrapping=TextWrapping.Wrap});
+        capacityProgressText=new TextBlock{TextWrapping=TextWrapping.Wrap};
+        estimates.Children.Add(capacityProgressText);
+        capacityValuationContent=new StackPanel{Spacing=10};
+        capacityValuationState=null;
+        capacityValuationExpander=StableExpander.Configure(new Expander{Header=L10n.T("capacity.valuationDetails"),IsExpanded=false,
+            HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,Content=capacityValuationContent});
+        estimates.Children.Add(capacityValuationExpander);
+        capacityCacheText=new TextBlock{FontSize=12,Opacity=.65,TextWrapping=TextWrapping.Wrap};
+        estimates.Children.Add(capacityCacheText);
         estimates.Children.Add(Button(L10n.T("s4C6D9D73BFC8"),ShowCapacityHistory));
         estimates.Children.Add(Button(L10n.T("capacity.calculateNow"),async()=>await app.CalculateCapacityNowAsync()));
         foreach(var action in new[]{"repair","clear","restart"})
@@ -53,7 +48,10 @@ internal sealed partial class Dashboard
         calculation.Children.Add(new TextBlock{Text=L10n.T("s0F58A8B1B0E1"),TextWrapping=TextWrapping.Wrap,FontSize=12,Opacity=.7});
         calculation.Children.Add(new TextBlock{Text=L10n.T("capacity.stableNote"),TextWrapping=TextWrapping.Wrap,FontSize=12,Opacity=.7});
         estimates.Children.Add(StableExpander.Configure(new Expander{Header=L10n.T("s6B5C96B6A49F"),IsExpanded=false,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,Content=calculation}));
-        return StableExpander.Configure(new Expander{Header=L10n.T("sD9EBFF4C171F"),IsExpanded=false,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,Content=estimates});
+        capacitySettingsExpander=StableExpander.Configure(new Expander{Header=L10n.T("sD9EBFF4C171F"),IsExpanded=false,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,Content=estimates});
+        capacitySettingsExpander.Loaded+=(_,_)=>RevealCapacitySettings();
+        UpdateCapacitySettingsDetails();
+        return capacitySettingsExpander;
     }
     private bool capacityMaintenanceDialogOpen;
     private async Task ShowCapacityMaintenance(string action)

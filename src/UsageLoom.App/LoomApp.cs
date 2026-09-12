@@ -404,7 +404,7 @@ public sealed partial class LoomApp : Application
         if (this.args.Contains("--smoke-test"))
         {
             smokeTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
-            smokeTimer.Interval = TimeSpan.FromSeconds(8); smokeTimer.IsRepeating = false;
+            smokeTimer.Interval = TimeSpan.FromSeconds(CapacityUiCheck?15:8); smokeTimer.IsRepeating = false;
             smokeTimer.Tick += async (_, _) => { Program.Log.Write("INFO", "Smoke", "原生窗口和托盘启动检查完成"); await QuitAsync(); }; smokeTimer.Start();
         }
     }
@@ -479,6 +479,7 @@ public sealed partial class LoomApp : Application
     }
     internal void ShowDetails() { dashboard ??= new Dashboard(this, false); dashboard.ShowPage(IsDemo?PreviewPage:"overview"); }
     internal void ShowSettings() { dashboard ??= new Dashboard(this, false); dashboard.ShowPage("settings"); }
+    internal void ShowCapacitySettings() { dashboard ??= new Dashboard(this, false); dashboard.ShowCapacitySettings(); }
     internal Task RefreshQuotaAsync(bool manual)
     {
         if(IsDemo){Message=L10n.T("s987E3F3AAADE");Changed?.Invoke();return Task.CompletedTask;}
