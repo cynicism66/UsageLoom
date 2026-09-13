@@ -23,6 +23,7 @@ internal sealed partial class Dashboard
         try
         {
             await Task.Delay(350);
+            await VerifyCompactRefreshStability();
             NumberBox? unsavedSetting=null;
             var savedBackgroundSeconds=app.Config.BackgroundSeconds;
             var draftBackgroundSeconds=savedBackgroundSeconds==1234?1235d:1234d;
@@ -56,12 +57,12 @@ internal sealed partial class Dashboard
                     evidence.HasCurrentPricingEvidence&&capacityInfoText.Text.Contains(L10n.F("capacity.compactEvidence",
                         evidence.PricingProfile!.ActualCoverage,evidence.PricingProfile.RequestedCoverage,evidence.PricingProfile.UnknownCoverage),StringComparison.Ordinal)))
                     throw new InvalidOperationException("Compact popover still contains mode-evidence distribution instead of a short summary");
-                if(capacityEvidenceButton is not {Visibility:Visibility.Visible,IsEnabled:true} button||button.ActualHeight<=0)
-                    throw new InvalidOperationException("Capacity settings entry is missing or unreachable");
                 DependencyObject? parent=capacityInfoText;
                 while(parent is not null&&parent is not FlyoutPresenter)parent=VisualTreeHelper.GetParent(parent);
                 if(parent is not FlyoutPresenter presenter)throw new InvalidOperationException("Info popover presenter not found");
                 presenter.UpdateLayout();
+                if(CapacityTestDescendants(presenter).OfType<Button>().Any())
+                    throw new InvalidOperationException("Compact info popover must not contain a settings/detail button");
                 foreach(var property in new[]{ScrollViewer.HorizontalScrollModeProperty,ScrollViewer.VerticalScrollModeProperty})
                     if((ScrollMode)presenter.GetValue(property)!=ScrollMode.Disabled)throw new InvalidOperationException("Compact popover scrolling was enabled");
                 foreach(var viewer in CapacityTestDescendants(presenter).OfType<ScrollViewer>())
@@ -80,20 +81,24 @@ internal sealed partial class Dashboard
                     throw new InvalidOperationException("Compact popover text was trimmed or clipped");
                 if(layout.Width+.5<capacityInfoText.Width||layout.Height+.5<natural.DesiredSize.Height)
                     throw new InvalidOperationException("Compact popover did not allocate the complete text layout slot");
-                foreach(var element in new FrameworkElement[]{capacityInfoText,button})
+                foreach(var element in new FrameworkElement[]{capacityInfoText})
                 {
                     var bounds=element.TransformToVisual(presenter).TransformBounds(new Windows.Foundation.Rect(0,0,element.ActualWidth,element.ActualHeight));
                     if(bounds.X<-.5||bounds.Y<-.5||bounds.X+bounds.Width>presenter.ActualWidth+.5||bounds.Y+bounds.Height>presenter.ActualHeight+.5)
                         throw new InvalidOperationException("Compact popover content exceeds its presenter bounds");
                 }
                 Program.Log.Write("INFO","CapacityUiTest",$"Compact popover no-scroll/no-clipping passed: {scenario}");
-                CapacityTestInvoke(button);
-                await CapacityTestWait(()=>
-                {
-                    return app.CapacitySettingsTestDashboard is {} main&&CapacitySettingsBodyReady(main,scenario)&&
-                        main.capacitySettingsExpander?.IsExpanded==true&&main.capacityValuationExpander?.IsExpanded==true;
-                },"Capacity settings and nested valuation expander did not open");
+                CapacityTestInvoke(entry);
+                await CapacityTestWait(()=>capacityInfoFlyout?.IsOpen!=true,"Compact info popover did not close");
+                var settings=CapacityTestDescendants(root).OfType<Button>().Single(item=>AutomationProperties.GetName(item)==L10n.T("sDF3D58C7D84B"));
+                CapacityTestInvoke(settings);
+                await CapacityTestWait(()=>app.CapacitySettingsTestDashboard is {selectedPage:"settings",capacitySettingsExpander:not null,capacityValuationExpander:not null},
+                    "Compact footer settings gear did not open settings");
                 var main=app.CapacitySettingsTestDashboard!;
+                CapacityTestExpand(main.capacitySettingsExpander!);
+                await CapacityTestWait(()=>main.capacityValuationExpander!.IsLoaded,"Inline valuation expander is not attached");
+                CapacityTestExpand(main.capacityValuationExpander!);
+                await CapacityTestWait(()=>CapacitySettingsBodyReady(main,scenario),"Inline valuation content did not open from settings");
                 var mainRoot=(FrameworkElement)main.Content;mainRoot.UpdateLayout();
                 if(unsavedSetting is not null)CapacityTestSettingDraft(main,unsavedSetting,draftBackgroundSeconds,savedBackgroundSeconds);
                 if(capacityInfoFlyout?.IsOpen==true)throw new InvalidOperationException("Compact popover remained open after settings navigation");
@@ -103,10 +108,9 @@ internal sealed partial class Dashboard
                 if(!CapacityTestDescendants(mainRoot).Any(node=>ReferenceEquals(node,main.capacityValuationContent)))
                     throw new InvalidOperationException("Valuation content is not embedded in the settings page");
                 var detail=main.pageScroll;
-                // Opening an already-selected settings page queues its explicit
-                // header reveal. Wait behind that work before testing user scrolls.
                 await CapacityTestDispatcherSettled(main);
                 var header=CapacityTestDescendants(main.capacityValuationExpander).OfType<FrameworkElement>().Single(element=>element.Name=="ExpanderHeader");
+                if(!CapacityTestVisibleIn(header,detail))header.StartBringIntoView(new BringIntoViewOptions{AnimationDesired=false,VerticalAlignmentRatio=0});
                 await CapacityTestWait(()=>CapacityTestVisibleIn(header,detail),"Settings entry did not reveal the valuation header");
                 Program.Log.Write("INFO","CapacityUiTest",$"Settings entry reveal settled {scenario}: {CapacityTestScrollGeometry(detail,header)}");
                 if(detail.HorizontalScrollBarVisibility!=ScrollBarVisibility.Disabled||detail.ScrollableWidth>.5)
@@ -172,11 +176,118 @@ internal sealed partial class Dashboard
                     throw new InvalidOperationException("Opening settings resized the compact window");
                 Program.Log.Write("INFO","CapacityUiTest",$"Capacity settings navigate/scroll/collapse passed: {scenario}");
             }
+            await VerifyMainCapacityInfoEntry();
             Program.Log.Write("INFO","CapacityUiTest","Unsaved settings value and control identity survived refresh and repeated entry");
             Program.Log.Write("INFO","CapacityUiTest","Capacity settings navigation and live content passed");
             Program.Log.Write("INFO","CapacityUiTest","Capacity detail entry and compact layout passed");
         }
         catch(Exception ex){Program.Log.Write("ERROR","CapacityUiTest",ex.ToString());}
+    }
+    private static void CapacityTestExpand(Expander expander)
+    {
+        if(new ExpanderAutomationPeer(expander).GetPattern(PatternInterface.ExpandCollapse) is not IExpandCollapseProvider expand)
+            throw new InvalidOperationException("Settings expander has no accessible expand action");
+        expand.Expand();
+    }
+    private async Task VerifyCompactRefreshStability()
+    {
+        app.ConfigureCompactRefreshPreview(0);
+        await CapacityTestDispatcherSettled(this);
+        await Task.Delay(120);
+        await CapacityTestDispatcherSettled(this);
+        var root=(FrameworkElement)Content;
+        var ids=new[]{"compact-quota-card","compact-usage-card","compact-capacity-row","compact-plan-row","compact-footer-row",
+            "compact-token-value","compact-request-value","compact-quota-value-0","compact-quota-progress-0","compact-quota-reset-0"};
+        FrameworkElement Find(string id)=>CapacityTestDescendants(root).OfType<FrameworkElement>().Single(element=>AutomationProperties.GetAutomationId(element)==id);
+        (Windows.Foundation.Rect Slot,Windows.Foundation.Rect Bounds) Geometry(FrameworkElement element)
+        {
+            var slot=LayoutInformation.GetLayoutSlot(element);
+            if(VisualTreeHelper.GetParent(element) is not UIElement parent)throw new InvalidOperationException("Compact control has no layout parent");
+            // TextBlock.ActualWidth is ink width, not its reserved layout slot.
+            return (slot,parent.TransformToVisual(root).TransformBounds(slot));
+        }
+        var baseline=ids.ToDictionary(id=>id,id=>
+        {
+            var element=Find(id);var geometry=Geometry(element);
+            return (Element:element,geometry.Slot,geometry.Bounds,FontSize:element is TextBlock text?text.FontSize:0);
+        });
+        var size=AppWindow.Size;var position=AppWindow.Position;
+        var phase="baseline";string? failure=null;var layoutChecks=0;var windowChanges=0;
+        bool Near(Windows.Foundation.Rect a,Windows.Foundation.Rect b)=>Math.Abs(a.X-b.X)<=.5&&Math.Abs(a.Y-b.Y)<=.5&&Math.Abs(a.Width-b.Width)<=.5&&Math.Abs(a.Height-b.Height)<=.5;
+        void CheckGeometry()
+        {
+            if(failure is not null)return;
+            try
+            {
+                foreach(var pair in baseline)
+                {
+                    var element=Find(pair.Key);var geometry=Geometry(element);
+                    if(!ReferenceEquals(element,pair.Value.Element))throw new InvalidOperationException("Persistent control replaced: "+pair.Key);
+                    if(!Near(geometry.Slot,pair.Value.Slot)||!Near(geometry.Bounds,pair.Value.Bounds))
+                        throw new InvalidOperationException($"Compact geometry changed: {pair.Key}; slot {pair.Value.Slot} -> {geometry.Slot}; bounds {pair.Value.Bounds} -> {geometry.Bounds}");
+                    if(element is TextBlock text&&text.FontSize!=pair.Value.FontSize)throw new InvalidOperationException("Compact refresh changed font size: "+pair.Key);
+                }
+                layoutChecks++;
+            }
+            catch(Exception ex){failure=phase+": "+ex.Message;}
+        }
+        void LayoutChanged(object? sender,object e)=>CheckGeometry();
+        void WindowChanged(Microsoft.UI.Windowing.AppWindow sender,Microsoft.UI.Windowing.AppWindowChangedEventArgs e)
+        {
+            if(!e.DidPositionChange&&!e.DidSizeChange)return;
+            windowChanges++;
+            failure??=$"{phase}: compact window changed during data refresh/reopen: size={sender.Size.Width}x{sender.Size.Height}; position={sender.Position.X},{sender.Position.Y}; resized={e.DidSizeChange}; moved={e.DidPositionChange}";
+        }
+        root.LayoutUpdated+=LayoutChanged;AppWindow.Changed+=WindowChanged;
+        var tokenTexts=new HashSet<string>();var percentTexts=new HashSet<string>();var resetTexts=new HashSet<string>();
+        try
+        {
+            for(var step=1;step<=18;step++)
+            {
+                phase="refresh-"+step;
+                app.ConfigureCompactRefreshPreview(step);
+                await CapacityTestDispatcherSettled(this);
+                await Task.Delay(65); // Observe layout frames and native size/position notifications.
+                CheckGeometry();
+                var tokens=(TextBlock)Find("compact-token-value");var requests=(TextBlock)Find("compact-request-value");
+                var percent=(TextBlock)Find("compact-quota-value-0");
+                var rows=app.Events.Where(item=>item.LocalDate==DateTime.Today.ToString("yyyy-MM-dd")).ToList();
+                if(tokens.Text!=UsageNumbers.Compact(rows.Sum(item=>item.Tokens.Total))||requests.Text!=rows.Count.ToString("N0"))
+                    throw new InvalidOperationException("Stable compact controls stopped updating token/request values");
+                if(percent.Text!=app.Quota.PrimaryWindows.Single().RemainingText||((ProgressBar)Find("compact-quota-progress-0")).Value!=app.Quota.PrimaryWindows.Single().Remaining)
+                    throw new InvalidOperationException("Stable compact controls stopped updating quota values");
+                tokenTexts.Add(tokens.Text);percentTexts.Add(percent.Text);resetTexts.Add(((TextBlock)Find("compact-quota-reset-0")).Text);
+                if(AppWindow.Size.Width!=size.Width||AppWindow.Size.Height!=size.Height||AppWindow.Position.X!=position.X||AppWindow.Position.Y!=position.Y)
+                    failure??=phase+": compact window bounds changed";
+                if(failure is not null)throw new InvalidOperationException(failure);
+            }
+            if(tokenTexts.Count<4||percentTexts.Count<6||resetTexts.Count<3)throw new InvalidOperationException("Compact stability fixtures did not exercise changing values and countdowns");
+            phase="hide-and-reopen";
+            Hide();ShowPanel();
+            if(AppWindow.Size.Width!=size.Width||AppWindow.Size.Height!=size.Height)
+                failure??="Reopened compact window used an intermediate or changed size";
+            await CapacityTestDispatcherSettled(this);
+            await Task.Delay(160);
+            CheckGeometry();
+            if(failure is not null)throw new InvalidOperationException(failure);
+            Program.Log.Write("INFO","CapacityUiTest",$"Compact refresh stable: 18 changes; layoutChecks={layoutChecks}; nativeBoundsChanges={windowChanges}; {size.Width}x{size.Height}; hide/reopen has no second resize");
+        }
+        finally{root.LayoutUpdated-=LayoutChanged;AppWindow.Changed-=WindowChanged;}
+    }
+    private async Task VerifyMainCapacityInfoEntry()
+    {
+        var main=app.CapacitySettingsTestDashboard??throw new InvalidOperationException("Main capacity test window is unavailable");
+        main.ShowPage("quota");
+        await CapacityTestDispatcherSettled(main);
+        var root=(FrameworkElement)main.Content;
+        var entry=CapacityTestDescendants(root).OfType<Button>().Single(button=>AutomationProperties.GetName(button)==L10n.T("capacity.info"));
+        CapacityTestInvoke(entry);
+        await CapacityTestWait(()=>main.capacityInfoFlyout?.IsOpen==true,"Main quota info popover did not open");
+        if(main.capacityEvidenceButton is not {IsEnabled:true,Visibility:Visibility.Visible})
+            throw new InvalidOperationException("Main window lost its settings details entry");
+        CapacityTestInvoke(entry);
+        await CapacityTestWait(()=>main.capacityInfoFlyout?.IsOpen!=true,"Main quota info popover did not close");
+        Program.Log.Write("INFO","CapacityUiTest","Compact popover has no buttons; main details entry and footer settings gear retained");
     }
     private bool CapacitySettingsBodyReady(Dashboard main,string scenario,bool requireVisible=true)
     {

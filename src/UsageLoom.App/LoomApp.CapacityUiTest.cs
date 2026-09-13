@@ -7,6 +7,30 @@ public sealed partial class LoomApp
     internal bool CapacityUiCheck=>IsDemo&&args.Contains("--smoke-test")&&args.Contains("--capacity-ui-check");
     internal Dashboard? CapacitySettingsTestDashboard=>CapacityUiCheck?dashboard:null;
 
+    internal void ConfigureCompactRefreshPreview(int step)
+    {
+        if(!CapacityUiCheck)throw new InvalidOperationException("Compact refresh fixtures require isolated smoke-test mode");
+        Config.CapacityEnabled=true;Config.AutoRefresh=false;
+        var now=DateTimeOffset.Now;
+        var used=new[]{0d,1d,9d,10d,99d,100d}[step%6];
+        var total=new[]{0L,999L,1000L,999999L,1000000L,1100000000L}[step%6];
+        var fresh=step%3!=2;
+        DateTimeOffset? reset=(step%4) switch{0=>now.AddDays(6).AddHours(10),1=>now.AddHours(1).AddMinutes(11),2=>now.AddMinutes(2).AddSeconds(30),_=>null};
+        Quota=new([new("codex:weekly",L10n.T("s475811D50FA9"),used,10080,reset)],step%2,now.AddMinutes(-step),
+            "Isolated compact refresh fixture",fresh,"capacity-ui-fixture","pro");
+        var count=total==0?0:step+1;
+        var day=DateTime.Today.AddDays(step%5==3?-1:0).ToString("yyyy-MM-dd");
+        Events=Enumerable.Range(0,count).Select(index=>new UsageEvent("refresh-"+index,"fixture","fixture","gpt-6-astra","main",
+            now.AddSeconds(-index),day,new(total/count+(index==0?total%count:0))){AccountScope=Quota.AccountKey}).ToList();
+        historyLoaded=true;capacityHistoryReady=true;capacityTokenTotal=total;
+        capacityBatch.CompleteRevalidation();capacityFeedback="";capacityInterruptions=[];
+        WeeklyCapacity=step%4==2?[]:[new("codex:weekly",L10n.T("s475811D50FA9"),1234567890+step*1000000d,
+            1000000,6,2,0,"fixture",reset){EstimatedDollars=1319.29m+step*12345m,PricingCoverage=84.9,
+            HistoricalAt=step%4==1?now.AddDays(-1):null}];
+        if(step%4==3){capacityBatch.RequestRevalidation(now);capacityFeedback=L10n.T("capacity.revalidating");}
+        Changed?.Invoke();
+    }
+
     internal void ConfigureCapacityUiPreview(bool historical=false,bool empty=false,bool revalidating=false)
     {
         if(!CapacityUiCheck)throw new InvalidOperationException("Capacity UI fixtures require isolated smoke-test mode");

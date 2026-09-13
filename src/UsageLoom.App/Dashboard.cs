@@ -139,7 +139,7 @@ internal sealed partial class Dashboard : Window
             var narrow=e.NewSize.Width<620;
             var inset=narrow?16:24;
             body.Padding=compact?new Thickness(inset,16,inset,16):new Thickness(0,16,0,16);
-            if(compact){quotaPanel.Width=Math.Max(280,e.NewSize.Width-inset*2);DispatcherQueue.TryEnqueue(FitCompactHeight);}
+            if(compact)quotaPanel.Width=Math.Max(280,e.NewSize.Width-inset*2);
             heading.Margin=compact?new Thickness(0,0,0,12):new Thickness(inset,0,inset,20);
             scrollContent.Margin=new Thickness(inset,0,inset,0);
             sessionWorkspace.Margin=new Thickness(inset,0,inset,0);
@@ -175,7 +175,6 @@ internal sealed partial class Dashboard : Window
         {
             pageTitle.Text = L10n.T("sEA5C9B72650B");pageTitle.FontSize=16;pageSubtitle.Visibility=Visibility.Collapsed;status.Visibility=Visibility.Collapsed;
             quotaPanel.Spacing=10;
-            quotaPanel.SizeChanged+=(_,_)=>DispatcherQueue.TryEnqueue(FitCompactHeight);
             page.Content = new Viewbox { Child = quotaPanel, Stretch=Stretch.Uniform, StretchDirection=StretchDirection.DownOnly,VerticalAlignment=VerticalAlignment.Top,HorizontalAlignment=HorizontalAlignment.Stretch };
             Grid.SetRow(body, 1); root.Children.Add(body);
         }
@@ -336,31 +335,28 @@ internal sealed partial class Dashboard : Window
     }
     public void ShowPanel()
     {
-        if(compact)
+        if(compact&&!IsPanelVisible)
         {
             Native.GetCursorPos(out var point);var info=new Native.MonitorInfo{size=(uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.MonitorInfo>()};
-            if(Native.GetMonitorInfo(Native.MonitorFromPoint(point,2),ref info))
+            var monitor=Native.MonitorFromPoint(point,2);
+            if(Native.GetMonitorInfo(monitor,ref info))
             {
+                // Resolve the destination DPI while still hidden. Never show a
+                // temporary 400-pixel height and resize/re-anchor after activation.
+                var position=AppWindow.Position;
+                if(Native.MonitorFromPoint(new Native.Point{x=position.X,y=position.Y},2)!=monitor)
+                    AppWindow.Move(new Windows.Graphics.PointInt32(info.work.left+12,info.work.top+12));
                 var scale=Math.Max(1,Native.GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this))/96d);
-                var width=Math.Min((int)(380*scale),info.work.right-info.work.left-24);var height=Math.Min((int)(400*scale),info.work.bottom-info.work.top-24);
+                RenderCompact();
+                var width=Math.Min((int)(380*scale),info.work.right-info.work.left-24);
+                var frameWidth=AppWindow.Size.Width-AppWindow.ClientSize.Width;
+                quotaPanel.Width=Math.Max(280,(width-frameWidth)/scale-32);
+                quotaPanel.Measure(new Windows.Foundation.Size(quotaPanel.Width,double.PositiveInfinity));
+                var height=Math.Min((int)Math.Ceiling((quotaPanel.DesiredSize.Height+136)*scale),info.work.bottom-info.work.top-24);
                 AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(Math.Max(info.work.left,info.work.right-width-12),Math.Max(info.work.top,info.work.bottom-height-12),width,height));
             }
         }
         IsPanelVisible=true;Activate();AppWindow.Show();Native.SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));Render();
-        if(compact)DispatcherQueue.TryEnqueue(FitCompactHeight);
-    }
-    private void FitCompactHeight()
-    {
-        if(!compact||released||!IsPanelVisible||quotaPanel.ActualHeight<=0)return;
-        var scale=Math.Max(1,Native.GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this))/96d);
-        var position=AppWindow.Position;
-        var point=new Native.Point{x=position.X,y=position.Y};
-        var info=new Native.MonitorInfo{size=(uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.MonitorInfo>()};
-        if(!Native.GetMonitorInfo(Native.MonitorFromPoint(point,2),ref info))return;
-        quotaPanel.Measure(new Windows.Foundation.Size(double.IsNaN(quotaPanel.Width)?400:quotaPanel.Width,double.PositiveInfinity));
-        var height=Math.Min((int)Math.Ceiling((quotaPanel.DesiredSize.Height+136)*scale),info.work.bottom-info.work.top-24);
-        if(Math.Abs(AppWindow.Size.Height-height)<3)return;
-        AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(position.X,Math.Max(info.work.top+12,info.work.bottom-height-12),AppWindow.Size.Width,height));
     }
     public void Hide(){if(released)return;capacityInfoFlyout?.Hide();IsPanelVisible=false;AppWindow.Hide();}
     private void Navigate(string tag)=>navigation.SelectedItem=navigation.MenuItems.Concat(navigation.FooterMenuItems).OfType<NavigationViewItem>().First(i=>(string)i.Tag==tag);

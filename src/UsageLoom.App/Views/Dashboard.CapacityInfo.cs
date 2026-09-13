@@ -43,15 +43,13 @@ internal sealed partial class Dashboard
                 presenterStyle.Setters.Add(new Setter(ScrollViewer.VerticalScrollBarVisibilityProperty,ScrollBarVisibility.Disabled));
                 presenterStyle.Setters.Add(new Setter(Control.PaddingProperty,new Thickness(12)));
                 var content=new StackPanel{Spacing=8};content.Children.Add(capacityInfoText);
-                capacityEvidenceButton=new Button{Content=new TextBlock{Text=L10n.T("capacity.openSettings"),FontSize=12,TextWrapping=TextWrapping.Wrap},
-                    HorizontalAlignment=HorizontalAlignment.Left,Padding=new Thickness(8,4,8,4)};
-                capacityEvidenceButton.Click+=(_,_)=>
+                if(!compact)
                 {
-                    capacityInfoFlyout?.Hide();
-                    app.ShowCapacitySettings();
-                    if(compact&&!pinned)Hide();
-                };
-                content.Children.Add(capacityEvidenceButton);
+                    capacityEvidenceButton=new Button{Content=new TextBlock{Text=L10n.T("capacity.openSettings"),FontSize=12,TextWrapping=TextWrapping.Wrap},
+                        HorizontalAlignment=HorizontalAlignment.Left,Padding=new Thickness(8,4,8,4)};
+                    capacityEvidenceButton.Click+=(_,_)=>{capacityInfoFlyout?.Hide();app.ShowCapacitySettings();};
+                    content.Children.Add(capacityEvidenceButton);
+                }
                 capacityInfoFlyout=new Flyout{Content=content,FlyoutPresenterStyle=presenterStyle};
             }
             UpdateCapacityInfo();
