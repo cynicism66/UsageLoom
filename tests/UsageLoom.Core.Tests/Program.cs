@@ -65,6 +65,7 @@ void Check(bool result, string message = "断言失败") { if (!result) throw ne
 JsonElement Json(string text) { using var doc = JsonDocument.Parse(text); return doc.RootElement.Clone(); }
 void Test(string name, Action action) => tests.Add((name, () => { action(); return Task.CompletedTask; }));
 void AsyncTest(string name, Func<Task> action) => tests.Add((name, action));
+SessionTitleTests.Register(Test);
 Test("更新检查频率：从不、首次、间隔边界与旧配置默认值", () =>
 {
     var now=DateTimeOffset.UtcNow;
@@ -2069,6 +2070,12 @@ AsyncTest("标题响应损坏不影响账号与额度连接",async()=>
     await using var client=FakeClient("bad-thread-json");
     var result=await client.ReadAsync(null,"unused",default);
     Check(result.Fresh&&client.IsConnected&&result.Windows.Count==1);
+});
+AsyncTest("桌面额度通道可跳过标题请求，不阻塞身份和额度",async()=>
+{
+    await using var client=FakeClient("event");
+    var quota=await client.ReadAsync(null,"unused",default,includeThreadNames:false);
+    Check(quota.Fresh&&client.ThreadNames.Count==0&&client.IsConnected);
 });
 Test("紧凑数字边界及精度",()=>
 {

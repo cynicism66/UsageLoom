@@ -12,8 +12,8 @@ internal sealed partial class Dashboard
     {
         var selectedRange=SelectedHistoryRange();
         var filter=$"{selectedPage}|{historyRangeIndex}|{selectedRange.From}|{selectedRange.Through}|{historySearch.Text}|{sessionOrder.SelectedIndex}|{sessionPage}|{breakdownKind.SelectedIndex}|{DateTime.Today:yyyy-MM-dd}";
-        if(ReferenceEquals(renderedEvents,app.Events)&&renderedFilter==filter)return;
-        renderedEvents=app.Events;renderedFilter=filter;
+        if(ReferenceEquals(renderedEvents,app.Events)&&ReferenceEquals(renderedSessionNames,app.SessionNames)&&renderedFilter==filter)return;
+        renderedEvents=app.Events;renderedSessionNames=app.SessionNames;renderedFilter=filter;
         DetachHistoryFilter();
         updateOverviewLayout=null;
         overviewQuota=new StackPanel{Spacing=10};overviewQuotaCard=Card(overviewQuota);

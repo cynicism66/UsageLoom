@@ -390,6 +390,7 @@ public sealed partial class LoomApp : Application
         else
         {
             _ = LoadHistoryAsync();
+            _ = RefreshSessionTitlesAsync(true);
             WatchHistory();
             if (Config.AutoRefresh) _ = RefreshQuotaAsync(false);
         }
@@ -416,6 +417,7 @@ public sealed partial class LoomApp : Application
             if(cleanupTask is null||cleanupTask.IsCompleted)cleanupTask=CleanupCapacityAsync();
         }
         if (quitting || IsDemo) return;
+        _ = RefreshSessionTitlesAsync();
         var visible = flyout?.IsPanelVisible == true || dashboard?.IsPanelVisible == true;
         var period = SamplingSchedule.QuotaPeriod(visible,DateTimeOffset.Now,lastUsageActivity,Config.ForegroundSeconds,Config.BackgroundSeconds);
         var backoff = Math.Min(1800, period * Math.Pow(2, Math.Min(failures, 5)));
@@ -497,12 +499,11 @@ public sealed partial class LoomApp : Application
         Message = L10n.T("s1EA00D373811"); Changed?.Invoke();
         try
         {
-            var result = await client.ReadAsync(Config.CliPath, Config.AuthorizedAccount?AuthorizedHome:Config.CodexHome, ct,Config.ReuseBackend&&!Config.AuthorizedAccount,Config.AuthorizedAccount);
+            var result = await client.ReadAsync(Config.CliPath, Config.AuthorizedAccount?AuthorizedHome:Config.CodexHome, ct,Config.ReuseBackend&&!Config.AuthorizedAccount,Config.AuthorizedAccount,includeThreadNames:false);
             if(result.Fresh&&result.AccountKey is not null&&restartCheckpoint is not null)historyDirty=true;
             if (quitting || epoch != configurationGeneration || ct.IsCancellationRequested) return;
             Quota = result; failures = result.Fresh ? 0 : failures + 1;
             RecordCapacityObservation(result,queryFailure:!result.Fresh||result.AccountKey is null);
-            SessionNames=new Dictionary<string,string>(client.ThreadNames,StringComparer.Ordinal);
             WeeklyCapacity=ObserveCapacity(result);
             Message = result.IsLocalAccount ? L10n.T("s175D58D46FAC") : L10n.F("s0AB524CB61AE", watch.ElapsedMilliseconds);
             Program.Log.Write(result.Fresh || result.IsLocalAccount ? "INFO" : "WARN", "Quota", $"{result.Status} elapsedMs={watch.ElapsedMilliseconds}");
@@ -527,7 +528,6 @@ public sealed partial class LoomApp : Application
         }
         finally
         {
-            SessionNames=new Dictionary<string,string>(client.ThreadNames,StringComparer.Ordinal);
             refreshing = false;
             if (!Config.AutoRefresh) await client.StopAsync();
             if (!quitting) Changed?.Invoke();
@@ -542,6 +542,7 @@ public sealed partial class LoomApp : Application
     internal Task ScanAsync(bool verifyIntegrity=false,bool rebuild=false)
     {
         if(IsDemo){Message=L10n.T("s04AC6333CEB4");Changed?.Invoke();return Task.CompletedTask;}
+        _ = RefreshSessionTitlesAsync(true);
         if(rebuild&&scanning){Message=L10n.T("s3706DC826F7D");Changed?.Invoke();return Task.CompletedTask;}
         if (quitting || capacityMaintenanceBusy || scanning || attributionBusy) return scanTask ?? Task.CompletedTask;
         scanning = true;
@@ -692,6 +693,7 @@ public sealed partial class LoomApp : Application
         if (authorizationTask is not null) await authorizationTask;
         if (identityTask is not null) await identityTask;
         if (scanTask is not null) await scanTask;
+        if (sessionTitleTask is not null) await sessionTitleTask;
         if (capacityTask is not null) await capacityTask;
         if (cleanupTask is not null) await cleanupTask;
         if (attributionTask is not null){try{await attributionTask;}catch(Exception ex){Program.Log.Write("WARN","Attribution",ex.Message);}}

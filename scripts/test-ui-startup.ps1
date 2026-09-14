@@ -36,6 +36,7 @@ foreach($scenario in $scenarios){
         throw "UI smoke test failed: $scenario, exit=$($testProcess.ExitCode)"
     }
     if($Personalization -and !($lines -match 'Theme controls and language restart boundary passed')){throw 'Personalization control check did not complete'}
+    if(!$CapacityDetails -and $scenario -ne 'empty' -and !($lines -match 'Session title-only refresh passed')){throw 'Session title-only refresh check did not complete'}
     if($Personalization -and !($lines -match 'Trend header 380/520/900 DIP resize geometry passed')){throw 'Responsive trend header check did not complete'}
     if($CapacityDetails -and !($lines -match 'Capacity detail entry and compact layout passed')){throw 'Capacity detail and compact layout check did not complete'}
     if($CapacityDetails -and !($lines -match 'Capacity settings navigation and live content passed')){throw 'Capacity settings navigation and live content check did not complete'}

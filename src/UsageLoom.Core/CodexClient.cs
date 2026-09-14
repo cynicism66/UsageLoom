@@ -68,7 +68,7 @@ public sealed partial class CodexClient(DiagnosticLog log, LocalAccountFingerpri
         }
         return null;
     }
-    public async Task<QuotaState> ReadAsync(string? executable,string home,CancellationToken ct,bool reuseBackend=false,bool managedAccount=false)
+    public async Task<QuotaState> ReadAsync(string? executable,string home,CancellationToken ct,bool reuseBackend=false,bool managedAccount=false,bool includeThreadNames=true)
     {
         await requests.WaitAsync(ct);
         try
@@ -88,7 +88,7 @@ public sealed partial class CodexClient(DiagnosticLog log, LocalAccountFingerpri
                 }
                 await StartAsync(executable,home,ct,reuseBackend,managedAccount);
             }
-            await TryReadThreadNamesAsync(executable,home,ct,reuseBackend,managedAccount);
+            if(includeThreadNames)await TryReadThreadNamesAsync(executable,home,ct,reuseBackend,managedAccount);
             var before=await RequestAsync("account/read",new{refreshToken=false},ct);
             if(!before.TryGetProperty("account",out var account)||account.ValueKind==JsonValueKind.Null)
             {AccountObservation=L10n.T("s1C0E27F0D7E0");accountKey=null;InvalidateAccount(false);return QuotaState.LocalAccount;}

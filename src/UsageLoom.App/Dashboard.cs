@@ -16,6 +16,7 @@ internal sealed partial class Dashboard : Window
     private Border overviewQuotaCard;
     private Action? updateOverviewLayout;
     private List<UsageEvent>? renderedEvents;
+    private IReadOnlyDictionary<string,string>? renderedSessionNames;
     private string? renderedFilter;
     private readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap,FontSize=13};
     private readonly StackPanel historyRangeButtons=new(){Orientation=Orientation.Horizontal,Spacing=4};
@@ -247,6 +248,7 @@ internal sealed partial class Dashboard : Window
             if(selectedPage!="overview")throw new InvalidOperationException("Statistics shortcut navigation failed");
             ShowPage(restore);
             Program.Log.Write("INFO","NavigationTest","Settings/statistics shortcut targets passed");
+            VerifySessionTitleRefresh();
         }
         if(app.PersonalizationCheck){Navigate("settings");_ = VerifyPersonalizationAsync();}
         if(app.NavigationCheck&&!app.PersonalizationCheck)

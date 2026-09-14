@@ -66,7 +66,7 @@ public static class HistoryQuery
     public static string SessionName(string session,IReadOnlyDictionary<string,string>? names)
     {
         if(names is not null&&names.TryGetValue(session,out var title)&&!string.IsNullOrWhiteSpace(title))return title;
-        return Guid.TryParse(session,out _)||session.Length>24?L10n.T("sA91AE6035092"):session;
+        return Guid.TryParse(session,out _)||session.Length>24?L10n.T("sA91AE6035092")+" · "+session[..8]+"…":session;
     }
     public static List<UsageEvent> Filter(IEnumerable<UsageEvent> events,HistoryFilter filter,IReadOnlyDictionary<string,string>? names=null)
     {
