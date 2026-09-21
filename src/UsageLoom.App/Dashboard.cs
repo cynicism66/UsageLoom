@@ -140,7 +140,6 @@ internal sealed partial class Dashboard : Window
             var narrow=e.NewSize.Width<620;
             var inset=narrow?16:24;
             body.Padding=compact?new Thickness(inset,16,inset,16):new Thickness(0,16,0,16);
-            if(compact)quotaPanel.Width=Math.Max(280,e.NewSize.Width-inset*2);
             heading.Margin=compact?new Thickness(0,0,0,12):new Thickness(inset,0,inset,20);
             scrollContent.Margin=new Thickness(inset,0,inset,0);
             sessionWorkspace.Margin=new Thickness(inset,0,inset,0);
@@ -176,7 +175,7 @@ internal sealed partial class Dashboard : Window
         {
             pageTitle.Text = L10n.T("sEA5C9B72650B");pageTitle.FontSize=16;pageSubtitle.Visibility=Visibility.Collapsed;status.Visibility=Visibility.Collapsed;
             quotaPanel.Spacing=10;
-            page.Content = new Viewbox { Child = quotaPanel, Stretch=Stretch.Uniform, StretchDirection=StretchDirection.DownOnly,VerticalAlignment=VerticalAlignment.Top,HorizontalAlignment=HorizontalAlignment.Stretch };
+            page.Content = new Viewbox { Child = quotaPanel, Stretch=Stretch.Uniform, StretchDirection=StretchDirection.DownOnly,VerticalAlignment=VerticalAlignment.Top,HorizontalAlignment=HorizontalAlignment.Left };
             Grid.SetRow(body, 1); root.Children.Add(body);
         }
         else
@@ -215,6 +214,7 @@ internal sealed partial class Dashboard : Window
                 DispatcherQueue.TryEnqueue(()=>{Native.GetWindowThreadProcessId(Native.GetForegroundWindow(),out var pid);if(!pinned&&pid!=Environment.ProcessId)Hide();});
         };
         app.Changed+=Render;Render();
+        StartDisplayTracking();
         StartCapacityUiCheck();
     }
     private void ApplyMinimumWindowWidth()
@@ -223,6 +223,12 @@ internal sealed partial class Dashboard : Window
         var minimumWidthDip=compact?380:620;
         var dpi=Math.Max(96u,Native.GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this)));
         var minimumWidthPixels=(int)Math.Ceiling(minimumWidthDip*dpi/96d);
+        if(compact)
+        {
+            var info=new Native.MonitorInfo{size=(uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.MonitorInfo>()};
+            if(Native.GetMonitorInfo(Native.MonitorFromWindow(WinRT.Interop.WindowNative.GetWindowHandle(this),2),ref info))
+                minimumWidthPixels=Math.Min(minimumWidthPixels,Math.Max(1,info.work.right-info.work.left-24));
+        }
         if(minimumWidthPixels==minimumWindowWidthPixels)return;
         presenter.PreferredMinimumWidth=minimumWidthPixels;
         minimumWindowWidthPixels=minimumWidthPixels;
@@ -348,21 +354,15 @@ internal sealed partial class Dashboard : Window
                 var position=AppWindow.Position;
                 if(Native.MonitorFromPoint(new Native.Point{x=position.X,y=position.Y},2)!=monitor)
                     AppWindow.Move(new Windows.Graphics.PointInt32(info.work.left+12,info.work.top+12));
-                var scale=Math.Max(1,Native.GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this))/96d);
                 RenderCompact();
-                var width=Math.Min((int)(380*scale),info.work.right-info.work.left-24);
-                var frameWidth=AppWindow.Size.Width-AppWindow.ClientSize.Width;
-                quotaPanel.Width=Math.Max(280,(width-frameWidth)/scale-32);
-                quotaPanel.Measure(new Windows.Foundation.Size(quotaPanel.Width,double.PositiveInfinity));
-                var height=Math.Min((int)Math.Ceiling((quotaPanel.DesiredSize.Height+136)*scale),info.work.bottom-info.work.top-24);
-                AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(Math.Max(info.work.left,info.work.right-width-12),Math.Max(info.work.top,info.work.bottom-height-12),width,height));
+                FitCompactWindow(info,true);
             }
         }
         IsPanelVisible=true;Activate();AppWindow.Show();Native.SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));Render();
     }
     public void Hide(){if(released)return;capacityInfoFlyout?.Hide();IsPanelVisible=false;AppWindow.Hide();}
     private void Navigate(string tag)=>navigation.SelectedItem=navigation.MenuItems.Concat(navigation.FooterMenuItems).OfType<NavigationViewItem>().First(i=>(string)i.Tag==tag);
-    public void Release(){released=true;navigationTest?.Stop();navigation.Loaded-=InitializeNavigation;app.Changed-=Render;}
+    public void Release(){released=true;displayTimer?.Stop();navigationTest?.Stop();navigation.Loaded-=InitializeNavigation;app.Changed-=Render;}
     public void ApplyTheme(){if(Content is FrameworkElement element)element.RequestedTheme=Enum.TryParse<ElementTheme>(app.Config.Theme,out var theme)?theme:ElementTheme.Default;RefreshSurfaces();}
     private void SelectPage()
     {

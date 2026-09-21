@@ -273,6 +273,21 @@ internal sealed partial class Dashboard
             Program.Log.Write("INFO","CapacityUiTest",$"Compact refresh stable: 18 changes; layoutChecks={layoutChecks}; nativeBoundsChanges={windowChanges}; {size.Width}x{size.Height}; hide/reopen has no second resize");
         }
         finally{root.LayoutUpdated-=LayoutChanged;AppWindow.Changed-=WindowChanged;}
+        // Simulate stale bounds left by a display transition without changing
+        // the user's actual display settings. Exercise the production watcher.
+        foreach(var dimensions in new[]{(Width:760,Height:300),(Width:400,Height:360)})
+        {
+            AppWindow.Resize(new Windows.Graphics.SizeInt32(dimensions.Width,dimensions.Height));
+            displayState=null;
+            await Task.Delay(650);
+            await CapacityTestDispatcherSettled(this);
+            if(AppWindow.Size.Width!=size.Width||AppWindow.Size.Height!=size.Height)
+                throw new InvalidOperationException("Display watcher did not restore compact bounds");
+            var card=Geometry(Find("compact-quota-card")).Bounds;
+            if(card.X<0||card.X>25||card.Right>root.ActualWidth+.5)
+                throw new InvalidOperationException($"Display recovery left card offset or clipped: {card}; root={root.ActualWidth}");
+        }
+        Program.Log.Write("INFO","CapacityUiTest","Compact display recovery passed: stale wide/short bounds, card alignment, stable restored size");
     }
     private async Task VerifyMainCapacityInfoEntry()
     {

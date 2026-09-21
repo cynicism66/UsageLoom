@@ -2157,6 +2157,19 @@ Test("语言仅改变展示且不改变账号窗口与计价",()=>
     finally{L10n.Language=before;}
 });
 PricingReliabilityTests.Run(Test);
+Test("小窗分辨率、DPI、多屏与工作区边界",()=>
+{
+    foreach(var scale in new[]{1d,1.25,1.5,2,3})
+    foreach(var work in new[]{new WindowBounds(0,0,1920,1040),new WindowBounds(0,0,800,560),new WindowBounds(-1280,-200,1280,960),new WindowBounds(40,30,320,400)})
+    foreach(var anchor in new[]{true,false})
+    {
+        var bounds=CompactWindowLayout.Fit(work,scale,320,new(2400,1500,570,684),anchor);
+        Check(bounds.X>=work.X&&bounds.Y>=work.Y&&bounds.X+bounds.Width<=work.X+work.Width&&bounds.Y+bounds.Height<=work.Y+work.Height);
+        Check(CompactWindowLayout.Fit(work,scale,320,bounds,false)==bounds);
+    }
+    var inside=new WindowBounds(150,200,380,456);
+    Check(CompactWindowLayout.Fit(new(0,0,1920,1040),1,320,inside,false)==inside);
+});
 CapacityReliabilityTests.Run(Test);
 AsyncTest("模式时间线与真实扫描链路",ModeScannerTests.Run);
 ModeStorageTests.Run(AsyncTest,fixtureRoot);
