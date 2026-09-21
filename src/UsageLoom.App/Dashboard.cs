@@ -213,7 +213,7 @@ internal sealed partial class Dashboard : Window
             if(compact&&!pinned&&e.WindowActivationState==WindowActivationState.Deactivated)
                 DispatcherQueue.TryEnqueue(()=>{Native.GetWindowThreadProcessId(Native.GetForegroundWindow(),out var pid);if(!pinned&&pid!=Environment.ProcessId)Hide();});
         };
-        app.Changed+=Render;Render();
+        app.Changed+=Render;app.ClaudeChanged+=UpdateClaudeViews;Render();
         StartDisplayTracking();
         StartCapacityUiCheck();
     }
@@ -362,7 +362,7 @@ internal sealed partial class Dashboard : Window
     }
     public void Hide(){if(released)return;capacityInfoFlyout?.Hide();IsPanelVisible=false;AppWindow.Hide();}
     private void Navigate(string tag)=>navigation.SelectedItem=navigation.MenuItems.Concat(navigation.FooterMenuItems).OfType<NavigationViewItem>().First(i=>(string)i.Tag==tag);
-    public void Release(){released=true;displayTimer?.Stop();navigationTest?.Stop();navigation.Loaded-=InitializeNavigation;app.Changed-=Render;}
+    public void Release(){released=true;displayTimer?.Stop();navigationTest?.Stop();navigation.Loaded-=InitializeNavigation;app.Changed-=Render;app.ClaudeChanged-=UpdateClaudeViews;}
     public void ApplyTheme(){if(Content is FrameworkElement element)element.RequestedTheme=Enum.TryParse<ElementTheme>(app.Config.Theme,out var theme)?theme:ElementTheme.Default;RefreshSurfaces();}
     private void SelectPage()
     {
@@ -449,11 +449,11 @@ internal sealed partial class Dashboard : Window
         status.Text=compact||selectedPage=="quota"?app.Quota.Status:selectedPage is "overview" or "breakdown" or "sessions"?app.HistoryStatus:app.Message;
         ToolTipService.SetToolTip(status,status.Text);
         quotaPanel.Children.Clear();var quota=app.Quota;
-        overviewQuota.Children.Clear();overviewQuotaCard.Visibility=quota.HasQuotaDisplay?Visibility.Visible:Visibility.Collapsed;
+        overviewQuota.Children.Clear();overviewQuotaCard.Visibility=quota.HasQuotaDisplay||app.Config.ClaudeEnabled?Visibility.Visible:Visibility.Collapsed;
         updateOverviewLayout?.Invoke();
         if(quota.HasQuotaDisplay)
         {
-            overviewQuota.Children.Add(new TextBlock{Text=L10n.T("s73BE6011896A"),FontSize=18,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
+            overviewQuota.Children.Add(new TextBlock{Text="Codex · "+L10n.T("s73BE6011896A"),FontSize=18,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
             foreach(var window in quota.PrimaryWindows)
             {
                 overviewQuota.Children.Add(new TextBlock{Text=L10n.F("s6D65FE80C728", window.Label, window.RemainingText),TextWrapping=TextWrapping.Wrap});
@@ -461,8 +461,9 @@ internal sealed partial class Dashboard : Window
             }
             overviewQuota.Children.Add(Button(L10n.T("s14B8852CD2D1"),()=>{Navigate("quota");return Task.CompletedTask;}));
         }
+        else if(app.Config.ClaudeEnabled){overviewQuota.Children.Add(ClaudeText("Codex",18));overviewQuota.Children.Add(ClaudeText(quota.Status));}
         surfaces.RemoveAll(reference => !reference.TryGetTarget(out _));
-        quotaPanel.Children.Add(new TextBlock{Text=app.IsDemo?L10n.T("s9EE75C455D70"):quota.AccountLabel,FontSize=20});
+        quotaPanel.Children.Add(new TextBlock{Text=(app.Config.ClaudeEnabled?"Codex · ":"")+(app.IsDemo?L10n.T("s9EE75C455D70"):quota.AccountLabel),FontSize=20});
         quotaPanel.Children.Add(PlanBadge(quota,false));
         if(!quota.HasQuotaDisplay)quotaPanel.Children.Add(Card(new TextBlock{Text=L10n.T("s540071E2CE7C")+quota.Status,TextWrapping=TextWrapping.Wrap, FontSize=14}));
         var quotaCards=new List<UIElement>();
@@ -509,6 +510,8 @@ internal sealed partial class Dashboard : Window
             }
             quotaGroups.Add(Card(spark));
         }
+        claudeDetails=null;
+        if(app.Config.ClaudeEnabled)quotaGroups.Add(ClaudeDetailsCard());
         if(quotaGroups.Count>0)quotaPanel.Children.Add(ResponsiveCards(quotaGroups,2,360));
         if(quota.HasQuotaDisplay)quotaPanel.Children.Add(new TextBlock{Text=L10n.T("s9672B36B01C7")+(quota.ResetCount is {} n?n+L10n.T("sF81526EFCE19"):L10n.T("sF36CAC96220B")),FontSize=14,Margin=new Thickness(0,4,0,0)});
         if(!compact)quotaPanel.Children.Add(StableExpander.Configure(new Expander{Header=L10n.T("sAD63795746F7"),Content=new TextBlock{Text=quota.Status+L10n.T("s75B413F02FD0"),TextWrapping=TextWrapping.Wrap},HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch}));

@@ -1,13 +1,14 @@
 [CmdletBinding()]
-param([switch]$AllPages,[switch]$English,[switch]$Personalization,[switch]$CapacityDetails,[string]$PublishDirectory)
+param([switch]$AllPages,[switch]$English,[switch]$Personalization,[switch]$CapacityDetails,[switch]$Claude,[string]$PublishDirectory)
 $ErrorActionPreference='Stop'
 if($CapacityDetails -and $Personalization){throw 'CapacityDetails and Personalization must run separately; both navigate the settings page'}
 $workspace=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 if(!$PublishDirectory){$PublishDirectory=Join-Path $workspace 'artifacts/win-x64'}
 $exe=Join-Path $PublishDirectory 'UsageLoom.App.exe'
 # Preview uses a separate mutex and data directory; do not stop the user's app.
-$env:USAGELOOM_TEST_DATA=Join-Path $workspace 'artifacts/ui-preview-data'
-if($CapacityDetails){$env:USAGELOOM_TEST_DATA=Join-Path $workspace 'artifacts/ui-preview-capacity-data'}
+$previewName=if($CapacityDetails){'ui-preview-capacity-'}else{'ui-preview-'}
+# A fresh isolated directory avoids old log rotation invalidating per-scenario offsets.
+$env:USAGELOOM_TEST_DATA=Join-Path $workspace ('artifacts/'+$previewName+[guid]::NewGuid().ToString('N'))
 $log=Join-Path $env:USAGELOOM_TEST_DATA 'logs/runtime.log'
 $scenarios=@('populated','empty')
 if($AllPages){$scenarios+=@('quota','breakdown','sessions','single-day','narrow-overview','wide-overview','settings','about')}
@@ -15,6 +16,7 @@ if($CapacityDetails){$scenarios=@('capacity-details')}
 foreach($scenario in $scenarios){
     $before=if(Test-Path -LiteralPath $log){@(Get-Content -LiteralPath $log -Encoding UTF8).Count}else{0}
     $arguments=@('--smoke-test')
+    if($Claude){$arguments+='--preview-claude'}
     if(!$CapacityDetails){$arguments+='--navigation-check'}
     if($English){$arguments+='--preview-english'}
     if($Personalization){$arguments+='--personalization-check'}

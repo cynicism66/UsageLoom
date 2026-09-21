@@ -6,4 +6,5 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
   </PropertyGroup>
   <ItemGroup><EmbeddedResource Include="Localization/*.json" WithCulture="false" /></ItemGroup>
+  <ItemGroup><PackageReference Include="ZstdSharp.Port" Version="0.8.8" /></ItemGroup>
 </Project>

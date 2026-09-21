@@ -4,6 +4,12 @@ UsageLoom 以本地优先为设计原则。它检查用户计算机上已经存�
 
 Windows 客户端在本机展示结果，保留的 JavaScript/MCP 原型通过本地协议返回结果。客户端可以启动官方后端进行可选的独立授权；凭据由官方后端管理，UsageLoom 不直接读取凭据文件。扫描会读取 JSONL 字节和记录，只提取允许的元数据与计数，不保存会话正文。桌面客户端为显示 Session 名称，只读配置日志目录中的 `session_index.jsonl` 和最新版本的 `state_*.sqlite` 标题元数据，在内存展示，不依赖额度查询或登录成功；下方“明确请求标题”的约束适用于旧 MCP 原型。
 
+## Claude 桌面缓存
+
+Claude 集成默认关闭。启用后只读其本机 `plan-usage-history.json` 和 Chromium 缓存索引；扫描索引定位额度 URL，只解压匹配的组织额度响应，提取百分比、重置时间与响应时间。原始组织 ID 仅在内存用于生成来源指纹，设置只保存选定的本机目录、开关与来源指纹。额度快照仅存内存，不写入 Codex 用量库。
+
+不读取 Cookie、登录凭据或聊天响应正文，不注入 Claude 进程，不调用其网络接口；UsageLoom 不使用也不转发 Claude 登录态。来源指纹不能证明当前登录身份。手动或自动刷新只重读缓存，不能迫使 Claude 更新数据。详见 [Claude 接入说明](CLAUDE.md)。
+
 ## Codex Adapter 可能读取的数据
 
 Adapter 可能读取：

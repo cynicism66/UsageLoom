@@ -11,16 +11,16 @@ internal sealed partial class Dashboard
     private void RenderStats()
     {
         var selectedRange=SelectedHistoryRange();
-        var filter=$"{selectedPage}|{historyRangeIndex}|{selectedRange.From}|{selectedRange.Through}|{historySearch.Text}|{sessionOrder.SelectedIndex}|{sessionPage}|{breakdownKind.SelectedIndex}|{DateTime.Today:yyyy-MM-dd}";
+        var filter=$"{selectedPage}|{historyRangeIndex}|{selectedRange.From}|{selectedRange.Through}|{historySearch.Text}|{sessionOrder.SelectedIndex}|{sessionPage}|{breakdownKind.SelectedIndex}|{DateTime.Today:yyyy-MM-dd}|{app.Config.ClaudeEnabled}";
         if(ReferenceEquals(renderedEvents,app.Events)&&ReferenceEquals(renderedSessionNames,app.SessionNames)&&renderedFilter==filter)return;
         renderedEvents=app.Events;renderedSessionNames=app.SessionNames;renderedFilter=filter;
         DetachHistoryFilter();
         updateOverviewLayout=null;
         overviewQuota=new StackPanel{Spacing=10};overviewQuotaCard=Card(overviewQuota);
-        overviewQuotaCard.Visibility=app.Quota.HasQuotaDisplay?Visibility.Visible:Visibility.Collapsed;
+        overviewQuotaCard.Visibility=app.Quota.HasQuotaDisplay||app.Config.ClaudeEnabled?Visibility.Visible:Visibility.Collapsed;
         if(app.Quota.HasQuotaDisplay)
         {
-            overviewQuota.Children.Add(new TextBlock{Text=L10n.T("s73BE6011896A"),FontSize=18});
+            overviewQuota.Children.Add(new TextBlock{Text="Codex · "+L10n.T("s73BE6011896A"),FontSize=18});
             foreach(var window in app.Quota.PrimaryWindows)
             {
                 overviewQuota.Children.Add(new TextBlock{Text=L10n.F("s6D65FE80C728", window.Label, window.RemainingText),TextWrapping=TextWrapping.Wrap});
@@ -28,8 +28,16 @@ internal sealed partial class Dashboard
             }
             overviewQuota.Children.Add(Button(L10n.T("s14B8852CD2D1"),()=>{Navigate("quota");return Task.CompletedTask;}));
         }
+        else if(app.Config.ClaudeEnabled){overviewQuota.Children.Add(ClaudeText("Codex",18));overviewQuota.Children.Add(ClaudeText(app.Quota.Status));}
         UIElement? pricingDetails=null;
         statsPanel.Children.Clear();
+        claudeOverview=null;
+        if(selectedPage=="overview"&&app.Config.ClaudeEnabled)
+        {
+            claudeOverview=new(){Spacing=8};FillClaudeCard(claudeOverview);
+            statsPanel.Children.Add(ResponsiveCards(new UIElement[]{overviewQuotaCard,Card(claudeOverview)},2,300));
+        }
+        if(app.Config.ClaudeEnabled)statsPanel.Children.Add(ClaudeText(L10n.T("claude.codexMetrics")));
         sessionWorkspace.Children.Clear();
         historySearch.Visibility=selectedPage=="sessions"?Visibility.Visible:Visibility.Collapsed;
         var rows=historyRangeIndex==4&&!selectedRange.IsBounded?[]:HistoryQuery.Filter(app.Events,new(selectedRange.From,selectedRange.Through,selectedPage=="sessions"?historySearch.Text:""),app.SessionNames);
@@ -90,7 +98,9 @@ internal sealed partial class Dashboard
             recent.Children.Add(Button(L10n.T("sD24CA3C355C7"),()=>{Navigate("sessions");return Task.CompletedTask;}));
             // The quota summary updates independently without collapsing expanded history controls.
             var recentCard=Card(recent);
-            var bottomItems=new List<UIElement>{Card(modelPanel),recentCard,overviewQuotaCard};var bottom=ResponsiveCards(bottomItems,3,300);
+            var bottomItems=new List<UIElement>{Card(modelPanel),recentCard};
+            if(!app.Config.ClaudeEnabled)bottomItems.Add(overviewQuotaCard);
+            var bottom=ResponsiveCards(bottomItems,app.Config.ClaudeEnabled?2:3,300);
             var localQuotaCard=overviewQuotaCard;
             void FitBottom(){Grid.SetColumnSpan(recentCard,localQuotaCard.Visibility==Visibility.Collapsed&&bottom.ColumnDefinitions.Count>=3?2:1);}
             bottom.SizeChanged+=(_,_)=>FitBottom();updateOverviewLayout=FitBottom;FitBottom();

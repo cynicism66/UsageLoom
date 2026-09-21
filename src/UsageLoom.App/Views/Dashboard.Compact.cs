@@ -46,6 +46,10 @@ internal sealed partial class Dashboard
         internal readonly Grid CapacityRow=CompactColumns(6,22);
         internal readonly Grid PlanRow=CompactColumns(8,128);
         internal Border QuotaCard=null!;
+        internal Border ClaudeCard=null!;
+        internal readonly TextBlock ClaudeTitle=CompactText(12,18);
+        internal readonly TextBlock[] ClaudeValues=[CompactText(12,18),CompactText(12,18)];
+        internal readonly TextBlock[] ClaudeResets=[CompactText(11,16),CompactText(11,16)];
         internal string? PlanKey;
     }
 
@@ -72,13 +76,17 @@ internal sealed partial class Dashboard
         }
         var quota=new Grid();quota.Children.Add(view.Limits);quota.Children.Add(view.Unavailable);
         view.QuotaCard=CompactCard(quota,"compact-quota-card");quotaPanel.Children.Add(view.QuotaCard);
+        var claude=new StackPanel{Spacing=2};claude.Children.Add(view.ClaudeTitle);
+        for(var i=0;i<2;i++){claude.Children.Add(view.ClaudeValues[i]);claude.Children.Add(view.ClaudeResets[i]);}
+        view.ClaudeCard=CompactCard(claude,"compact-claude-card");view.ClaudeCard.Height=118;
+        view.ClaudeCard.Visibility=app.Config.ClaudeEnabled?Visibility.Visible:Visibility.Collapsed;quotaPanel.Children.Add(view.ClaudeCard);
         var usage=CompactColumns(16,double.NaN);
         StackPanel Metric(string title,TextBlock value,string id)
         {
             var metric=new StackPanel{Spacing=4};var label=CompactText(12,18);label.Text=title;
             AutomationProperties.SetAutomationId(value,id);metric.Children.Add(label);metric.Children.Add(value);return metric;
         }
-        usage.Children.Add(Metric(L10n.T("s8B4B6EA0DA7D"),view.Tokens,"compact-token-value"));
+        usage.Children.Add(Metric("Codex · "+L10n.T("s8B4B6EA0DA7D"),view.Tokens,"compact-token-value"));
         var requests=Metric(L10n.T("sBDBF4C48B0A9"),view.Requests,"compact-request-value");
         Grid.SetColumn(requests,1);usage.Children.Add(requests);quotaPanel.Children.Add(CompactCard(usage,"compact-usage-card"));
         view.Capacity.Opacity=.75;view.CapacityRow.Height=40;
@@ -99,6 +107,7 @@ internal sealed partial class Dashboard
     }
     private void UpdateCompactContent()
     {
+        UpdateCompactClaude();
         var view=compactContent!;var quota=app.Quota;
         var windows=quota.HasQuotaDisplay?quota.PrimaryWindows.ToArray():[];
         for(var index=0;index<windows.Length;index++)
@@ -109,7 +118,7 @@ internal sealed partial class Dashboard
                 view.Windows.Add(added);view.Limits.Children.Add(added.Root);
             }
             var row=view.Windows[index];var window=windows[index];row.Root.Visibility=Visibility.Visible;
-            row.Name.Text=window.Label+L10n.T("sD6822B04178D");row.Value.Text=window.RemainingText;
+            row.Name.Text=(app.Config.ClaudeEnabled?"Codex · ":"")+window.Label+L10n.T("sD6822B04178D");row.Value.Text=window.RemainingText;
             row.Progress.Value=window.Remaining;
             row.Reset.Text=window.ResetCountdown(DateTimeOffset.Now)+(quota.Fresh?"":L10n.T("s6749C5BF4AEA"));
             ToolTipService.SetToolTip(row.Reset,row.Reset.Text);

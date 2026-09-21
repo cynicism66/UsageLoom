@@ -364,6 +364,7 @@ public sealed partial class LoomApp : Application
             if(this.args.Contains("--preview-light"))Config.Theme="Light";
             if(this.args.Contains("--preview-dark"))Config.Theme="Dark";
             Config.AutoRefresh = false;
+            ConfigureClaudePreview();
             Config.LowNotify = false;
             Config.ResetNotify = false;
             Quota = new([new("codex:primary", L10n.T("sFDC11436C31D"), 42, 300, DateTimeOffset.Now.AddHours(2)), new("codex:weekly", L10n.T("sCE5334E5C266"), 18, 10080, DateTimeOffset.Now.AddDays(3))], 2, DateTimeOffset.Now, L10n.T("s060C4C3C9C70"), true);
@@ -392,6 +393,7 @@ public sealed partial class LoomApp : Application
             _ = LoadHistoryAsync();
             _ = RefreshSessionTitlesAsync(true);
             WatchHistory();
+            if(Config.ClaudeEnabled)_ = RefreshClaudeAsync(true);
             if (Config.AutoRefresh) _ = RefreshQuotaAsync(false);
         }
         timer = queue.CreateTimer(); timer.Interval = TimeSpan.FromSeconds(5);
@@ -417,6 +419,7 @@ public sealed partial class LoomApp : Application
             if(cleanupTask is null||cleanupTask.IsCompleted)cleanupTask=CleanupCapacityAsync();
         }
         if (quitting || IsDemo) return;
+        if(Config.ClaudeEnabled){_ = RefreshClaudeAsync();ClaudeChanged?.Invoke();}
         _ = RefreshSessionTitlesAsync();
         var visible = flyout?.IsPanelVisible == true || dashboard?.IsPanelVisible == true;
         var period = SamplingSchedule.QuotaPeriod(visible,DateTimeOffset.Now,lastUsageActivity,Config.ForegroundSeconds,Config.BackgroundSeconds);
@@ -484,6 +487,7 @@ public sealed partial class LoomApp : Application
     internal void ShowCapacitySettings() { dashboard ??= new Dashboard(this, false); dashboard.ShowCapacitySettings(); }
     internal Task RefreshQuotaAsync(bool manual)
     {
+        if(manual)_ = RefreshClaudeAsync(true);
         if(IsDemo){Message=L10n.T("s987E3F3AAADE");Changed?.Invoke();return Task.CompletedTask;}
         if (quitting || capacityMaintenanceBusy || attributionBusy || Authorizing || refreshing || identityRefreshing || (!manual && !Config.AutoRefresh)) return quotaTask ?? Task.CompletedTask;
         refreshing = true; lastAttempt = DateTimeOffset.Now;
@@ -687,9 +691,11 @@ public sealed partial class LoomApp : Application
         smokeTimer?.Stop(); timer?.Stop();
         foreach(var watcher in historyWatchers)watcher.Dispose();historyWatchers.Clear();
         lifetime.Cancel(); quotaCancellation.Cancel();
+        claudeCancellation?.Cancel();
         authorizationCancellation?.Cancel();
         flyout?.Release(); dashboard?.Release();
         if (quotaTask is not null) await quotaTask;
+        if (claudeTask is not null) await claudeTask;
         if (authorizationTask is not null) await authorizationTask;
         if (identityTask is not null) await identityTask;
         if (scanTask is not null) await scanTask;

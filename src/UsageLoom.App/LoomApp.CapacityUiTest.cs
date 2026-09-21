@@ -11,6 +11,7 @@ public sealed partial class LoomApp
     {
         if(!CapacityUiCheck)throw new InvalidOperationException("Compact refresh fixtures require isolated smoke-test mode");
         Config.CapacityEnabled=true;Config.AutoRefresh=false;
+        ConfigureClaudeRefreshPreview(step);
         var now=DateTimeOffset.Now;
         var used=new[]{0d,1d,9d,10d,99d,100d}[step%6];
         var total=new[]{0L,999L,1000L,999999L,1000000L,1100000000L}[step%6];

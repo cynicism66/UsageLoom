@@ -198,6 +198,7 @@ internal sealed partial class Dashboard
         var root=(FrameworkElement)Content;
         var ids=new[]{"compact-quota-card","compact-usage-card","compact-capacity-row","compact-plan-row","compact-footer-row",
             "compact-token-value","compact-request-value","compact-quota-value-0","compact-quota-progress-0","compact-quota-reset-0"};
+        if(app.Config.ClaudeEnabled)ids=[..ids,"compact-claude-card"];
         FrameworkElement Find(string id)=>CapacityTestDescendants(root).OfType<FrameworkElement>().Single(element=>AutomationProperties.GetAutomationId(element)==id);
         (Windows.Foundation.Rect Slot,Windows.Foundation.Rect Bounds) Geometry(FrameworkElement element)
         {

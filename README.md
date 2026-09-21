@@ -1,12 +1,14 @@
 # UsageLoom
 
-Windows 11 上的 Codex 用量与额度面板。无需登录即可统计本机 Token；通过官方后端查询已有缓存账号的在线额度。
+Windows 11 上的 Codex 用量与额度面板，并可同时查看 Claude 桌面版的本地额度快照。无需登录即可统计本机 Codex Token；通过官方后端查询已有缓存账号的在线额度。
 
 [下载 MSI 与 ZIP](https://github.com/cynicism66/UsageLoom/releases/latest) · [安装说明](docs/INSTALLATION.md) · [问题反馈](https://github.com/cynicism66/UsageLoom/issues)
 
-UsageLoom 是独立开源项目，不隶属于 OpenAI。本地统计与费用估算由 UsageLoom 计算。
+UsageLoom 是独立开源项目，不隶属于 OpenAI 或 Anthropic。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.8.7
+## Windows 桌面版 0.8.13
+
+在“设置 → Claude 桌面版”启用后，可在概览、当前额度和托盘小窗同时查看 Codex 与 Claude。Claude 的 5 小时／每周剩余额度和重置时间来自只读本地缓存，不需要额外登录；不是主动联网查询，缓存更新时间由 Claude 控制。[接入说明与限制](docs/CLAUDE.md) · [发布说明](docs/releases/RELEASE-0.8.13.md)
 
 0.8.7：中断提示只对应当前周周期；区分累计百分点、等待快照和等待日志，历史估算明确标为参考。[发布说明](docs/releases/RELEASE-0.8.7.md)
 

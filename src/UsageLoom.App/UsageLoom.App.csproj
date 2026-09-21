@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <Version>0.8.12</Version>
+    <Version>0.8.13</Version>
     <!-- 0.2.0 shipped a default 1.0.0.0 file version. Keep native file versions above it. -->
-    <FileVersion>1.0.8.12</FileVersion>
+    <FileVersion>1.0.8.13</FileVersion>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>
     <UseWinUI>true</UseWinUI>
@@ -23,6 +23,8 @@
   <ItemGroup>
     <Content Include="Update-UsageLoom.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../LICENSE" Link="LICENSE" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../LICENSE.zh-CN.md" Link="LICENSE.zh-CN.md" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="../../docs/PROJECT_ORIGINS.md" Link="PROJECT_ORIGINS.md" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../THIRD_PARTY_NOTICES.md" Link="THIRD_PARTY_NOTICES.md" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../assets/licenses/*.txt" Link="THIRD-PARTY-LICENSES/%(Filename)%(Extension)" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="$(NuGetPackageRoot)/microsoft.netcore.app.runtime.win-x64/10.0.11/LICENSE.TXT" Link="THIRD-PARTY-LICENSES/dotnet-LICENSE.txt" CopyToPublishDirectory="PreserveNewest" />

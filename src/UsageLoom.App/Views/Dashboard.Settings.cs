@@ -40,6 +40,7 @@ internal sealed partial class Dashboard
         }
         Section(L10n.T("s38C043E08502"),theme,language);Section(L10n.T("s6E89737A00E1"),cli,home);Section(L10n.T("s16685D3221B9"),auto,foreground,seconds);Section(L10n.T("sA28590E6B1D8"),low,threshold,reset,minutes);
         panel.Children.Add(CapacitySettings());
+        panel.Children.Add(ClaudeSettings());
         Section(L10n.T("sD39DC68172D7"),
             new TextBlock{Text=L10n.T("s9371F74C3221"),TextWrapping=TextWrapping.Wrap},
             Button(L10n.T("sE400A5FF247B"),async()=>
