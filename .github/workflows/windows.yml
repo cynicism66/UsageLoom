@@ -38,6 +38,9 @@ jobs:
           ./scripts/test-msi-package.ps1
           ./scripts/build-portable.ps1
           ./scripts/build-update-feed.ps1
+      - name: Actual upgrade with independent disposable fixture identity
+        shell: powershell
+        run: ./scripts/test-msi-upgrade-ci.ps1
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -47,7 +50,5 @@ jobs:
             artifacts/installer/UsageLoom-install.cmd
             artifacts/portable/*.zip
             artifacts/release-*/update.json
+            ${{ runner.temp }}/LoomInstallerFixture-*/*.log
           retention-days: 7
-      - name: Actual upgrade with independent disposable fixture identity
-        shell: powershell
-        run: ./scripts/test-msi-upgrade-ci.ps1

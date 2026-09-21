@@ -33,6 +33,14 @@ $script=$launcher.Split(@('# POWERSHELL' + '-START'),[StringSplitOptions]::None)
 $parseTokens=$null;$parseErrors=$null
 $null=[Management.Automation.Language.Parser]::ParseInput($script,[ref]$parseTokens,[ref]$parseErrors)
 if($parseErrors.Count){throw "Invalid launcher PowerShell: $parseErrors"}
+if($launcher -match '(?<!\r)\n'){throw 'CMD launcher requires CRLF line endings'}
+$launcherFixture=Join-Path $workspace ('artifacts/launcher-check-'+[Guid]::NewGuid().ToString('N'))
+$null=New-Item -ItemType Directory -Path $launcherFixture
+Copy-Item -LiteralPath (Join-Path $workspace 'artifacts/installer/UsageLoom-install.cmd') -Destination $launcherFixture
+# A fresh directory contains no MSI, so the actual CMD wrapper must stop before any installation.
+& "$env:SystemRoot/System32/cmd.exe" /d /c ('"'+(Join-Path $launcherFixture 'UsageLoom-install.cmd')+'" <NUL')
+if($LASTEXITCODE -ne 1){throw 'CMD wrapper did not reject the missing MSI'}
+$global:LASTEXITCODE=0
 Write-Output 'PASS installer preflight: actual elevation, same user, per-user scope, transactional rollback, matching launcher.'
 $dialogs=Read-MsiTable 'SELECT Dialog FROM Dialog' 1
 if($properties.LOOM_DESKTOP -ne '1' -or $properties.LOOM_STARTMENU -ne '1'){throw 'Invalid shortcut defaults'}
