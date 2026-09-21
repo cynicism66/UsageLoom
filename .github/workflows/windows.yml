@@ -21,7 +21,9 @@ jobs:
         run: ./scripts/build-windows.ps1 -Publish
       - name: Isolated updater replacement and rollback tests
         shell: powershell
-        run: ./scripts/test-updater.ps1
+        run: |
+          ./scripts/test-updater.ps1
+          ./scripts/test-installer-launcher.ps1
       - name: Install packaging tools
         shell: pwsh
         run: |
@@ -37,10 +39,15 @@ jobs:
           ./scripts/build-portable.ps1
           ./scripts/build-update-feed.ps1
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: windows-validation
           path: |
             artifacts/installer/*.msi
+            artifacts/installer/UsageLoom-install.cmd
             artifacts/portable/*.zip
             artifacts/release-*/update.json
           retention-days: 7
+      - name: Actual upgrade with independent disposable fixture identity
+        shell: powershell
+        run: ./scripts/test-msi-upgrade-ci.ps1

@@ -34,8 +34,17 @@ try {
     try { $locked = $mutex.WaitOne(0) } catch [Threading.AbandonedMutexException] { $locked = $true }
     if (!$locked) { throw 'UsageLoom is running again; update cancelled' }
     if ($installed) {
-        # Windows Installer performs its own transactional rollback. Keep the install location.
-        $msi = Start-Process -FilePath 'msiexec.exe' -ArgumentList @('/i', ('"' + $job.Package + '"'), '/passive', '/norestart', ('INSTALLFOLDER="' + $target + '"'), '/L*v', ('"' + (Join-Path $stage 'msi.log') + '"')) -PassThru -Wait
+        # Elevate only Installer, not this helper or the app restarted below. Preserve rollback,
+        # installation scope and directory. Reject over-the-shoulder UAC into another user's HKCU.
+        $expectedSid = [Security.Principal.WindowsIdentity]::GetCurrent().User.Value
+        try {
+            $msi = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32/msiexec.exe') -Verb RunAs -ArgumentList @('/i', ('"' + $job.Package + '"'), '/passive', '/norestart', ('INSTALLFOLDER="' + $target + '"'), ('LOOM_EXPECTED_USER_SID=' + $expectedSid), '/L*v', ('"' + (Join-Path $stage 'msi.log') + '"')) -PassThru -Wait
+        } catch {
+            $cause = $_.Exception
+            while ($cause -and !($cause -is [ComponentModel.Win32Exception])) { $cause = $cause.InnerException }
+            if ($cause -and $cause.NativeErrorCode -eq 1223) { throw 'Administrator authorization cancelled; installation was not started' }
+            throw
+        }
         if ($msi.ExitCode -notin @(0, 3010)) { throw "MSI upgrade failed: $($msi.ExitCode)" }
     } else {
         $payload = Join-Path $stage 'payload'

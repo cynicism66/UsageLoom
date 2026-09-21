@@ -40,6 +40,8 @@ Windows 桌面发布：运行核心回归、桌面冒烟，以及在 `legacy/cod
 
 ## 发布后检查
 
+- 从 0.8.14 起，将 `build-msi.ps1` 生成的 `UsageLoom-install.cmd` 一并发布并加入 SHA256SUMS.txt。入口内的版本号及 MSI 摘要必须匹配本次附件；不要手动复用旧版入口。CI 的真实 MSI 回归仅允许在临时 GitHub 托管 Windows runner 上运行，使用独立随机产品标识，不在开发者电脑执行安装。
+
 - 从 Release 页面下载 ZIP，核对 SHA-256。
 - 确认压缩包可以独立解压，且所有清单路径都存在。
 - 确认安装说明、版本号和变更日志与发行包一致。

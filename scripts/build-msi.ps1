@@ -33,6 +33,8 @@ try {
     & $wix build (Join-Path $workspace 'packaging/UsageLoom.wxs') -ext WixToolset.UI.wixext/6.0.2 -culture zh-CN -d PublishDir=$publish -d Version=$Version -d "LicenseRtf=$(Join-Path $workspace 'packaging/License.rtf')" -o $msi -arch x64
 } finally { Pop-Location }
 if($LASTEXITCODE -ne 0){throw "WiX 构建失败：$LASTEXITCODE"}
+$launcher=(Get-Content (Join-Path $workspace 'packaging/UsageLoom-install.cmd') -Raw).Replace('@VERSION@',$Version).Replace('@SHA256@',(Get-FileHash $msi -Algorithm SHA256).Hash)
+[IO.File]::WriteAllText((Join-Path $out 'UsageLoom-install.cmd'), ($launcher -replace "`r?`n","`r`n"), [Text.UTF8Encoding]::new($false))
 Write-Output 'MSI 已收获自包含发布目录中的全部文件。尚未执行安装，不代表干净系统验收通过。'
 Get-FileHash $msi -Algorithm SHA256 | Format-List
 Write-Output "MSI：$msi"

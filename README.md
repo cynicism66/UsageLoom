@@ -6,7 +6,9 @@ Windows 11 上的 Codex 用量与额度面板，并可同时查看 Claude 桌面
 
 UsageLoom 是独立开源项目，不隶属于 OpenAI 或 Anthropic。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.8.13
+## Windows 桌面版 0.8.14
+
+修复覆盖安装时权限不足导致大量回滚文件安全设置报错的问题；安装前校验实际提权状态，保留当前用户安装和事务回滚。从旧版升级请将同版本 MSI 和 `UsageLoom-install.cmd` 下载到同一文件夹，双击安装入口并确认 UAC。[发布说明](docs/releases/RELEASE-0.8.14.md)
 
 在“设置 → Claude 桌面版”启用后，可在概览、当前额度和托盘小窗同时查看 Codex 与 Claude。Claude 的 5 小时／每周剩余额度和重置时间来自只读本地缓存，不需要额外登录；不是主动联网查询，缓存更新时间由 Claude 控制。[接入说明与限制](docs/CLAUDE.md) · [发布说明](docs/releases/RELEASE-0.8.13.md)
 

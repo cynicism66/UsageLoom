@@ -16,6 +16,24 @@ Read-MsiTable 'SELECT Property, Value FROM Property' 2 | ForEach-Object {$proper
 if($properties.ProductVersion -ne $Version -or $properties.ProductName -ne 'UsageLoom'){throw 'Invalid product identity'}
 if($properties.ARPSYSTEMCOMPONENT -eq '1' -or $properties.ARPNOREMOVE -eq '1'){throw 'Uninstall entry is hidden'}
 if($properties.ProductLanguage -ne '2052'){throw 'Installer language is not Simplified Chinese'}
+if($properties.ALLUSERS -or $properties.MSIINSTALLPERUSER -or $properties.DISABLEROLLBACK){throw 'Installation scope or rollback safety changed'}
+$conditions=@(Read-MsiTable 'SELECT Condition, Description FROM LaunchCondition' 2 | ForEach-Object { $_[0] })
+foreach($condition in @('MsiRunningElevated = 1','NOT ALLUSERS','NOT LOOM_EXPECTED_USER_SID OR LOOM_EXPECTED_USER_SID = UserSID')){
+    if($conditions -notcontains $condition){throw "Missing installer preflight: $condition"}
+}
+foreach($table in @('InstallUISequence','InstallExecuteSequence')){
+    $sequence=@{};Read-MsiTable "SELECT Action, Sequence FROM $table" 2 | ForEach-Object {$sequence[$_[0]]=[int]$_[1]}
+    if(!$sequence.LaunchConditions -or ($sequence.InstallInitialize -and $sequence.LaunchConditions -ge $sequence.InstallInitialize) -or ($sequence.RemoveExistingProducts -and $sequence.LaunchConditions -ge $sequence.RemoveExistingProducts)){throw 'Preflight runs after modification starts'}
+    if($table -eq 'InstallExecuteSequence' -and $sequence.RemoveExistingProducts -le $sequence.InstallInitialize){throw 'Old product removal must remain transactional'}
+}
+$launcher=Get-Content (Join-Path $workspace 'artifacts/installer/UsageLoom-install.cmd') -Raw
+$hash=(Get-FileHash (Join-Path $workspace "artifacts/installer/UsageLoom-$Version-win-x64.msi") -Algorithm SHA256).Hash
+if(!$launcher.Contains($hash) -or !$launcher.Contains("UsageLoom-$Version-win-x64.msi") -or $launcher.Contains('@VERSION@') -or $launcher.Contains('@SHA256@')){throw 'Manual launcher does not match this MSI'}
+$script=$launcher.Split(@('# POWERSHELL' + '-START'),[StringSplitOptions]::None)[1]
+$parseTokens=$null;$parseErrors=$null
+$null=[Management.Automation.Language.Parser]::ParseInput($script,[ref]$parseTokens,[ref]$parseErrors)
+if($parseErrors.Count){throw "Invalid launcher PowerShell: $parseErrors"}
+Write-Output 'PASS installer preflight: actual elevation, same user, per-user scope, transactional rollback, matching launcher.'
 $dialogs=Read-MsiTable 'SELECT Dialog FROM Dialog' 1
 if($properties.LOOM_DESKTOP -ne '1' -or $properties.LOOM_STARTMENU -ne '1'){throw 'Invalid shortcut defaults'}
 if(!($dialogs | Where-Object {$_[0] -eq 'LoomShortcutsDlg'})){throw 'Missing shortcut selection dialog'}
