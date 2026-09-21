@@ -62,15 +62,17 @@ internal sealed partial class Dashboard
         claudeEnabledChoice=enabled;claudeDirectoryChoice=directory;
         claudeScopeChoice=new ComboBox{Header=L10n.T("claude.scope"),HorizontalAlignment=HorizontalAlignment.Stretch};claudeScopesKey="!";
         var scopeChoice=claudeScopeChoice;
-        directory.TextChanged+=(_,_)=>scopeChoice.SelectedIndex=0;
+        directory.TextChanged+=(_,_)=>{if(!string.Equals(directory.Text.Trim(),app.Config.ClaudeDataDirectory??"",StringComparison.OrdinalIgnoreCase))scopeChoice.SelectedIndex=0;};
         claudeSettingsStatus=ClaudeText("");
         panel.Children.Add(enabled);panel.Children.Add(directory);panel.Children.Add(claudeScopeChoice);
         panel.Children.Add(ClaudeText(L10n.T("claude.notice")));panel.Children.Add(claudeSettingsStatus);
         ClaudeSettingsInput ReadDraft()
         {
             var scope=(scopeChoice.SelectedItem as ComboBoxItem)?.Tag as string;
-            if(!string.Equals(directory.Text.Trim(),app.Config.ClaudeDataDirectory??"",StringComparison.OrdinalIgnoreCase))scope=null;
-            return new ClaudeSettingsInput(enabled.IsOn,directory.Text,scope).Validated();
+            var directoryChanged=!string.Equals(directory.Text.Trim(),app.Config.ClaudeDataDirectory??"",StringComparison.OrdinalIgnoreCase);
+            var draft=new ClaudeSettingsInput(enabled.IsOn,directory.Text,directoryChanged?null:scope).Validated();
+            if(directoryChanged)scopeChoice.SelectedIndex=0; // An old choice must not return on the next save.
+            return draft;
         }
         readClaudeSettings=ReadDraft;
         claudeApplyButton=Button(L10n.T("claude.apply"),()=>app.ConfigureClaudeAsync(ReadDraft()));

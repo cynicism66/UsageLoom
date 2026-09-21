@@ -43,9 +43,12 @@ internal sealed partial class Dashboard
             await CapacityTestWait(()=>!app.Config.ClaudeEnabled&&claudeApplyButton!.IsEnabled,"Section save did not disable Claude");
             CheckSaved(false,null,"fixture-scope");Reenter(false);
             claudeEnabledChoice!.IsOn=true;claudeDirectoryChoice!.Text="  "+fixtureDirectory+"  ";
+            foreach(ComboBoxItem item in claudeScopeChoice!.Items)if((string)item.Tag=="fixture-scope")claudeScopeChoice.SelectedItem=item;
             CapacityTestInvoke(settingsSaveButton!);
             await CapacityTestWait(()=>app.Config.ClaudeEnabled&&settingsSaveButton!.IsEnabled,"Global save did not persist changed directory");
-            CheckSaved(true,fixtureDirectory,null);Reenter(true);
+            CheckSaved(true,fixtureDirectory,null);
+            if(readClaudeSettings!().Scope is not null)throw new InvalidOperationException("Old directory scope returned on a repeated save");
+            Reenter(true);
             var snapshot=app.ClaudeQuota;
             CapacityTestInvoke(settingsSaveButton!);
             await CapacityTestDispatcherSettled(this);
