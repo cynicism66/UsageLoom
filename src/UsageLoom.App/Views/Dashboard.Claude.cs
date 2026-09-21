@@ -10,6 +10,10 @@ internal sealed partial class Dashboard
     private StackPanel? claudeOverview,claudeDetails;
     private TextBlock? claudeSettingsStatus;
     private ComboBox? claudeScopeChoice;
+    private ToggleSwitch? claudeEnabledChoice;
+    private TextBox? claudeDirectoryChoice;
+    private Button? claudeApplyButton;
+    private Func<ClaudeSettingsInput>? readClaudeSettings;
     private string claudeScopesKey="";
     private static TextBlock ClaudeText(string text,double size=12)=>new(){Text=text,FontSize=size,TextWrapping=TextWrapping.Wrap};
     private void FillClaudeCard(StackPanel panel)
@@ -41,12 +45,13 @@ internal sealed partial class Dashboard
         var scopes=app.ClaudeQuota.Scopes??[];var signature=string.Join("|",scopes)+"|"+app.Config.ClaudeScope;
         if(claudeScopeChoice is not null&&signature!=claudeScopesKey)
         {
+            var selectedDraft=(claudeScopeChoice.SelectedItem as ComboBoxItem)?.Tag as string??app.Config.ClaudeScope??"";
             claudeScopesKey=signature;claudeScopeChoice.Items.Clear();
             claudeScopeChoice.Items.Add(new ComboBoxItem{Content=L10n.T("claude.automatic"),Tag=""});
-            foreach(var scope in scopes.Concat(app.Config.ClaudeScope is {} selected?[selected]:[]).Distinct())
+            foreach(var scope in scopes.Concat(new[]{app.Config.ClaudeScope,selectedDraft}.Where(s=>!string.IsNullOrEmpty(s)).Select(s=>s!)).Distinct())
                 claudeScopeChoice.Items.Add(new ComboBoxItem{Content=L10n.F("claude.source",scope),Tag=scope});
             claudeScopeChoice.SelectedIndex=0;
-            foreach(ComboBoxItem item in claudeScopeChoice.Items)if((string)item.Tag==app.Config.ClaudeScope)claudeScopeChoice.SelectedItem=item;
+            foreach(ComboBoxItem item in claudeScopeChoice.Items)if((string)item.Tag==selectedDraft)claudeScopeChoice.SelectedItem=item;
         }
     }
     private UIElement ClaudeSettings()
@@ -54,16 +59,22 @@ internal sealed partial class Dashboard
         var panel=new StackPanel{Spacing=12};
         var enabled=new ToggleSwitch{Header=L10n.T("claude.enable"),IsOn=app.Config.ClaudeEnabled};
         var directory=new TextBox{Header=L10n.T("claude.path"),Text=app.Config.ClaudeDataDirectory??"",IsReadOnly=app.IsDemo};
+        claudeEnabledChoice=enabled;claudeDirectoryChoice=directory;
         claudeScopeChoice=new ComboBox{Header=L10n.T("claude.scope"),HorizontalAlignment=HorizontalAlignment.Stretch};claudeScopesKey="!";
+        var scopeChoice=claudeScopeChoice;
+        directory.TextChanged+=(_,_)=>scopeChoice.SelectedIndex=0;
         claudeSettingsStatus=ClaudeText("");
         panel.Children.Add(enabled);panel.Children.Add(directory);panel.Children.Add(claudeScopeChoice);
         panel.Children.Add(ClaudeText(L10n.T("claude.notice")));panel.Children.Add(claudeSettingsStatus);
-        panel.Children.Add(Button(L10n.T("claude.apply"),async()=>
+        ClaudeSettingsInput ReadDraft()
         {
-            var scope=(claudeScopeChoice.SelectedItem as ComboBoxItem)?.Tag as string;
-            if(directory.Text.Trim()!=(app.Config.ClaudeDataDirectory??""))scope=null;
-            await app.ConfigureClaudeAsync(enabled.IsOn,directory.Text,scope);
-        }));
+            var scope=(scopeChoice.SelectedItem as ComboBoxItem)?.Tag as string;
+            if(!string.Equals(directory.Text.Trim(),app.Config.ClaudeDataDirectory??"",StringComparison.OrdinalIgnoreCase))scope=null;
+            return new ClaudeSettingsInput(enabled.IsOn,directory.Text,scope).Validated();
+        }
+        readClaudeSettings=ReadDraft;
+        claudeApplyButton=Button(L10n.T("claude.apply"),()=>app.ConfigureClaudeAsync(ReadDraft()));
+        panel.Children.Add(claudeApplyButton);
         panel.Children.Add(Button(L10n.T("claude.detect"),()=>app.RefreshClaudeAsync(true)));
         AutomationProperties.SetAutomationId(panel,"claude-settings");UpdateClaudeViews();
         return StableExpander.Configure(new Expander{Header=L10n.T("claude.title"),Content=panel,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch});

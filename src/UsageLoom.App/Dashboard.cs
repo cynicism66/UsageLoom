@@ -257,7 +257,8 @@ internal sealed partial class Dashboard : Window
             VerifySessionTitleRefresh();
         }
         if(app.PersonalizationCheck){Navigate("settings");_ = VerifyPersonalizationAsync();}
-        if(app.NavigationCheck&&!app.PersonalizationCheck)
+        if(app.ClaudeSettingsCheck){Navigate("settings");_ = VerifyClaudeSettingsAsync();}
+        if(app.NavigationCheck&&!app.PersonalizationCheck&&!app.ClaudeSettingsCheck)
         {
             var step=0;var route=new[]{"sessions","overview","quota","overview","breakdown","overview","settings","overview","about","overview","overview","overview"};
             navigationTest=DispatcherQueue.CreateTimer();navigationTest.Interval=TimeSpan.FromMilliseconds(200);

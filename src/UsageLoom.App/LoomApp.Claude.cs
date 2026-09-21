@@ -2,6 +2,16 @@ using UsageLoom.Core;
 
 namespace UsageLoom.App;
 
+internal sealed record ClaudeSettingsInput(bool Enabled,string? Directory,string? Scope)
+{
+    internal ClaudeSettingsInput Validated()
+    {
+        var directory=Directory?.Trim();
+        if(!string.IsNullOrEmpty(directory)&&(!Path.IsPathFullyQualified(directory)||directory.StartsWith(@"\\")))throw new ArgumentException(L10n.T("claude.invalidPath"));
+        return this with{Directory=string.IsNullOrEmpty(directory)?null:directory,Scope=string.IsNullOrWhiteSpace(Scope)?null:Scope};
+    }
+}
+
 public sealed partial class LoomApp
 {
     internal ClaudeQuotaSnapshot ClaudeQuota {get;private set;}=ClaudeQuotaSnapshot.Empty("disabled");
@@ -35,16 +45,29 @@ public sealed partial class LoomApp
             if(!quitting&&generation==claudeGeneration){ClaudeQuota=ClaudeQuotaSnapshot.Empty("readFailed");ClaudeChanged?.Invoke();}
         }
     }
-    internal async Task ConfigureClaudeAsync(bool enabled,string? directory,string? scope)
+    private bool PersistClaudeSettings(ClaudeSettingsInput? input)
     {
-        if(IsDemo)return;
-        directory=directory?.Trim();
-        if(!string.IsNullOrEmpty(directory)&&(!Path.IsPathFullyQualified(directory)||directory.StartsWith(@"\\")))throw new ArgumentException(L10n.T("claude.invalidPath"));
+        var before=new ClaudeSettingsInput(Config.ClaudeEnabled,Config.ClaudeDataDirectory,Config.ClaudeScope);
+        var next=input?.Validated()??before;
+        Config.ClaudeEnabled=next.Enabled;Config.ClaudeDataDirectory=next.Directory;Config.ClaudeScope=next.Scope;
+        try{Config.Save();}
+        catch{Config.ClaudeEnabled=before.Enabled;Config.ClaudeDataDirectory=before.Directory;Config.ClaudeScope=before.Scope;throw;}
+        return next!=before;
+    }
+    private async Task CompleteClaudeSettingsAsync(bool changed,bool forceRead=false)
+    {
+        if(!changed){if(forceRead)await RefreshClaudeAsync(true);return;}
         claudeGeneration++;claudeCancellation?.Cancel();
-        Config.ClaudeEnabled=enabled;Config.ClaudeDataDirectory=directory;Config.ClaudeScope=scope;Config.Save();
-        ClaudeQuota=ClaudeQuotaSnapshot.Empty(enabled?"waiting":"disabled");ClaudeChanged?.Invoke();Changed?.Invoke();
+        ClaudeQuota=ClaudeQuotaSnapshot.Empty(Config.ClaudeEnabled?"waiting":"disabled");ClaudeChanged?.Invoke();Changed?.Invoke();
         if(claudeTask is {} pending)await pending;
         await RefreshClaudeAsync(true);
+    }
+    internal async Task ConfigureClaudeAsync(ClaudeSettingsInput input)
+    {
+        if(IsDemo&&!ClaudeSettingsCheck)return;
+        var changed=PersistClaudeSettings(input);
+        Message=L10n.T("sBD03C0AAD701");Changed?.Invoke();
+        await CompleteClaudeSettingsAsync(changed,true);
     }
     private void ConfigureClaudePreview()
     {

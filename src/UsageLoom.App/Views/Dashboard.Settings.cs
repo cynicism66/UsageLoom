@@ -8,11 +8,12 @@ namespace UsageLoom.App;
 
 internal sealed partial class Dashboard
 {
+    private Button? settingsSaveButton;
     private UIElement SettingsPanel()
     {
         var panel=new StackPanel{Spacing=14,Padding=new Thickness(8)};
         var cli=new TextBox{Header=L10n.T("s7BA827935C21"),Text=app.Config.CliPath??""};
-        var home=new TextBox{Header=L10n.T("s629E14E0CB84"),Text=app.IsDemo?L10n.T("sF99723F1D4A1"):app.Config.CodexHome,IsReadOnly=app.IsDemo};
+        var home=new TextBox{Header=L10n.T("s629E14E0CB84"),Text=app.IsDemo&&!app.ClaudeSettingsCheck?L10n.T("sF99723F1D4A1"):app.Config.CodexHome,IsReadOnly=app.IsDemo};
         var auto=new ToggleSwitch{Header=L10n.T("sB91E861CB0A1"),IsOn=app.Config.AutoRefresh,OnContent=L10n.Language=="en-US"?"On":"开",OffContent=L10n.Language=="en-US"?"Off":"关"};
         var seconds=new NumberBox{Header=L10n.T("sEE9FB7A5B7ED"),Minimum=30,Maximum=3600,Value=app.Config.BackgroundSeconds};
         var foreground=new NumberBox{Header=L10n.T("s2791B0EC8468"),Minimum=15,Maximum=3600,Value=app.Config.ForegroundSeconds};
@@ -41,6 +42,7 @@ internal sealed partial class Dashboard
         Section(L10n.T("s38C043E08502"),theme,language);Section(L10n.T("s6E89737A00E1"),cli,home);Section(L10n.T("s16685D3221B9"),auto,foreground,seconds);Section(L10n.T("sA28590E6B1D8"),low,threshold,reset,minutes);
         panel.Children.Add(CapacitySettings());
         panel.Children.Add(ClaudeSettings());
+        var readClaudeDraft=readClaudeSettings!;
         Section(L10n.T("sD39DC68172D7"),
             new TextBlock{Text=L10n.T("s9371F74C3221"),TextWrapping=TextWrapping.Wrap},
             Button(L10n.T("sE400A5FF247B"),async()=>
@@ -62,18 +64,20 @@ internal sealed partial class Dashboard
             Button(L10n.T("s3B0F18AAC8CE"),async()=>await Authorize(false)),
             Button(L10n.T("s16302475FAEB"),()=>{app.CancelAuthorization();return Task.CompletedTask;}),
             Button(L10n.T("s0F7D6E35193A"),async()=>await Authorize(true)));
-        actions.Children.Add(Button(L10n.T("sC8550237BA70"),async()=>
+        settingsSaveButton=Button(L10n.T("sC8550237BA70"),async()=>
         {
-            if(app.IsDemo){status.Text=L10n.T("sAF0109C061C5");return;}
+            if(app.IsDemo&&!app.ClaudeSettingsCheck){status.Text=L10n.T("sAF0109C061C5");return;}
             if(app.Authorizing)throw new InvalidOperationException(L10n.T("s3B5CB5F80AA4"));
             if(!double.IsFinite(seconds.Value)||!double.IsFinite(foreground.Value)||!double.IsFinite(threshold.Value)||!double.IsFinite(minutes.Value))throw new ArgumentException(L10n.T("sD1E6C6F01819"));
             if(string.IsNullOrWhiteSpace(home.Text)||!Path.IsPathFullyQualified(home.Text.Trim()))throw new ArgumentException(L10n.T("s772A83DE6A61"));
+            var claudeDraft=readClaudeDraft(); // Validate all Claude inputs before changing ordinary settings.
             app.Config.CliPath=cli.Text.Trim();app.Config.CodexHome=home.Text.Trim();app.Config.AutoRefresh=auto.IsOn;
             app.Config.BackgroundSeconds=(int)Math.Clamp(seconds.Value,30,3600);app.Config.LowNotify=low.IsOn;app.Config.LowPercent=(int)Math.Clamp(threshold.Value,1,99);
             app.Config.ForegroundSeconds=(int)Math.Clamp(foreground.Value,15,3600);
             app.Config.ResetNotify=reset.IsOn;app.Config.ResetMinutes=(int)Math.Clamp(minutes.Value,1,120);app.Config.Theme=theme.SelectedIndex switch{1=>"Light",2=>"Dark",_=>"Default"};app.Config.AppearanceConfigured=true;
-            await app.SaveSettingsAsync();ApplyTheme();
-        }));
+            await app.SaveSettingsAsync(claudeDraft);ApplyTheme();
+        });
+        actions.Children.Add(settingsSaveButton);
         panel.Children.Add(new TextBlock{Text=L10n.T("sD22BE3762C11"),TextWrapping=TextWrapping.Wrap,Opacity=.7});
         return panel;
     }

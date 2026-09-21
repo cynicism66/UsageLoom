@@ -296,6 +296,8 @@ public sealed partial class LoomApp : Application
     internal bool PreviewHourly=>IsDemo&&args.Contains("--preview-single-day");
     internal bool NavigationCheck=>IsDemo&&args.Contains("--navigation-check");
     internal bool PersonalizationCheck=>IsDemo&&args.Contains("--personalization-check");
+    internal bool ClaudeSettingsCheck=>args.Contains("--smoke-test")&&args.Contains("--claude-settings-check")&&!string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("USAGELOOM_TEST_DATA"));
+    internal bool ClaudeSettingsRestartCheck=>ClaudeSettingsCheck&&args.Contains("--claude-settings-restart-check");
     internal QuotaState Quota { get; private set; } = new([], null, null, L10n.T("s68C78EBE89A8"), false);
     internal List<UsageEvent> Events { get; private set; } = [];
     internal bool HasLoadedHistory => IsDemo||historyLoaded;
@@ -364,7 +366,7 @@ public sealed partial class LoomApp : Application
             if(this.args.Contains("--preview-light"))Config.Theme="Light";
             if(this.args.Contains("--preview-dark"))Config.Theme="Dark";
             Config.AutoRefresh = false;
-            ConfigureClaudePreview();
+            if(!ClaudeSettingsCheck)ConfigureClaudePreview();
             Config.LowNotify = false;
             Config.ResetNotify = false;
             Quota = new([new("codex:primary", L10n.T("sFDC11436C31D"), 42, 300, DateTimeOffset.Now.AddHours(2)), new("codex:weekly", L10n.T("sCE5334E5C266"), 18, 10080, DateTimeOffset.Now.AddDays(3))], 2, DateTimeOffset.Now, L10n.T("s060C4C3C9C70"), true);
@@ -633,13 +635,14 @@ public sealed partial class LoomApp : Application
         Message=L10n.T("s1D102BCFB482");
         Changed?.Invoke();
     }
-    internal async Task SaveSettingsAsync()
+    internal async Task SaveSettingsAsync(ClaudeSettingsInput? claudeSettings=null)
     {
         if(capacityMaintenanceBusy||attributionBusy||identityRefreshing)throw new InvalidOperationException(L10n.T("maintenance.busy"));
         if(Authorizing)throw new InvalidOperationException(L10n.T("s3B5CB5F80AA4"));
         var source=CurrentCapacitySource();
         var sourceChanged=!appliedCapacitySource.Matches(source);
-        Config.Save();
+        var claudeChanged=PersistClaudeSettings(claudeSettings);
+        if(IsDemo){await CompleteClaudeSettingsAsync(claudeChanged);Changed?.Invoke();return;}
         if(!sourceChanged)
         {
             // Ordinary settings must not clear account context or cancel a valid
@@ -647,6 +650,7 @@ public sealed partial class LoomApp : Application
             dashboard?.ApplyTheme();flyout?.ApplyTheme();
             Program.Log.Write("INFO","CapacitySettings","Ordinary settings saved; sampling continuity retained");
             Message=L10n.T("sBD03C0AAD701");Changed?.Invoke();
+            await CompleteClaudeSettingsAsync(claudeChanged);
             if(Config.AutoRefresh)await RefreshQuotaAsync(false);
             return;
         }
@@ -670,6 +674,7 @@ public sealed partial class LoomApp : Application
         failures = 0; lastAttempt = DateTimeOffset.MinValue;
         dashboard?.ApplyTheme(); flyout?.ApplyTheme();
         Message = L10n.T("sBD03C0AAD701"); Changed?.Invoke();
+        await CompleteClaudeSettingsAsync(claudeChanged);
         if (Config.AutoRefresh) await RefreshQuotaAsync(false);
     }
     private void EvaluateNotifications()

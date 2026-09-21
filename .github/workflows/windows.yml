@@ -24,6 +24,9 @@ jobs:
         run: |
           ./scripts/test-updater.ps1
           ./scripts/test-installer-launcher.ps1
+      - name: Claude settings buttons, navigation and process restart
+        shell: pwsh
+        run: ./scripts/test-claude-settings-ui.ps1
       - name: Install packaging tools
         shell: pwsh
         run: |
