@@ -34,6 +34,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'WiX installation failed' }
           ./.tools/wix/wix.exe extension add -g WixToolset.UI.wixext/6.0.2
           if ($LASTEXITCODE -ne 0) { throw 'WiX extension installation failed' }
+      - name: Desktop navigation and provider quota card layout
+        shell: pwsh
+        run: ./scripts/test-ui-startup.ps1 -AllPages -Claude
       - name: Build and validate MSI and ZIP
         shell: pwsh
         run: |

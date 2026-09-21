@@ -272,6 +272,7 @@ internal sealed partial class Dashboard : Window
     }
     private void VerifyHistoryFilterAttached()
     {
+        if(selectedPage=="quota"){VerifyQuotaProviderLayout();return;}
         if(selectedPage is not ("overview" or "breakdown" or "sessions"))return;
         ((FrameworkElement)Content).UpdateLayout();
         DependencyObject? current=filterBar;
@@ -464,9 +465,6 @@ internal sealed partial class Dashboard : Window
         }
         else if(app.Config.ClaudeEnabled){overviewQuota.Children.Add(ClaudeText("Codex",18));overviewQuota.Children.Add(ClaudeText(quota.Status));}
         surfaces.RemoveAll(reference => !reference.TryGetTarget(out _));
-        quotaPanel.Children.Add(new TextBlock{Text=(app.Config.ClaudeEnabled?"Codex · ":"")+(app.IsDemo?L10n.T("s9EE75C455D70"):quota.AccountLabel),FontSize=20});
-        quotaPanel.Children.Add(PlanBadge(quota,false));
-        if(!quota.HasQuotaDisplay)quotaPanel.Children.Add(Card(new TextBlock{Text=L10n.T("s540071E2CE7C")+quota.Status,TextWrapping=TextWrapping.Wrap, FontSize=14}));
         var quotaCards=new List<UIElement>();
         foreach(var window in quota.HasQuotaDisplay?quota.PrimaryWindows:[])
         {
@@ -491,11 +489,11 @@ internal sealed partial class Dashboard : Window
             card.Children.Add(new ProgressBar{Minimum=0,Maximum=100,Value=window.Remaining,Foreground=accent,Height=6});
             var reset=window.ResetsAt is {} at?L10n.F("sE035EFC6DE6D", at.ToLocalTime(), window.ResetCountdown(DateTimeOffset.Now)):L10n.T("sFB4EF6852264");
             card.Children.Add(new TextBlock{Text=reset,TextWrapping=TextWrapping.Wrap,Opacity=.7});
-            quotaCards.Add(Card(card));
+            quotaCards.Add(card);
         }
-        var quotaGroups=new List<UIElement>();
-        if(quotaCards.Count>0)quotaGroups.Add(ResponsiveCards(quotaCards,1,300));
-        else if(quota.HasQuotaDisplay)quotaGroups.Add(Card(new TextBlock{Text=L10n.T("s3073BC52B5B6"),TextWrapping=TextWrapping.Wrap,Opacity=.7}));
+        var quotaGroups=new List<UIElement>{CodexDetailsCard(quota,quotaCards)};
+        claudeDetails=null;
+        if(app.Config.ClaudeEnabled)quotaGroups.Add(ClaudeDetailsCard());
         if(quota.HasQuotaDisplay&&quota.Windows.Any(window=>window.IsSpark))
         {
             var spark=new StackPanel{Spacing=12};
@@ -511,8 +509,6 @@ internal sealed partial class Dashboard : Window
             }
             quotaGroups.Add(Card(spark));
         }
-        claudeDetails=null;
-        if(app.Config.ClaudeEnabled)quotaGroups.Add(ClaudeDetailsCard());
         if(quotaGroups.Count>0)quotaPanel.Children.Add(ResponsiveCards(quotaGroups,2,360));
         if(quota.HasQuotaDisplay)quotaPanel.Children.Add(new TextBlock{Text=L10n.T("s9672B36B01C7")+(quota.ResetCount is {} n?n+L10n.T("sF81526EFCE19"):L10n.T("sF36CAC96220B")),FontSize=14,Margin=new Thickness(0,4,0,0)});
         if(!compact)quotaPanel.Children.Add(StableExpander.Configure(new Expander{Header=L10n.T("sAD63795746F7"),Content=new TextBlock{Text=quota.Status+L10n.T("s75B413F02FD0"),TextWrapping=TextWrapping.Wrap},HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch}));

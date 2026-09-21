@@ -8,6 +8,55 @@ namespace UsageLoom.App;
 
 internal sealed partial class Dashboard
 {
+    private Border? codexDetailsCard;
+    private Grid? codexDetailsHeader;
+    private Border CodexDetailsCard(QuotaState quota,IReadOnlyList<UIElement> windows)
+    {
+        var body=new StackPanel{Spacing=8};
+        var header=new Grid{ColumnSpacing=12};
+        header.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
+        header.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
+        header.Children.Add(new TextBlock{Text="Codex",FontSize=18,VerticalAlignment=VerticalAlignment.Center});
+        var badge=PlanBadge(quota,true);badge.VerticalAlignment=VerticalAlignment.Center;
+        Grid.SetColumn(badge,1);header.Children.Add(badge);
+        body.Children.Add(header);
+        body.Children.Add(new TextBlock{Text=app.IsDemo?L10n.T("s9EE75C455D70"):quota.AccountLabel,FontSize=12,TextWrapping=TextWrapping.Wrap});
+        var content=new StackPanel{Spacing=16,Margin=new Thickness(0,8,0,0)};
+        foreach(var window in windows)content.Children.Add(window);
+        if(windows.Count==0)content.Children.Add(new TextBlock{Text=quota.HasQuotaDisplay?L10n.T("s3073BC52B5B6"):L10n.T("s540071E2CE7C")+quota.Status,FontSize=14,TextWrapping=TextWrapping.Wrap,Opacity=.7});
+        body.Children.Add(content);
+        codexDetailsHeader=header;codexDetailsCard=Card(body);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(codexDetailsCard,"codex-provider-card");
+        return codexDetailsCard;
+    }
+    private void VerifyQuotaProviderLayout()
+    {
+        ((FrameworkElement)Content).UpdateLayout();
+        if(codexDetailsCard?.Child is not StackPanel body||body.Children[0]!=codexDetailsHeader||body.Children[1] is not TextBlock account||account.FontSize!=12)
+            throw new InvalidOperationException("Codex identity is not inside its quota card");
+        if(codexDetailsHeader!.Children[0] is not TextBlock title||title.Text!="Codex"||title.FontSize!=18||codexDetailsHeader.Children.Count!=2)
+            throw new InvalidOperationException("Codex provider header or plan badge is missing");
+        if(codexDetailsCard.Parent is not Grid providers||providers.Children[0]!=codexDetailsCard||quotaPanel.Children[0]!=providers)
+            throw new InvalidOperationException("Detached provider title exists above the cards");
+        if(app.Config.ClaudeEnabled)
+        {
+            if(claudeDetails?.Parent is not Border claudeCard||providers.Children.Count<2||providers.Children[1]!=claudeCard||claudeDetails.Children[0] is not TextBlock claudeTitle||claudeTitle.FontSize!=title.FontSize)
+                throw new InvalidOperationException("Codex and Claude card hierarchy differs");
+            if(providers.ColumnDefinitions.Count>1)
+            {
+                var codexTop=codexDetailsCard.TransformToVisual(providers).TransformPoint(new(0,0)).Y;
+                var claudeTop=claudeCard.TransformToVisual(providers).TransformPoint(new(0,0)).Y;
+                if(Math.Abs(codexTop-claudeTop)>1)throw new InvalidOperationException("Provider card tops do not align");
+            }
+        }
+        if(codexDetailsHeader.ActualWidth>0)
+            foreach(FrameworkElement child in codexDetailsHeader.Children)
+            {
+                var rect=child.TransformToVisual(codexDetailsHeader).TransformBounds(new(0,0,child.ActualWidth,child.ActualHeight));
+                if(rect.Left<-.5||rect.Right>codexDetailsHeader.ActualWidth+.5)throw new InvalidOperationException("Provider header overflow");
+            }
+        Program.Log.Write("INFO","NavigationTest","Provider quota cards: contained identity, compact plan, equal titles and responsive alignment passed");
+    }
     private static FrameworkElement PlanBadge(QuotaState quota,bool small)
     {
         var plan=quota.Plan?.Trim().ToLowerInvariant();
