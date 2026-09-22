@@ -16,6 +16,7 @@ try {
         $lines=@(Get-Content -LiteralPath $log -Encoding UTF8 | Select-Object -Skip $before)
         $expected=if($phase -eq 'restart'){'Claude settings process restart passed'}else{'Claude global/section save, navigation, source draft, validation and write rollback passed'}
         if($process.ExitCode -ne 0 -or $lines -match '\[ERROR\]' -or !($lines -match [regex]::Escape($expected))){$lines | Write-Output;throw "Claude settings UI failed: $phase"}
+        if(!($lines -match 'Claude settings contained in Data sources without nested expander passed')){throw "Claude data source grouping check missing: $phase"}
         Write-Output "PASS $expected"
     }
 } finally { $env:USAGELOOM_TEST_DATA=$original }

@@ -9,6 +9,7 @@ namespace UsageLoom.App;
 internal sealed partial class Dashboard
 {
     private Button? settingsSaveButton;
+    private Expander? dataSourcesSettings;
     private UIElement SettingsPanel()
     {
         var panel=new StackPanel{Spacing=14,Padding=new Thickness(8)};
@@ -26,7 +27,7 @@ internal sealed partial class Dashboard
         var language=new ComboBox{Header=L10n.T("s9087B82BC720"),ItemsSource=new[]{"简体中文","English"},SelectedIndex=app.Config.Language=="en-US"?1:0};
         appearanceChoice=theme;languageChoice=language;
         language.SelectionChanged+=(_,_)=>app.SetLanguage(language.SelectedIndex==1?"en-US":"zh-CN");
-        void Section(string title, params UIElement[] controls)
+        Expander Section(string title, params UIElement[] controls)
         {
             var group=new StackPanel{Spacing=12};
             foreach(var control in controls)
@@ -37,11 +38,14 @@ internal sealed partial class Dashboard
                 var caption=new TextBlock{Text=label.ToString(),VerticalAlignment=VerticalAlignment.Center,TextWrapping=TextWrapping.Wrap};
                 group.Children.Add(ResponsiveCards(new UIElement[]{caption,control},2,250));
             }
-            panel.Children.Add(StableExpander.Configure(new Expander{Header=title,IsExpanded=false,Content=group,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch}));
+            var section=StableExpander.Configure(new Expander{Header=title,IsExpanded=false,Content=group,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch});
+            panel.Children.Add(section);
+            return section;
         }
-        Section(L10n.T("s38C043E08502"),theme,language);Section(L10n.T("s6E89737A00E1"),cli,home);Section(L10n.T("s16685D3221B9"),auto,foreground,seconds);Section(L10n.T("sA28590E6B1D8"),low,threshold,reset,minutes);
+        Section(L10n.T("s38C043E08502"),theme,language);
+        dataSourcesSettings=Section(L10n.T("s6E89737A00E1"),new TextBlock{Text="Codex",FontSize=16},cli,home,ClaudeSettings());
+        Section(L10n.T("s16685D3221B9"),auto,foreground,seconds);Section(L10n.T("sA28590E6B1D8"),low,threshold,reset,minutes);
         panel.Children.Add(CapacitySettings());
-        panel.Children.Add(ClaudeSettings());
         var readClaudeDraft=readClaudeSettings!;
         Section(L10n.T("sD39DC68172D7"),
             new TextBlock{Text=L10n.T("s9371F74C3221"),TextWrapping=TextWrapping.Wrap},

@@ -10,6 +10,17 @@ internal sealed partial class Dashboard
         try
         {
             await CapacityTestDispatcherSettled(this);
+            void CheckGrouping()
+            {
+                if(dataSourcesSettings?.Content is not StackPanel sources||claudeSettingsPanel is null||!sources.Children.Contains(claudeSettingsPanel))
+                    throw new InvalidOperationException("Claude settings are not inside Data sources");
+                if(sources.Children.OfType<Expander>().Any()||((StackPanel)scrollContent.Content).Children.OfType<Expander>().Any(e=>Equals(e.Header,L10n.T("claude.title"))))
+                    throw new InvalidOperationException("Claude settings retained a separate expander");
+                dataSourcesSettings.IsExpanded=true;dataSourcesSettings.UpdateLayout();
+                if(!StableExpander.HasVisibleContent(dataSourcesSettings))throw new InvalidOperationException("Data sources did not reveal Claude settings");
+            }
+            CheckGrouping();
+            Program.Log.Write("INFO","ClaudeSettingsTest","Claude settings contained in Data sources without nested expander passed");
             var fixtureDirectory=Path.Combine(Program.DataPath,"Claude fixture");
             void CheckSaved(bool enabled,string? directory,string? scope)
             {
@@ -20,6 +31,7 @@ internal sealed partial class Dashboard
             void Reenter(bool enabled)
             {
                 Navigate("overview");Navigate("settings");
+                CheckGrouping();
                 if(claudeEnabledChoice?.IsOn!=enabled)throw new InvalidOperationException("Claude toggle reverted after navigation");
             }
             if(app.ClaudeSettingsRestartCheck)

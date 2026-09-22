@@ -13,6 +13,7 @@ internal sealed partial class Dashboard
     private ToggleSwitch? claudeEnabledChoice;
     private TextBox? claudeDirectoryChoice;
     private Button? claudeApplyButton;
+    private StackPanel? claudeSettingsPanel;
     private Func<ClaudeSettingsInput>? readClaudeSettings;
     private string claudeScopesKey="";
     private static TextBlock ClaudeText(string text,double size=12)=>new(){Text=text,FontSize=size,TextWrapping=TextWrapping.Wrap};
@@ -56,7 +57,9 @@ internal sealed partial class Dashboard
     }
     private UIElement ClaudeSettings()
     {
-        var panel=new StackPanel{Spacing=12};
+        var panel=new StackPanel{Spacing=12,Margin=new Thickness(0,16,0,0)};
+        claudeSettingsPanel=panel;
+        panel.Children.Add(ClaudeText(L10n.T("claude.title"),16));
         var enabled=new ToggleSwitch{Header=L10n.T("claude.enable"),IsOn=app.Config.ClaudeEnabled};
         var directory=new TextBox{Header=L10n.T("claude.path"),Text=app.Config.ClaudeDataDirectory??"",IsReadOnly=app.IsDemo};
         claudeEnabledChoice=enabled;claudeDirectoryChoice=directory;
@@ -79,7 +82,7 @@ internal sealed partial class Dashboard
         panel.Children.Add(claudeApplyButton);
         panel.Children.Add(Button(L10n.T("claude.detect"),()=>app.RefreshClaudeAsync(true)));
         AutomationProperties.SetAutomationId(panel,"claude-settings");UpdateClaudeViews();
-        return StableExpander.Configure(new Expander{Header=L10n.T("claude.title"),Content=panel,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch});
+        return panel;
     }
     private void UpdateCompactClaude()
     {

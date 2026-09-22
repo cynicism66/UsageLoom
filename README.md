@@ -6,7 +6,9 @@ Windows 11 上的 Codex 用量与额度面板，并可同时查看 Claude 桌面
 
 UsageLoom 是独立开源项目，不隶属于 OpenAI 或 Anthropic。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.8.16
+## Windows 桌面版 0.8.17
+
+Claude 桌面版配置移入“设置 → 数据来源”，与 Codex 路径集中管理，不再单独占用顶层折叠分组。开关、目录、来源选择及保存和重新读取功能保持不变。[发布说明](docs/releases/RELEASE-0.8.17.md)
 
 “当前额度”中的 Codex 名称、账号说明和套餐标识移入额度卡片，与 Claude 使用一致的卡片标题结构；额度与估算信息保持不变。[发布说明](docs/releases/RELEASE-0.8.16.md)
 
@@ -14,7 +16,7 @@ UsageLoom 是独立开源项目，不隶属于 OpenAI 或 Anthropic。本地统�
 
 修复覆盖安装时权限不足导致大量回滚文件安全设置报错的问题；安装前校验实际提权状态，保留当前用户安装和事务回滚。从旧版升级请将同版本 MSI 和 `UsageLoom-install.cmd` 下载到同一文件夹，双击安装入口并确认 UAC。[发布说明](docs/releases/RELEASE-0.8.14.md)
 
-在“设置 → Claude 桌面版”启用后，可在概览、当前额度和托盘小窗同时查看 Codex 与 Claude。Claude 的 5 小时／每周剩余额度和重置时间来自只读本地缓存，不需要额外登录；不是主动联网查询，缓存更新时间由 Claude 控制。[接入说明与限制](docs/CLAUDE.md) · [发布说明](docs/releases/RELEASE-0.8.13.md)
+在“设置 → 数据来源 → Claude 桌面版”启用后，可在概览、当前额度和托盘小窗同时查看 Codex 与 Claude。Claude 的 5 小时／每周剩余额度和重置时间来自只读本地缓存，不需要额外登录；不是主动联网查询，缓存更新时间由 Claude 控制。[接入说明与限制](docs/CLAUDE.md) · [发布说明](docs/releases/RELEASE-0.8.13.md)
 
 0.8.7：中断提示只对应当前周周期；区分累计百分点、等待快照和等待日志，历史估算明确标为参考。[发布说明](docs/releases/RELEASE-0.8.7.md)
 
