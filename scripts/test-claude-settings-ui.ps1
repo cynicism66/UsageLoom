@@ -17,6 +17,7 @@ try {
         $expected=if($phase -eq 'restart'){'Claude settings process restart passed'}else{'Claude global/section save, navigation, source draft, validation and write rollback passed'}
         if($process.ExitCode -ne 0 -or $lines -match '\[ERROR\]' -or !($lines -match [regex]::Escape($expected))){$lines | Write-Output;throw "Claude settings UI failed: $phase"}
         if(!($lines -match 'Claude settings contained in Data sources without nested expander passed')){throw "Claude data source grouping check missing: $phase"}
+        if(!($lines -match 'Data sources independent switches, stop guards, retained history and safe boundary passed')){throw "Data source lifecycle check missing: $phase"}
         Write-Output "PASS $expected"
     }
 } finally { $env:USAGELOOM_TEST_DATA=$original }

@@ -43,7 +43,8 @@ internal sealed partial class Dashboard
             return section;
         }
         Section(L10n.T("s38C043E08502"),theme,language);
-        dataSourcesSettings=Section(L10n.T("s6E89737A00E1"),new TextBlock{Text="Codex",FontSize=16},cli,home,ClaudeSettings());
+        dataSourcesSettings=Section(L10n.T("s6E89737A00E1"),CodexSettings(cli,home),ClaudeSettings());
+        var codexChoice=codexEnabledChoice!;
         Section(L10n.T("s16685D3221B9"),auto,foreground,seconds);Section(L10n.T("sA28590E6B1D8"),low,threshold,reset,minutes);
         panel.Children.Add(CapacitySettings());
         var readClaudeDraft=readClaudeSettings!;
@@ -79,7 +80,7 @@ internal sealed partial class Dashboard
             app.Config.BackgroundSeconds=(int)Math.Clamp(seconds.Value,30,3600);app.Config.LowNotify=low.IsOn;app.Config.LowPercent=(int)Math.Clamp(threshold.Value,1,99);
             app.Config.ForegroundSeconds=(int)Math.Clamp(foreground.Value,15,3600);
             app.Config.ResetNotify=reset.IsOn;app.Config.ResetMinutes=(int)Math.Clamp(minutes.Value,1,120);app.Config.Theme=theme.SelectedIndex switch{1=>"Light",2=>"Dark",_=>"Default"};app.Config.AppearanceConfigured=true;
-            await app.SaveSettingsAsync(claudeDraft);ApplyTheme();
+            await app.SaveSettingsAsync(claudeDraft,codexChoice.IsOn);ApplyTheme();
         });
         actions.Children.Add(settingsSaveButton);
         panel.Children.Add(new TextBlock{Text=L10n.T("sD22BE3762C11"),TextWrapping=TextWrapping.Wrap,Opacity=.7});

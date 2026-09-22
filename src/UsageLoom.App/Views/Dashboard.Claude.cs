@@ -57,17 +57,15 @@ internal sealed partial class Dashboard
     }
     private UIElement ClaudeSettings()
     {
-        var panel=new StackPanel{Spacing=12,Margin=new Thickness(0,16,0,0)};
-        claudeSettingsPanel=panel;
-        panel.Children.Add(ClaudeText(L10n.T("claude.title"),16));
-        var enabled=new ToggleSwitch{Header=L10n.T("claude.enable"),IsOn=app.Config.ClaudeEnabled};
+        var enabled=new ToggleSwitch{IsOn=app.Config.ClaudeEnabled};
         var directory=new TextBox{Header=L10n.T("claude.path"),Text=app.Config.ClaudeDataDirectory??"",IsReadOnly=app.IsDemo};
         claudeEnabledChoice=enabled;claudeDirectoryChoice=directory;
         claudeScopeChoice=new ComboBox{Header=L10n.T("claude.scope"),HorizontalAlignment=HorizontalAlignment.Stretch};claudeScopesKey="!";
         var scopeChoice=claudeScopeChoice;
         directory.TextChanged+=(_,_)=>{if(!string.Equals(directory.Text.Trim(),app.Config.ClaudeDataDirectory??"",StringComparison.OrdinalIgnoreCase))scopeChoice.SelectedIndex=0;};
         claudeSettingsStatus=ClaudeText("");
-        panel.Children.Add(enabled);panel.Children.Add(directory);panel.Children.Add(claudeScopeChoice);
+        var panel=SourceSettingsGroup(L10n.T("claude.title"),enabled,directory,claudeScopeChoice);
+        claudeSettingsPanel=panel;
         panel.Children.Add(ClaudeText(L10n.T("claude.notice")));panel.Children.Add(claudeSettingsStatus);
         ClaudeSettingsInput ReadDraft()
         {

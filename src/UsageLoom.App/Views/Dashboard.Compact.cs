@@ -46,6 +46,8 @@ internal sealed partial class Dashboard
         internal readonly Grid CapacityRow=CompactColumns(6,22);
         internal readonly Grid PlanRow=CompactColumns(8,110);
         internal Border QuotaCard=null!;
+        internal Border UsageCard=null!;
+        internal readonly TextBlock Disabled=CompactText(12,40,true);
         internal Border ClaudeCard=null!;
         internal readonly TextBlock ClaudeTitle=CompactText(12,18);
         internal readonly TextBlock[] ClaudeValues=[CompactText(12,18),CompactText(12,18)];
@@ -92,7 +94,8 @@ internal sealed partial class Dashboard
         }
         usage.Children.Add(Metric("Codex · "+L10n.T("s8B4B6EA0DA7D"),view.Tokens,"compact-token-value"));
         var requests=Metric(L10n.T("sBDBF4C48B0A9"),view.Requests,"compact-request-value");
-        Grid.SetColumn(requests,1);usage.Children.Add(requests);quotaPanel.Children.Add(CompactCard(usage,"compact-usage-card"));
+        Grid.SetColumn(requests,1);usage.Children.Add(requests);view.UsageCard=CompactCard(usage,"compact-usage-card");quotaPanel.Children.Add(view.UsageCard);
+        view.Disabled.Text=L10n.T("source.none");quotaPanel.Children.Add(view.Disabled);
         view.Capacity.Opacity=.75;view.CapacityRow.Height=40;
         view.CapacityRow.Children.Add(view.Capacity);
         var info=CapacityInfoButton();Grid.SetColumn(info,1);view.CapacityRow.Children.Add(info);
@@ -110,6 +113,10 @@ internal sealed partial class Dashboard
     {
         UpdateCompactClaude();
         var view=compactContent!;var quota=app.Quota;
+        var codexVisibility=app.Config.CodexEnabled?Visibility.Visible:Visibility.Collapsed;
+        view.QuotaCard.Visibility=codexVisibility;view.UsageCard.Visibility=codexVisibility;
+        view.Disabled.Visibility=!app.Config.CodexEnabled&&!app.Config.ClaudeEnabled?Visibility.Visible:Visibility.Collapsed;
+        if(!app.Config.CodexEnabled)capacityInfoFlyout?.Hide();
         var windows=quota.HasQuotaDisplay?quota.PrimaryWindows.ToArray():[];
         for(var index=0;index<windows.Length;index++)
         {
@@ -143,7 +150,7 @@ internal sealed partial class Dashboard
         view.Capacity.Text=estimate?.HistoricalAt is not null?L10n.T("capacity.previous")+": "+estimate.DollarDisplay:
             estimate is not null?L10n.F("s99933FEC8200",estimate.DollarDisplay,UsageNumbers.Compact(estimate.EstimatedTokens),estimate.PricingCoverage):
             quota.Fresh&&windows.Any(window=>window.Minutes==10080)?L10n.T("s51D06B357E84"):L10n.T("s5AFCDACD073E");
-        view.CapacityRow.Visibility=app.Config.CapacityEnabled?Visibility.Visible:Visibility.Collapsed;
+        view.CapacityRow.Visibility=app.Config.CodexEnabled&&app.Config.CapacityEnabled?Visibility.Visible:Visibility.Collapsed;
         var planKey=$"{quota.Plan}|{quota.IsLocalAccount}|{new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast}";
         if(view.PlanKey!=planKey)
         {
@@ -157,6 +164,6 @@ internal sealed partial class Dashboard
         AutomationProperties.SetName(view.PlanRow,quota.PlanDisplay);
         var updated=quota.FetchedAt is {} at?L10n.F("s6843540FA5C7",at.ToLocalTime()):L10n.T("s0D4EDA666026");
         var resets=quota.HasQuotaDisplay&&quota.ResetCount is {} count?L10n.F("s26ABA9EC2EFB",count):L10n.T("s382254F4153B");
-        view.Footer.Text=$"{resets}   ·   {updated}";ToolTipService.SetToolTip(view.Footer,view.Footer.Text);
+        view.Footer.Text=app.Config.CodexEnabled?$"{resets}   ·   {updated}":"";ToolTipService.SetToolTip(view.Footer,view.Footer.Text);
     }
 }

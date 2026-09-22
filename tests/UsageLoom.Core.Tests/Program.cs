@@ -1734,6 +1734,20 @@ AsyncTest("账号用量只归属连续稳定登录后的增量",async()=>
     Check(rows.Where(item=>item.AccountScope=="local-v1:A").Sum(item=>item.Tokens.Total)==100);
     Check(rows.Where(item=>item.AccountScope=="local-v1:B").Sum(item=>item.Tokens.Total)==100);
 });
+AsyncTest("数据源停用后重建内存观察，不将停用期间增量沿用同账号归属",async()=>
+{
+    var home=Fixture("source-pause-account");var file=Path.Combine(home,"sessions","a.jsonl");var store=new HistoryStore(Path.Combine(home,"data"));var scanner=new IncrementalHistory(store);
+    await File.WriteAllLinesAsync(file,[Meta("pause-session"),Model(),Count(80,20)]);
+    await scanner.ScanAsync(home,default,accountScope:"A");
+    await File.AppendAllTextAsync(file,Count(160,40)+"\n");await scanner.ScanAsync(home,default,accountScope:"A");
+    var before=store.Read();
+    scanner=new IncrementalHistory(store); // Same transition used when enabling a stopped source.
+    await File.AppendAllTextAsync(file,Count(240,60)+"\n");await scanner.ScanAsync(home,default,accountScope:"A");
+    Check(store.Read().Where(e=>e.AccountScope=="A").Sum(e=>e.Tokens.Total)==100);
+    await File.AppendAllTextAsync(file,Count(320,80)+"\n");await scanner.ScanAsync(home,default,accountScope:"A");
+    var rows=store.Read();Check(rows.Sum(e=>e.Tokens.Total)==400&&rows.Where(e=>e.AccountScope is null).Sum(e=>e.Tokens.Total)==200);
+    Check(rows.Where(e=>e.AccountScope=="A").Sum(e=>e.Tokens.Total)==200&&before.All(e=>rows.Contains(e)));
+});
 AsyncTest("新会话首次扫描仅归属连续账号观察期间的新增记录",async()=>
 {
     var home=Fixture("new-session-account");var store=new HistoryStore(Path.Combine(home,"data"));var scanner=new IncrementalHistory(store);

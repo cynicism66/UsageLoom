@@ -14,6 +14,7 @@ public sealed partial class LoomApp
     }
     internal Task<string> MaintainCapacityAsync(string action)
     {
+        RequireCodexSource();
         if(capacityMaintenanceBusy)throw new InvalidOperationException(L10n.T("maintenance.busy"));
         return capacityMaintenanceTask=MaintainCapacityCoreAsync(action);
     }

@@ -10,7 +10,7 @@ public sealed partial class LoomApp
 
     private void RenewIdentityIfDue()
     {
-        if(IsDemo||quitting||!Config.AutoRefresh||identityRefreshing||refreshing||Authorizing||attributionBusy||capacityMaintenanceBusy)return;
+        if(IsDemo||quitting||!CodexActive||!Config.AutoRefresh||identityRefreshing||refreshing||Authorizing||attributionBusy||capacityMaintenanceBusy)return;
         var source=CurrentCapacitySource();
         if(!appliedCapacitySource.Matches(source))return;
         var home=Config.AuthorizedAccount?AuthorizedHome:Config.CodexHome;

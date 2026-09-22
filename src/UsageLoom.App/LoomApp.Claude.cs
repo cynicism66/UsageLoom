@@ -64,6 +64,7 @@ public sealed partial class LoomApp
     }
     internal async Task ConfigureClaudeAsync(ClaudeSettingsInput input)
     {
+        if(sourceSettingsBusy)throw new InvalidOperationException(L10n.T("maintenance.busy"));
         if(IsDemo&&!ClaudeSettingsCheck)return;
         var changed=PersistClaudeSettings(input);
         Message=L10n.T("sBD03C0AAD701");Changed?.Invoke();

@@ -10,7 +10,7 @@ public sealed partial class LoomApp
     private string? sessionTitleHome;
     private Task RefreshSessionTitlesAsync(bool force=false)
     {
-        if(IsDemo||quitting)return Task.CompletedTask;
+        if(IsDemo||quitting||!CodexActive)return Task.CompletedTask;
         string home;
         try{home=Path.GetFullPath(Config.CodexHome);}catch(ArgumentException){return Task.CompletedTask;}
         if(!string.Equals(home,sessionTitleHome,StringComparison.OrdinalIgnoreCase))
@@ -32,8 +32,9 @@ public sealed partial class LoomApp
     {
         try
         {
-            var names=await Task.Run(()=>sessionTitles.Read(home,lifetime.Token),lifetime.Token);
-            if(quitting||epoch!=configurationGeneration||!string.Equals(home,Path.GetFullPath(Config.CodexHome),StringComparison.OrdinalIgnoreCase))return;
+            using var linked=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token,quotaCancellation.Token);
+            var names=await Task.Run(()=>sessionTitles.Read(home,linked.Token),linked.Token);
+            if(quitting||!CodexActive||epoch!=configurationGeneration||!string.Equals(home,Path.GetFullPath(Config.CodexHome),StringComparison.OrdinalIgnoreCase))return;
             if(names.Count!=SessionNames.Count||names.Any(pair=>!SessionNames.TryGetValue(pair.Key,out var value)||value!=pair.Value))
             {SessionNames=names;Changed?.Invoke();}
             if(sessionTitles.UnavailableSources>0)Program.Log.Write("WARN","SessionTitles","Local title metadata temporarily unavailable; retaining readable same-source names");

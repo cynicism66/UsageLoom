@@ -448,8 +448,11 @@ internal sealed partial class Dashboard : Window
         UpdateCapacityInfo();
         if(capacityStatusText is not null)capacityStatusText.Text=app.CapacityCalculationStatus;
         if(compact){RenderCompact();return;}
+        if(selectedPage is "overview" or "breakdown" or "sessions")actions.Visibility=app.Config.CodexEnabled?Visibility.Visible:Visibility.Collapsed;
         UpdateCapacitySettingsDetails();
         status.Text=compact||selectedPage=="quota"?app.Quota.Status:selectedPage is "overview" or "breakdown" or "sessions"?app.HistoryStatus:app.Message;
+        if(!app.Config.CodexEnabled&&selectedPage is "overview" or "quota" or "breakdown" or "sessions")
+            status.Text=app.Config.ClaudeEnabled?app.ClaudeQuota.Describe(DateTimeOffset.Now):L10n.T("source.none");
         ToolTipService.SetToolTip(status,status.Text);
         quotaPanel.Children.Clear();var quota=app.Quota;
         FillOverviewQuota();
@@ -481,10 +484,11 @@ internal sealed partial class Dashboard : Window
             card.Children.Add(new TextBlock{Text=reset,TextWrapping=TextWrapping.Wrap,Opacity=.7});
             quotaCards.Add(card);
         }
-        var quotaGroups=new List<UIElement>{CodexDetailsCard(quota,quotaCards)};
+        var quotaGroups=new List<UIElement>();
+        if(app.Config.CodexEnabled)quotaGroups.Add(CodexDetailsCard(quota,quotaCards));
         claudeDetails=null;
         if(app.Config.ClaudeEnabled)quotaGroups.Add(ClaudeDetailsCard());
-        if(quota.HasQuotaDisplay&&quota.Windows.Any(window=>window.IsSpark))
+        if(app.Config.CodexEnabled&&quota.HasQuotaDisplay&&quota.Windows.Any(window=>window.IsSpark))
         {
             var spark=new StackPanel{Spacing=12};
             spark.Children.Add(new TextBlock{Text=L10n.T("s5DBFC3E540A5"),FontSize=18,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,TextWrapping=TextWrapping.Wrap});
@@ -500,6 +504,12 @@ internal sealed partial class Dashboard : Window
             quotaGroups.Add(Card(spark));
         }
         if(quotaGroups.Count>0)quotaPanel.Children.Add(ResponsiveCards(quotaGroups,2,360));
+        if(!app.Config.CodexEnabled)
+        {
+            if(quotaGroups.Count==0)quotaPanel.Children.Add(DisabledSourcesMessage());
+            if(selectedPage is "overview" or "breakdown" or "sessions")RenderStats();
+            return;
+        }
         if(quota.HasQuotaDisplay)quotaPanel.Children.Add(new TextBlock{Text=L10n.T("s9672B36B01C7")+(quota.ResetCount is {} n?n+L10n.T("sF81526EFCE19"):L10n.T("sF36CAC96220B")),FontSize=14,Margin=new Thickness(0,4,0,0)});
         if(!compact)quotaPanel.Children.Add(StableExpander.Configure(new Expander{Header=L10n.T("sAD63795746F7"),Content=new TextBlock{Text=quota.Status+L10n.T("s75B413F02FD0"),TextWrapping=TextWrapping.Wrap},HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch}));
         quotaPanel.Children.Add(new TextBlock{Text=app.IsDemo?L10n.T("sC632B4643CF1"):quota.IsLocalAccount?L10n.T("sCEF08E1DE7C2"):quota.FetchedAt is {} date?L10n.F("sDE0A52AD84EA", date, (quota.Fresh?L10n.T("sAF82A5FFDAE8"):L10n.T("s2FE0E3339AC4"))):L10n.T("s66C3773FD559"),Opacity=.65});

@@ -11,7 +11,7 @@ internal sealed partial class Dashboard
     private void RenderStats()
     {
         var selectedRange=SelectedHistoryRange();
-        var filter=$"{selectedPage}|{historyRangeIndex}|{selectedRange.From}|{selectedRange.Through}|{historySearch.Text}|{sessionOrder.SelectedIndex}|{sessionPage}|{breakdownKind.SelectedIndex}|{DateTime.Today:yyyy-MM-dd}|{app.Config.ClaudeEnabled}";
+        var filter=$"{selectedPage}|{historyRangeIndex}|{selectedRange.From}|{selectedRange.Through}|{historySearch.Text}|{sessionOrder.SelectedIndex}|{sessionPage}|{breakdownKind.SelectedIndex}|{DateTime.Today:yyyy-MM-dd}|{app.Config.ClaudeEnabled}|{app.Config.CodexEnabled}";
         if(ReferenceEquals(renderedEvents,app.Events)&&ReferenceEquals(renderedSessionNames,app.SessionNames)&&renderedFilter==filter)return;
         renderedEvents=app.Events;renderedSessionNames=app.SessionNames;renderedFilter=filter;
         DetachHistoryFilter();
@@ -21,6 +21,14 @@ internal sealed partial class Dashboard
         UIElement? pricingDetails=null;
         statsPanel.Children.Clear();
         claudeOverview=null;
+        if(!app.Config.CodexEnabled)
+        {
+            sessionWorkspace.Children.Clear();sessionWorkspace.Children.Add(DisabledSourcesMessage());
+            if(selectedPage=="overview"&&app.Config.ClaudeEnabled)
+            {claudeOverview=new(){Spacing=8};FillClaudeCard(claudeOverview);statsPanel.Children.Add(Card(claudeOverview));}
+            else statsPanel.Children.Add(DisabledSourcesMessage());
+            return;
+        }
         if(selectedPage=="overview"&&app.Config.ClaudeEnabled)
         {
             claudeOverview=new(){Spacing=8};FillClaudeCard(claudeOverview);

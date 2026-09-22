@@ -13,7 +13,8 @@ internal sealed partial class Dashboard
     private void FillOverviewQuota()
     {
         var quota=app.Quota;
-        overviewQuota.Children.Clear();overviewQuotaCard.Visibility=quota.HasQuotaDisplay||app.Config.ClaudeEnabled?Visibility.Visible:Visibility.Collapsed;
+        overviewQuota.Children.Clear();overviewQuotaCard.Visibility=app.Config.CodexEnabled&&(quota.HasQuotaDisplay||app.Config.ClaudeEnabled)?Visibility.Visible:Visibility.Collapsed;
+        if(!app.Config.CodexEnabled)return;
         if(!quota.HasQuotaDisplay&&!app.Config.ClaudeEnabled)return;
         var header=new Grid{ColumnSpacing=12};
         header.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
