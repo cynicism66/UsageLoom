@@ -7,6 +7,10 @@ public sealed partial class LoomApp
     private bool sourceSettingsBusy;
     private DateTimeOffset nextSourceBoundaryRetry;
     internal bool CodexActive=>Config.CodexEnabled&&!Config.CodexBoundaryPending;
+    internal void RequireSourceSettingsIdle()
+    {
+        if(sourceSettingsBusy)throw new InvalidOperationException(L10n.T("maintenance.busy"));
+    }
     private void CompleteSourceBoundary()
     {
         if(!Config.CodexBoundaryPending)return;
@@ -26,7 +30,7 @@ public sealed partial class LoomApp
     internal async Task ConfigureCodexAsync(bool enabled,string executable,string home)
     {
         if(!Path.IsPathFullyQualified(home.Trim()))throw new ArgumentException(L10n.T("s772A83DE6A61"));
-        if(sourceSettingsBusy)throw new InvalidOperationException(L10n.T("maintenance.busy"));
+        RequireSourceSettingsIdle();
         var oldPath=Config.CliPath;var oldHome=Config.CodexHome;
         Config.CliPath=executable.Trim();Config.CodexHome=home.Trim();
         try{await SaveSettingsAsync(codexEnabled:enabled);}
@@ -39,8 +43,9 @@ public sealed partial class LoomApp
             throw;
         }
     }
-    private void RequireCodexSource()
+    internal void RequireCodexSource()
     {
+        RequireSourceSettingsIdle();
         if(!CodexActive)throw new InvalidOperationException(L10n.T("source.codexDisabled"));
     }
 }

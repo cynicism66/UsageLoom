@@ -21,6 +21,17 @@ public sealed partial class LoomApp
     internal async Task VerifyPendingSourceBoundaryAsync()
     {
         if(!ClaudeSettingsCheck)throw new InvalidOperationException("Boundary check requires isolated preview");
+        var beforeSource=CurrentCapacitySource();
+        sourceSettingsBusy=true;
+        try
+        {
+            try{RequireSourceSettingsIdle();throw new Exception("Concurrent global mutation accepted");}catch(InvalidOperationException){}
+            try{await ConfigureCodexAsync(true,"",Path.Combine(Program.DataPath,"concurrent-source"));throw new Exception("Concurrent source save accepted");}catch(InvalidOperationException){}
+            try{await ConfigureClaudeAsync(new(true,Path.Combine(Program.DataPath,"concurrent-claude"),null));throw new Exception("Concurrent Claude save accepted");}catch(InvalidOperationException){}
+            try{await AuthorizeAsync();throw new Exception("Concurrent authorization accepted");}catch(InvalidOperationException){}
+            if(!beforeSource.Matches(CurrentCapacitySource()))throw new InvalidOperationException("Concurrent save mutated source fields");
+        }
+        finally{sourceSettingsBusy=false;}
         // Persisted pending state simulates a crash after settings save and before
         // the boundary transaction. No source may run before it is completed.
         var enabled=Config.CodexEnabled;

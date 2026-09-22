@@ -57,10 +57,12 @@ internal sealed partial class Dashboard
         panel.Children.Add(AppUpdatePanel());
         async Task Authorize(bool logout)
         {
+            app.RequireCodexSource();
             if(app.Authorizing)throw new InvalidOperationException(L10n.T("s081CDEB65923"));
             var dialog=new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title=logout?L10n.T("sFEED4D9A5148"):L10n.T("s3B66445DA90A"),CloseButtonText=L10n.T("s2CD0F3BE8738"),PrimaryButtonText=logout?L10n.T("sADF861A2A343"):L10n.T("sC33740D74933"),DefaultButton=ContentDialogButton.Close,
                 Content=logout?L10n.T("s8CF30C934669"):L10n.T("sA591BDDE3429")};
             if(await dialog.ShowAsync()!=ContentDialogResult.Primary)return;
+            app.RequireCodexSource();
             if(!app.IsDemo)app.Config.CliPath=cli.Text.Trim();
             await app.AuthorizeAsync(logout);
         }
@@ -71,6 +73,7 @@ internal sealed partial class Dashboard
             Button(L10n.T("s0F7D6E35193A"),async()=>await Authorize(true)));
         settingsSaveButton=Button(L10n.T("sC8550237BA70"),async()=>
         {
+            app.RequireSourceSettingsIdle();
             if(app.IsDemo&&!app.ClaudeSettingsCheck){status.Text=L10n.T("sAF0109C061C5");return;}
             if(app.Authorizing)throw new InvalidOperationException(L10n.T("s3B5CB5F80AA4"));
             if(!double.IsFinite(seconds.Value)||!double.IsFinite(foreground.Value)||!double.IsFinite(threshold.Value)||!double.IsFinite(minutes.Value))throw new ArgumentException(L10n.T("sD1E6C6F01819"));
