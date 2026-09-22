@@ -15,6 +15,7 @@ internal sealed partial class Dashboard
         var range=historyRangeIndex;var from=historyFrom.Date;var through=historyThrough.Date;
         var search=historySearch.Text;var order=sessionOrder.SelectedIndex;var grouping=breakdownKind.SelectedIndex;
         var savedSessionPage=sessionPage;
+        var savedClaudeDays=claudeHistoryDays;
         var events=app.Events;var snapshot=app.ClaudeQuota;
         var root=(FrameworkElement)Content;
         void Switch(string provider)
@@ -28,7 +29,8 @@ internal sealed partial class Dashboard
         {
             root.UpdateLayout();
             var workspace=selectedPage=="sessions"?(DependencyObject)sessionWorkspace:statisticsBody;
-            if(!CapacityTestDescendants(workspace).OfType<FrameworkElement>().Any(e=>AutomationProperties.GetAutomationId(e)=="stats-unavailable")||
+            var expected=statisticsProvider=="claude"&&app.Config.ClaudeEnabled&&selectedPage=="overview"?"claude-history":"stats-unavailable";
+            if(!CapacityTestDescendants(workspace).OfType<FrameworkElement>().Any(e=>AutomationProperties.GetAutomationId(e)==expected)||
                 CapacityTestDescendants(workspace).Any(e=>ReferenceEquals(e,filterBar))||actions.Visibility!=Visibility.Collapsed)
                 throw new InvalidOperationException("Unavailable provider leaked Codex statistics, filters or scan action");
         }
@@ -45,6 +47,16 @@ internal sealed partial class Dashboard
                     throw new InvalidOperationException("Provider switch lost Codex filters");
             }
             Switch("claude");ShowPage("breakdown");CheckUnavailable();ShowPage("overview");CheckUnavailable();
+            claudeHistoryDays=30;renderedFilter=null;RenderStats();CheckUnavailable();
+            ShowPage("sessions");ShowPage("overview");root.UpdateLayout();
+            if(claudeHistoryDays!=30||!CapacityTestDescendants(root).OfType<ToggleButton>().Any(t=>AutomationProperties.GetAutomationId(t)=="claude-history-days-30"&&t.IsChecked==true)&&app.Config.ClaudeEnabled)
+                throw new InvalidOperationException("Claude history date selection lost");
+            if(app.Config.ClaudeEnabled&&app.ClaudeQuota.History.Count>0&&!CapacityTestDescendants(root).OfType<Canvas>().Any())
+                throw new InvalidOperationException("Claude quota history chart missing");
+            var oldHistoryPanel=CapacityTestDescendants(root).OfType<FrameworkElement>().FirstOrDefault(e=>AutomationProperties.GetAutomationId(e)=="claude-history");
+            UpdateClaudeViews();root.UpdateLayout();
+            if(app.Config.ClaudeEnabled&&!ReferenceEquals(oldHistoryPanel,CapacityTestDescendants(root).OfType<FrameworkElement>().FirstOrDefault(e=>AutomationProperties.GetAutomationId(e)=="claude-history")))
+                throw new InvalidOperationException("Unchanged Claude snapshot rebuilt the history view");
             Switch("codex");
             var date=new DateOnly(2026,9,8);DrillIntoRange(date,date);root.UpdateLayout();
             if(statisticsProvider!="codex"||selectedPage!="sessions"||!SelectedHistoryRange().IsSingleDay)
@@ -57,6 +69,7 @@ internal sealed partial class Dashboard
             foreach(var key in new[]{"attribution.inspect","maintenance.repair","maintenance.clear","maintenance.restart","sD9EBFF4C171F"})
                 if(!L10n.T(key).Contains("Codex",StringComparison.Ordinal))throw new InvalidOperationException("Operation has ambiguous provider: "+key);
             Program.Log.Write("INFO","NavigationTest","Statistics providers: isolated views, retained filters, drilldown and disabled sources passed");
+            Program.Log.Write("INFO","NavigationTest","Claude history: scoped observations, independent date filter and disabled source boundaries passed");
         }
         finally
         {
@@ -66,6 +79,7 @@ internal sealed partial class Dashboard
             finally{updatingHistoryRangeControls=false;}
             historySearch.Text=search;sessionOrder.SelectedIndex=order;breakdownKind.SelectedIndex=grouping;sessionPage=savedSessionPage;
             statisticsProvider=savedProvider;renderedFilter=null;ShowPage(savedPage);Render();
+            claudeHistoryDays=savedClaudeDays;renderedFilter=null;RenderStats();
         }
     }
 }

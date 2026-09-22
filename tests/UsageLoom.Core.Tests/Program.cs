@@ -2222,6 +2222,7 @@ Test("小窗分辨率、DPI、多屏与工作区边界",()=>
 });
 CapacityReliabilityTests.Run(Test);
 ClaudeQuotaTests.Run(Test,fixtureRoot);
+ClaudeHistoryTests.Run(Test,fixtureRoot);
 AsyncTest("模式时间线与真实扫描链路",ModeScannerTests.Run);
 ModeStorageTests.Run(AsyncTest,fixtureRoot);
 try

@@ -49,9 +49,12 @@ internal sealed partial class Dashboard
     {
         var provider=statisticsProvider=="codex"?"Codex":"Claude";
         var enabled=statisticsProvider=="codex"?app.Config.CodexEnabled:app.Config.ClaudeEnabled;
+        if(statisticsProvider=="claude"&&enabled&&selectedPage=="overview")return ClaudeHistoryPanel();
         var panel=new StackPanel{Spacing=12};
         panel.Children.Add(ClaudeText(enabled?L10n.T("stats.claudeUnavailable"):L10n.F("stats.sourceDisabled",provider),18));
         panel.Children.Add(ClaudeText(enabled?L10n.T("stats.claudeNotice"):L10n.T("stats.enableNotice"),14));
+        if(statisticsProvider=="claude"&&enabled)
+            panel.Children.Add(Button(L10n.T("claude.viewHistory"),()=>{Navigate("overview");return Task.CompletedTask;}));
         panel.Children.Add(Button(L10n.T("sDF3D58C7D84B"),()=>{Navigate("settings");return Task.CompletedTask;}));
         var card=Card(panel);AutomationProperties.SetAutomationId(card,"stats-unavailable");return card;
     }

@@ -14,6 +14,8 @@ internal sealed partial class Dashboard
         var filter=$"{selectedPage}|{statisticsProvider}|{historyRangeIndex}|{selectedRange.From}|{selectedRange.Through}|{historySearch.Text}|{sessionOrder.SelectedIndex}|{sessionPage}|{breakdownKind.SelectedIndex}|{DateTime.Today:yyyy-MM-dd}|{app.Config.ClaudeEnabled}|{app.Config.CodexEnabled}";
         if(ReferenceEquals(renderedEvents,app.Events)&&ReferenceEquals(renderedSessionNames,app.SessionNames)&&renderedFilter==filter)return;
         renderedEvents=app.Events;renderedSessionNames=app.SessionNames;renderedFilter=filter;
+        renderedClaudeStatistics=app.ClaudeQuota;
+        renderedClaudeDescription=app.ClaudeQuota.Describe(DateTimeOffset.Now);renderedClaudeHistoryError=app.ClaudeHistoryError;
         DetachHistoryFilter();
         updateOverviewLayout=null;
         overviewQuota=new StackPanel{Spacing=10};overviewQuotaCard=Card(overviewQuota);

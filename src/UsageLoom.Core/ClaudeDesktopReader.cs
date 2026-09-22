@@ -55,7 +55,11 @@ public sealed class ClaudeDesktopReader
                         if(snapshots.Count>0)
                         {
                             var snapshot=ClaudeQuotaParser.Select(snapshots,scope);
-                            return history is null?snapshot:ClaudeQuotaParser.Reconcile(snapshot,history,scope);
+                            var reconciled=history is null?snapshot:ClaudeQuotaParser.Reconcile(snapshot,history,scope);
+                            if(reconciled.Status!="snapshot")return reconciled;
+                            return reconciled with{History=ClaudeQuotaHistory.Normalize(
+                                snapshots.SelectMany(ClaudeQuotaHistory.Observations).Concat(history?.History??[])
+                                .Where(p=>p.Scope==reconciled.Scope))};
                         }
                         break;
                     }

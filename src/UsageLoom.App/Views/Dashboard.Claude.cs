@@ -45,6 +45,8 @@ internal sealed partial class Dashboard
         if(released)return;
         if(!DispatcherQueue.HasThreadAccess){DispatcherQueue.TryEnqueue(UpdateClaudeViews);return;}
         if(compact){if(compactContent is not null)UpdateCompactClaude();return;}
+        if(IsStatisticsPage&&statisticsProvider=="claude"&&ClaudeHistoryViewChanged())
+        {renderedFilter=null;RenderStats();}
         UpdateStatisticsActions();
         if(claudeOverview is not null)FillClaudeCard(claudeOverview);
         if(claudeDetails is not null)FillClaudeCard(claudeDetails);

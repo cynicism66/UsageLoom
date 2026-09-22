@@ -1,4 +1,5 @@
 using UsageLoom.Core;
+using UsageLoom.Storage;
 
 namespace UsageLoom.App;
 
@@ -16,6 +17,8 @@ internal sealed record ClaudeSettingsInput(bool Enabled,string? Directory,string
 public sealed partial class LoomApp
 {
     internal ClaudeQuotaSnapshot ClaudeQuota {get;private set;}=ClaudeQuotaSnapshot.Empty("disabled");
+    internal string? ClaudeHistoryError {get;private set;}
+    private readonly ClaudeHistoryStore claudeHistoryStore=new(Program.DataPath);
     internal event Action? ClaudeChanged;
     private Task? claudeTask;
     private CancellationTokenSource? claudeCancellation;
@@ -37,13 +40,23 @@ public sealed partial class LoomApp
     {
         try
         {
-            var result=await Task.Run(()=>ClaudeDesktopReader.Read(directory,scope,DateTimeOffset.UtcNow,token),token);
+            string? historyError=null;
+            var result=await Task.Run(()=>
+            {
+                var now=DateTimeOffset.UtcNow;
+                var snapshot=ClaudeDesktopReader.Read(directory,scope,now,token);
+                if(snapshot.Status!="snapshot")return snapshot;
+                try{return snapshot with{History=claudeHistoryStore.Merge(snapshot,now,token)};}
+                catch(OperationCanceledException){throw;}
+                catch(Exception ex)when(ex is not OutOfMemoryException)
+                {historyError=L10n.T("claude.historySaveFailed");return snapshot;}
+            },token);
             if(quitting||generation!=claudeGeneration||!Config.ClaudeEnabled)return;
-            ClaudeQuota=result;ClaudeChanged?.Invoke();
+            ClaudeQuota=result;ClaudeHistoryError=historyError;ClaudeChanged?.Invoke();
         }
         catch(OperationCanceledException)
         {
-            if(!quitting&&generation==claudeGeneration){ClaudeQuota=ClaudeQuotaSnapshot.Empty("readFailed");ClaudeChanged?.Invoke();}
+            if(!quitting&&generation==claudeGeneration){ClaudeQuota=ClaudeQuotaSnapshot.Empty("readFailed");ClaudeHistoryError=null;ClaudeChanged?.Invoke();}
         }
     }
     private bool PersistClaudeSettings(ClaudeSettingsInput? input)
@@ -59,7 +72,7 @@ public sealed partial class LoomApp
     {
         if(!changed){ClaudeChanged?.Invoke();if(forceRead)await RefreshClaudeAsync(true);return;}
         claudeGeneration++;claudeCancellation?.Cancel();
-        ClaudeQuota=ClaudeQuotaSnapshot.Empty(Config.ClaudeEnabled?"waiting":"disabled");ClaudeChanged?.Invoke();Changed?.Invoke();
+        ClaudeQuota=ClaudeQuotaSnapshot.Empty(Config.ClaudeEnabled?"waiting":"disabled");ClaudeHistoryError=null;ClaudeChanged?.Invoke();Changed?.Invoke();
         if(claudeTask is {} pending)await pending;
         await RefreshClaudeAsync(true);
     }
@@ -76,6 +89,10 @@ public sealed partial class LoomApp
         if(!args.Contains("--preview-claude")){Config.ClaudeEnabled=false;return;}
         Config.ClaudeEnabled=true;
         ClaudeQuota=new("snapshot",[new("five_hour",65,DateTimeOffset.Now.AddHours(1)),new("seven_day",42,DateTimeOffset.Now.AddDays(2))],DateTimeOffset.Now,"preview",["preview"]);
+        var at=ClaudeQuota.ObservedAt!.Value;
+        ClaudeQuota=ClaudeQuota with{History=ClaudeQuotaHistory.Normalize(Enumerable.Range(0,18).SelectMany(i=>new[]{
+            new ClaudeQuotaObservation("preview",at.AddMinutes(-10*(17-i)),"five_hour",i*3,at.AddHours(1),"cache"),
+            new ClaudeQuotaObservation("preview",at.AddMinutes(-10*(17-i)),"seven_day",20+i,at.AddDays(2),"cache")}))};
     }
     internal void ConfigureClaudeRefreshPreview(int step)
     {

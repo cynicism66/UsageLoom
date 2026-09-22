@@ -32,6 +32,7 @@ public sealed record ClaudeQuotaWindow(string Key,double Used,DateTimeOffset? Re
 public sealed record ClaudeQuotaSnapshot(string Status,IReadOnlyList<ClaudeQuotaWindow> Windows,DateTimeOffset? ObservedAt=null,
     string? Scope=null,IReadOnlyList<string>? Scopes=null,bool HistoryOnly=false)
 {
+    public IReadOnlyList<ClaudeQuotaObservation> History {get;init;}=[];
     public static ClaudeQuotaSnapshot Empty(string status)=>new(status,[]);
     public string Describe(DateTimeOffset now)
     {
@@ -80,7 +81,7 @@ public static class ClaudeQuotaParser
         var first=candidates[0];
         // Equal-time, different payloads are ambiguous; never depend on hash-bucket order.
         if(candidates.Any(s=>s.ObservedAt==first.ObservedAt&&!Equivalent(s.Windows,first.Windows)))return new("conflict",[],Scopes:scopes);
-        return first with{Scopes=scopes};
+        return first with{Scopes=scopes,History=ClaudeQuotaHistory.Normalize(candidates.SelectMany(ClaudeQuotaHistory.Observations))};
     }
     private static bool Equivalent(IReadOnlyList<ClaudeQuotaWindow> a,IReadOnlyList<ClaudeQuotaWindow> b)=>a.Count==b.Count&&a.Zip(b).All(pair=>
         pair.First.Key==pair.Second.Key&&pair.First.Used==pair.Second.Used&&
