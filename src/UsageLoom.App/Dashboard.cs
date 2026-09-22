@@ -273,6 +273,7 @@ internal sealed partial class Dashboard : Window
     private void VerifyHistoryFilterAttached()
     {
         if(selectedPage=="quota"){VerifyQuotaProviderLayout();return;}
+        if(selectedPage=="overview")VerifyOverviewPlanHeader();
         if(selectedPage is not ("overview" or "breakdown" or "sessions"))return;
         ((FrameworkElement)Content).UpdateLayout();
         DependencyObject? current=filterBar;
@@ -451,19 +452,8 @@ internal sealed partial class Dashboard : Window
         status.Text=compact||selectedPage=="quota"?app.Quota.Status:selectedPage is "overview" or "breakdown" or "sessions"?app.HistoryStatus:app.Message;
         ToolTipService.SetToolTip(status,status.Text);
         quotaPanel.Children.Clear();var quota=app.Quota;
-        overviewQuota.Children.Clear();overviewQuotaCard.Visibility=quota.HasQuotaDisplay||app.Config.ClaudeEnabled?Visibility.Visible:Visibility.Collapsed;
+        FillOverviewQuota();
         updateOverviewLayout?.Invoke();
-        if(quota.HasQuotaDisplay)
-        {
-            overviewQuota.Children.Add(new TextBlock{Text="Codex · "+L10n.T("s73BE6011896A"),FontSize=18,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
-            foreach(var window in quota.PrimaryWindows)
-            {
-                overviewQuota.Children.Add(new TextBlock{Text=L10n.F("s6D65FE80C728", window.Label, window.RemainingText),TextWrapping=TextWrapping.Wrap});
-                overviewQuota.Children.Add(new ProgressBar{Minimum=0,Maximum=100,Value=window.Remaining,Height=5,Foreground=accent});
-            }
-            overviewQuota.Children.Add(Button(L10n.T("s14B8852CD2D1"),()=>{Navigate("quota");return Task.CompletedTask;}));
-        }
-        else if(app.Config.ClaudeEnabled){overviewQuota.Children.Add(ClaudeText("Codex",18));overviewQuota.Children.Add(ClaudeText(quota.Status));}
         surfaces.RemoveAll(reference => !reference.TryGetTarget(out _));
         var quotaCards=new List<UIElement>();
         foreach(var window in quota.HasQuotaDisplay?quota.PrimaryWindows:[])

@@ -41,10 +41,10 @@ internal sealed partial class Dashboard
         internal readonly TextBlock Requests=CompactText(22,30);
         internal readonly TextBlock Capacity=CompactText(12,40,true);
         internal readonly TextBlock Footer=CompactText(12,18);
-        internal readonly ContentControl Plan=new(){HorizontalContentAlignment=HorizontalAlignment.Left,VerticalContentAlignment=VerticalAlignment.Center};
-        internal readonly TextBlock PlanStatus=CompactText(11,32,true);
+        internal readonly ContentControl Plan=new(){HorizontalContentAlignment=HorizontalAlignment.Right,VerticalContentAlignment=VerticalAlignment.Center,MaxWidth=110,Height=32};
+        internal readonly TextBlock ProviderTitle=CompactText(13,32);
         internal readonly Grid CapacityRow=CompactColumns(6,22);
-        internal readonly Grid PlanRow=CompactColumns(8,128);
+        internal readonly Grid PlanRow=CompactColumns(8,110);
         internal Border QuotaCard=null!;
         internal Border ClaudeCard=null!;
         internal readonly TextBlock ClaudeTitle=CompactText(12,18);
@@ -75,7 +75,11 @@ internal sealed partial class Dashboard
             AutomationProperties.SetAutomationId(card,id);return card;
         }
         var quota=new Grid();quota.Children.Add(view.Limits);quota.Children.Add(view.Unavailable);
-        view.QuotaCard=CompactCard(quota,"compact-quota-card");quotaPanel.Children.Add(view.QuotaCard);
+        view.PlanRow.Height=32;view.PlanRow.Children.Add(view.ProviderTitle);
+        Grid.SetColumn(view.Plan,1);view.PlanRow.Children.Add(view.Plan);
+        AutomationProperties.SetAutomationId(view.PlanRow,"compact-plan-row");
+        var quotaBody=new StackPanel();quotaBody.Children.Add(view.PlanRow);quotaBody.Children.Add(quota);
+        view.QuotaCard=CompactCard(quotaBody,"compact-quota-card");quotaPanel.Children.Add(view.QuotaCard);
         var claude=new StackPanel{Spacing=2};claude.Children.Add(view.ClaudeTitle);
         for(var i=0;i<2;i++){claude.Children.Add(view.ClaudeValues[i]);claude.Children.Add(view.ClaudeResets[i]);}
         view.ClaudeCard=CompactCard(claude,"compact-claude-card");view.ClaudeCard.Height=118;
@@ -93,9 +97,6 @@ internal sealed partial class Dashboard
         view.CapacityRow.Children.Add(view.Capacity);
         var info=CapacityInfoButton();Grid.SetColumn(info,1);view.CapacityRow.Children.Add(info);
         AutomationProperties.SetAutomationId(view.CapacityRow,"compact-capacity-row");quotaPanel.Children.Add(view.CapacityRow);
-        view.PlanRow.Height=32;view.PlanStatus.Opacity=.65;view.PlanStatus.TextAlignment=TextAlignment.Right;
-        view.PlanRow.Children.Add(view.Plan);Grid.SetColumn(view.PlanStatus,1);view.PlanRow.Children.Add(view.PlanStatus);
-        AutomationProperties.SetAutomationId(view.PlanRow,"compact-plan-row");quotaPanel.Children.Add(view.PlanRow);
         var footer=CompactColumns(8,32);footer.Height=32;view.Footer.Opacity=.6;footer.Children.Add(view.Footer);
         var settings=new Button{Content=new FontIcon{Glyph="\uE713",FontSize=18},Width=32,Height=32,Padding=new Thickness(0),
             Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent),BorderThickness=new Thickness(0),CornerRadius=new CornerRadius(6)};
@@ -118,7 +119,7 @@ internal sealed partial class Dashboard
                 view.Windows.Add(added);view.Limits.Children.Add(added.Root);
             }
             var row=view.Windows[index];var window=windows[index];row.Root.Visibility=Visibility.Visible;
-            row.Name.Text=(app.Config.ClaudeEnabled?"Codex · ":"")+window.Label+L10n.T("sD6822B04178D");row.Value.Text=window.RemainingText;
+            row.Name.Text=window.Label+L10n.T("sD6822B04178D");row.Value.Text=window.RemainingText;
             row.Progress.Value=window.Remaining;
             row.Reset.Text=window.ResetCountdown(DateTimeOffset.Now)+(quota.Fresh?"":L10n.T("s6749C5BF4AEA"));
             ToolTipService.SetToolTip(row.Reset,row.Reset.Text);
@@ -127,7 +128,7 @@ internal sealed partial class Dashboard
         // Offline/unavailable states retain the quota slot; ordinary values never
         // change row heights or cause the whole Viewbox to rescale.
         var slots=Math.Max(1,view.Windows.Count);
-        view.QuotaCard.Height=26+slots*70+(slots-1)*12;
+        view.QuotaCard.Height=58+slots*70+(slots-1)*12;
         view.Limits.Visibility=windows.Length>0?Visibility.Visible:Visibility.Collapsed;
         view.Unavailable.Visibility=windows.Length>0?Visibility.Collapsed:Visibility.Visible;
         view.Unavailable.Text=quota.IsLocalAccount?L10n.T("sF2D563561B79"):L10n.T("sF7A79B776C96");
@@ -146,11 +147,13 @@ internal sealed partial class Dashboard
         var planKey=$"{quota.Plan}|{quota.IsLocalAccount}|{new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast}";
         if(view.PlanKey!=planKey)
         {
-            view.PlanKey=planKey;view.Plan.Content=PlanBadge(quota with{Fresh=true},true);
+            view.PlanKey=planKey;var badge=PlanBadge(quota with{Fresh=true},true);
+            if(badge is TextBlock text){text.TextWrapping=TextWrapping.NoWrap;text.TextTrimming=TextTrimming.CharacterEllipsis;ToolTipService.SetToolTip(text,quota.PlanDisplay);}
+            view.Plan.Content=badge;
         }
         // Keep freshness outside the badge so a transient stale snapshot neither
         // rebuilds the badge nor inserts another line below it.
-        view.PlanStatus.Text=!quota.Fresh&&!quota.IsLocalAccount?L10n.T("s4F6E26963CA2"):"";
+        view.ProviderTitle.Text="Codex"+(!quota.Fresh&&!quota.IsLocalAccount?" · "+L10n.T("s4F6E26963CA2"):"");
         AutomationProperties.SetName(view.PlanRow,quota.PlanDisplay);
         var updated=quota.FetchedAt is {} at?L10n.F("s6843540FA5C7",at.ToLocalTime()):L10n.T("s0D4EDA666026");
         var resets=quota.HasQuotaDisplay&&quota.ResetCount is {} count?L10n.F("s26ABA9EC2EFB",count):L10n.T("s382254F4153B");

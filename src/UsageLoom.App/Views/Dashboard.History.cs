@@ -17,18 +17,7 @@ internal sealed partial class Dashboard
         DetachHistoryFilter();
         updateOverviewLayout=null;
         overviewQuota=new StackPanel{Spacing=10};overviewQuotaCard=Card(overviewQuota);
-        overviewQuotaCard.Visibility=app.Quota.HasQuotaDisplay||app.Config.ClaudeEnabled?Visibility.Visible:Visibility.Collapsed;
-        if(app.Quota.HasQuotaDisplay)
-        {
-            overviewQuota.Children.Add(new TextBlock{Text="Codex · "+L10n.T("s73BE6011896A"),FontSize=18});
-            foreach(var window in app.Quota.PrimaryWindows)
-            {
-                overviewQuota.Children.Add(new TextBlock{Text=L10n.F("s6D65FE80C728", window.Label, window.RemainingText),TextWrapping=TextWrapping.Wrap});
-                overviewQuota.Children.Add(new ProgressBar{Minimum=0,Maximum=100,Value=window.Remaining,Height=5,Foreground=accent});
-            }
-            overviewQuota.Children.Add(Button(L10n.T("s14B8852CD2D1"),()=>{Navigate("quota");return Task.CompletedTask;}));
-        }
-        else if(app.Config.ClaudeEnabled){overviewQuota.Children.Add(ClaudeText("Codex",18));overviewQuota.Children.Add(ClaudeText(app.Quota.Status));}
+        FillOverviewQuota();
         UIElement? pricingDetails=null;
         statsPanel.Children.Clear();
         claudeOverview=null;

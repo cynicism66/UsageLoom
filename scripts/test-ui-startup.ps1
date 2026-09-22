@@ -44,6 +44,7 @@ foreach($scenario in $scenarios){
     if($CapacityDetails -and !($lines -match 'Capacity detail entry and compact layout passed')){throw 'Capacity detail and compact layout check did not complete'}
     if($CapacityDetails -and !($lines -match 'Capacity settings navigation and live content passed')){throw 'Capacity settings navigation and live content check did not complete'}
     if($CapacityDetails -and !($lines -match 'Compact refresh stable: 18 changes')){throw 'Compact refresh stability check did not complete'}
+    if($CapacityDetails -and !($lines -match 'Compact plan moved into quota header without standalone row passed')){throw 'Compact plan placement check did not complete'}
     if($CapacityDetails -and !($lines -match 'Compact display recovery passed')){throw 'Compact display recovery check did not complete'}
     if($CapacityDetails -and !($lines -match 'Compact popover has no buttons; main details entry and footer settings gear retained')){throw 'Compact/main detail entry separation check did not complete'}
     Write-Output "PASS UI startup: $scenario"

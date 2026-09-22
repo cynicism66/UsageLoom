@@ -196,6 +196,10 @@ internal sealed partial class Dashboard
         await Task.Delay(120);
         await CapacityTestDispatcherSettled(this);
         var root=(FrameworkElement)Content;
+        var compactView=compactContent!;
+        if(compactView.QuotaCard.Child is not StackPanel quotaBody||quotaBody.Children[0]!=compactView.PlanRow||quotaPanel.Children.Contains(compactView.PlanRow)||!compactView.PlanRow.Children.Contains(compactView.Plan))
+            throw new InvalidOperationException("Compact plan is not in the Codex quota header");
+        Program.Log.Write("INFO","CapacityUiTest","Compact plan moved into quota header without standalone row passed");
         var ids=new[]{"compact-quota-card","compact-usage-card","compact-capacity-row","compact-plan-row","compact-footer-row",
             "compact-token-value","compact-request-value","compact-quota-value-0","compact-quota-progress-0","compact-quota-reset-0"};
         if(app.Config.ClaudeEnabled)ids=[..ids,"compact-claude-card"];

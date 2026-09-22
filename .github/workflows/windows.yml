@@ -44,6 +44,9 @@ jobs:
           ./scripts/test-msi-package.ps1
           ./scripts/build-portable.ps1
           ./scripts/build-update-feed.ps1
+      - name: Compact provider plan and refresh geometry
+        shell: pwsh
+        run: ./scripts/test-ui-startup.ps1 -CapacityDetails -Claude
       - name: Actual upgrade with independent disposable fixture identity
         shell: powershell
         run: ./scripts/test-msi-upgrade-ci.ps1

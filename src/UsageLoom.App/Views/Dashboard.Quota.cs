@@ -10,6 +10,40 @@ internal sealed partial class Dashboard
 {
     private Border? codexDetailsCard;
     private Grid? codexDetailsHeader;
+    private void FillOverviewQuota()
+    {
+        var quota=app.Quota;
+        overviewQuota.Children.Clear();overviewQuotaCard.Visibility=quota.HasQuotaDisplay||app.Config.ClaudeEnabled?Visibility.Visible:Visibility.Collapsed;
+        if(!quota.HasQuotaDisplay&&!app.Config.ClaudeEnabled)return;
+        var header=new Grid{ColumnSpacing=12};
+        header.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
+        header.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
+        header.Children.Add(new TextBlock{Text="Codex",FontSize=18,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,TextWrapping=TextWrapping.Wrap,VerticalAlignment=VerticalAlignment.Center});
+        var badge=PlanBadge(quota,true);badge.MaxWidth=120;badge.VerticalAlignment=VerticalAlignment.Center;
+        Grid.SetColumn(badge,1);header.Children.Add(badge);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(header,"overview-quota-header");
+        overviewQuota.Children.Add(header);
+        if(!quota.HasQuotaDisplay){overviewQuota.Children.Add(ClaudeText(quota.Status));return;}
+        foreach(var window in quota.PrimaryWindows)
+        {
+            overviewQuota.Children.Add(new TextBlock{Text=L10n.F("s6D65FE80C728",window.Label,window.RemainingText),TextWrapping=TextWrapping.Wrap});
+            overviewQuota.Children.Add(new ProgressBar{Minimum=0,Maximum=100,Value=window.Remaining,Height=5,Foreground=accent});
+        }
+        overviewQuota.Children.Add(Button(L10n.T("s14B8852CD2D1"),()=>{Navigate("quota");return Task.CompletedTask;}));
+    }
+    private void VerifyOverviewPlanHeader()
+    {
+        if(overviewQuotaCard.Visibility!=Visibility.Visible)return;
+        ((FrameworkElement)Content).UpdateLayout();
+        if(overviewQuota.Children.FirstOrDefault() is not Grid header||header.Children.Count!=2||header.Children[0] is not TextBlock title||title.Text!="Codex")
+            throw new InvalidOperationException("Overview quota title and plan are not grouped");
+        foreach(FrameworkElement child in header.Children)
+        {
+            var rect=child.TransformToVisual(header).TransformBounds(new(0,0,child.ActualWidth,child.ActualHeight));
+            if(header.ActualWidth>0&&(rect.Left<-.5||rect.Right>header.ActualWidth+.5))throw new InvalidOperationException("Overview quota header overflow");
+        }
+        Program.Log.Write("INFO","NavigationTest","Overview quota plan contained in header passed");
+    }
     private Border CodexDetailsCard(QuotaState quota,IReadOnlyList<UIElement> windows)
     {
         var body=new StackPanel{Spacing=8};
