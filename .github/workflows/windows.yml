@@ -37,6 +37,9 @@ jobs:
       - name: Desktop navigation and provider quota card layout
         shell: pwsh
         run: ./scripts/test-ui-startup.ps1 -AllPages -Claude
+      - name: Opaque dropdowns and personalization themes
+        shell: pwsh
+        run: ./scripts/test-ui-startup.ps1 -English -Personalization -Claude
       - name: Build and validate MSI and ZIP
         shell: pwsh
         run: |

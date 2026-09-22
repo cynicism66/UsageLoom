@@ -415,7 +415,7 @@ public sealed partial class LoomApp : Application
         if (this.args.Contains("--smoke-test"))
         {
             smokeTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
-            smokeTimer.Interval = TimeSpan.FromSeconds(ClaudeSettingsCheck?18:CapacityUiCheck?15:8); smokeTimer.IsRepeating = false;
+            smokeTimer.Interval = TimeSpan.FromSeconds(ClaudeSettingsCheck?18:CapacityUiCheck||PersonalizationCheck?15:8); smokeTimer.IsRepeating = false;
             smokeTimer.Tick += async (_, _) => { Program.Log.Write("INFO", "Smoke", "原生窗口和托盘启动检查完成"); await QuitAsync(); }; smokeTimer.Start();
         }
     }

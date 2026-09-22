@@ -38,6 +38,7 @@ foreach($scenario in $scenarios){
         throw "UI smoke test failed: $scenario, exit=$($testProcess.ExitCode)"
     }
     if($Personalization -and !($lines -match 'Theme controls and language restart boundary passed')){throw 'Personalization control check did not complete'}
+    if($Personalization -and !($lines -match 'Opaque dropdown backgrounds, visible borders and retained selection across themes passed')){throw 'Opaque dropdown theme check did not complete'}
     if(!$Personalization -and !$CapacityDetails -and !($lines -match 'Provider quota cards: contained identity, compact plan, equal titles and responsive alignment passed')){throw 'Provider card layout check did not complete'}
     if(!$CapacityDetails -and $scenario -ne 'empty' -and !($lines -match 'Session title-only refresh passed')){throw 'Session title-only refresh check did not complete'}
     if($Personalization -and !($lines -match 'Trend header 380/520/900 DIP resize geometry passed')){throw 'Responsive trend header check did not complete'}

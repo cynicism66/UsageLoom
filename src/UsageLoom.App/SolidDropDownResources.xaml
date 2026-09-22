@@ -1,0 +1,18 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+ xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+ <ResourceDictionary.ThemeDictionaries>
+  <ResourceDictionary x:Key="Default">
+   <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#FF292D35" />
+   <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#FF737985" />
+  </ResourceDictionary>
+  <ResourceDictionary x:Key="Light">
+   <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="#FFFFFFFF" />
+   <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="#FF767C86" />
+  </ResourceDictionary>
+  <ResourceDictionary x:Key="HighContrast">
+   <SolidColorBrush x:Key="ComboBoxDropDownBackground" Color="{ThemeResource SystemColorWindowColor}" />
+   <SolidColorBrush x:Key="ComboBoxDropDownBorderBrush" Color="{ThemeResource SystemColorWindowTextColor}" />
+  </ResourceDictionary>
+ </ResourceDictionary.ThemeDictionaries>
+ <Thickness x:Key="ComboBoxDropdownBorderThickness">1</Thickness>
+</ResourceDictionary>

@@ -88,6 +88,7 @@ internal sealed partial class Dashboard : Window
         UpdateHistoryRangeControls();
         SystemBackdrop = compact ? new DesktopAcrylicBackdrop() : new MicaBackdrop();
         var root = new Grid{Language=app.Config.Language};
+        root.Resources.MergedDictionaries.Add(new ResourceDictionary{Source=new Uri("ms-appx:///SolidDropDownResources.xaml")});
         root.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         root.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
         var titlebar = new Grid { Height = 48, Padding = new Thickness(compact?12:20, 0, 138, 0) };
@@ -310,6 +311,7 @@ internal sealed partial class Dashboard : Window
                 }
             }
             Program.Log.Write("INFO","PersonalizationTest","Repeated expand/collapse visibility passed");
+            foreach(var expander in ((StackPanel)scrollContent.Content).Children.OfType<Expander>())expander.IsExpanded=true;
             foreach(var index in new[]{1,2,0})
             {
                 theme.SelectedIndex=index;await Task.Delay(150);
@@ -317,7 +319,15 @@ internal sealed partial class Dashboard : Window
                 var root=(FrameworkElement)Content;
                 if(root.RequestedTheme!=expected||(expected!=ElementTheme.Default&&root.ActualTheme!=expected))throw new InvalidOperationException("Theme did not apply immediately");
                 Program.Log.Write("INFO","PersonalizationTest",$"Theme {expected}: actual={root.ActualTheme}");
+                await VerifySolidDropDownAsync(theme);
+                if(claudePlanChoice is not null)
+                {
+                    dataSourcesSettings!.IsExpanded=true;
+                    await VerifySolidDropDownAsync(claudePlanChoice);
+                    dataSourcesSettings.IsExpanded=false;
+                }
             }
+            Program.Log.Write("INFO","PersonalizationTest","Opaque dropdown backgrounds, visible borders and retained selection across themes passed");
             var active=L10n.Language;
             language.SelectedIndex=active=="en-US"?0:1;await Task.Delay(100);
             if(app.Config.Language==active||L10n.Language!=active)throw new InvalidOperationException("Language restart boundary failed");

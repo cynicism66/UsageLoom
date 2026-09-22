@@ -3,7 +3,7 @@ param([string]$PublishDirectory,[switch]$Portable)
 $ErrorActionPreference='Stop'
 if(!$PublishDirectory){$PublishDirectory=Join-Path $PSScriptRoot '../artifacts/win-x64'}
 $root=(Resolve-Path -LiteralPath $PublishDirectory).Path
-foreach($name in @('UsageLoom.App.exe','UsageLoom.App.dll','UsageLoom.App.pri','App.xbf','Microsoft.UI.Xaml.dll','coreclr.dll','hostfxr.dll','e_sqlite3.dll','ZstdSharp.dll','THIRD-PARTY-LICENSES/ZstdSharp-LICENSE.txt','THIRD-PARTY-LICENSES/Zstandard-LICENSE.txt','Update-UsageLoom.ps1','update-manifest.txt')){
+foreach($name in @('UsageLoom.App.exe','UsageLoom.App.dll','UsageLoom.App.pri','App.xbf','SolidDropDownResources.xbf','Microsoft.UI.Xaml.dll','coreclr.dll','hostfxr.dll','e_sqlite3.dll','ZstdSharp.dll','THIRD-PARTY-LICENSES/ZstdSharp-LICENSE.txt','THIRD-PARTY-LICENSES/Zstandard-LICENSE.txt','Update-UsageLoom.ps1','update-manifest.txt')){
     if(!(Test-Path -LiteralPath (Join-Path $root $name))){throw "Missing required payload: $name"}
 }
 $files=@(Get-ChildItem -LiteralPath $root -Recurse -File | Where-Object Extension -ne '.pdb')

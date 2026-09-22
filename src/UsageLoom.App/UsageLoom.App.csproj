@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <Version>0.8.23</Version>
+    <Version>0.8.24</Version>
     <!-- 0.2.0 shipped a default 1.0.0.0 file version. Keep native file versions above it. -->
-    <FileVersion>1.0.8.23</FileVersion>
+    <FileVersion>1.0.8.24</FileVersion>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>
     <UseWinUI>true</UseWinUI>
@@ -44,6 +44,7 @@
     <ItemGroup>
       <LoomXamlPayload Include="$(TargetDir)$(AssemblyName).pri" />
       <LoomXamlPayload Include="$(TargetDir)App.xbf" />
+      <LoomXamlPayload Include="$(TargetDir)SolidDropDownResources.xbf" />
     </ItemGroup>
     <Error Condition="!Exists('%(LoomXamlPayload.Identity)')" Text="Required WinUI resource missing: %(LoomXamlPayload.Identity)" />
     <Copy SourceFiles="@(LoomXamlPayload)" DestinationFolder="$(PublishDir)" SkipUnchangedFiles="true" />
