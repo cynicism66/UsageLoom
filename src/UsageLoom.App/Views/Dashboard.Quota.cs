@@ -13,9 +13,8 @@ internal sealed partial class Dashboard
     private void FillOverviewQuota()
     {
         var quota=app.Quota;
-        overviewQuota.Children.Clear();overviewQuotaCard.Visibility=app.Config.CodexEnabled&&(quota.HasQuotaDisplay||app.Config.ClaudeEnabled)?Visibility.Visible:Visibility.Collapsed;
+        overviewQuota.Children.Clear();overviewQuotaCard.Visibility=app.Config.CodexEnabled?Visibility.Visible:Visibility.Collapsed;
         if(!app.Config.CodexEnabled)return;
-        if(!quota.HasQuotaDisplay&&!app.Config.ClaudeEnabled)return;
         var header=new Grid{ColumnSpacing=12};
         header.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
         header.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
@@ -24,12 +23,22 @@ internal sealed partial class Dashboard
         Grid.SetColumn(badge,1);header.Children.Add(badge);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(header,"overview-quota-header");
         overviewQuota.Children.Add(header);
+        overviewQuota.Children.Add(ClaudeText(quota.SourceLabel));
         if(!quota.HasQuotaDisplay){overviewQuota.Children.Add(ClaudeText(quota.Status));return;}
         foreach(var window in quota.PrimaryWindows)
         {
             overviewQuota.Children.Add(new TextBlock{Text=L10n.F("s6D65FE80C728",window.Label,window.RemainingText),TextWrapping=TextWrapping.Wrap});
             overviewQuota.Children.Add(new ProgressBar{Minimum=0,Maximum=100,Value=window.Remaining,Height=5,Foreground=accent});
+            overviewQuota.Children.Add(ClaudeText(window.ResetCountdown(DateTimeOffset.Now)));
         }
+        var estimate=quota.Fresh&&app.Config.CapacityEnabled?app.WeeklyCapacity.FirstOrDefault(e=>e.ObservedPercent>=5&&e.Samples>=2):null;
+        if(estimate is not null)
+        {
+            var summary=new Grid{ColumnSpacing=8};summary.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});summary.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
+            summary.Children.Add(ClaudeText((estimate.HistoricalAt is not null?L10n.T("capacity.previous")+": ":"")+estimate.DollarDisplay));
+            var info=CapacityInfoButton();Grid.SetColumn(info,1);summary.Children.Add(info);overviewQuota.Children.Add(summary);
+        }
+        overviewQuota.Children.Add(ClaudeText(quota.FetchedAt is {} at?L10n.F("s6843540FA5C7",at.ToLocalTime()):L10n.T("s0D4EDA666026")));
         overviewQuota.Children.Add(Button(L10n.T("s14B8852CD2D1"),()=>{Navigate("quota");return Task.CompletedTask;}));
     }
     private void VerifyOverviewPlanHeader()
@@ -60,6 +69,9 @@ internal sealed partial class Dashboard
         foreach(var window in windows)content.Children.Add(window);
         if(windows.Count==0)content.Children.Add(new TextBlock{Text=quota.HasQuotaDisplay?L10n.T("s3073BC52B5B6"):L10n.T("s540071E2CE7C")+quota.Status,FontSize=14,TextWrapping=TextWrapping.Wrap,Opacity=.7});
         body.Children.Add(content);
+        if(quota.HasQuotaDisplay)body.Children.Add(ClaudeText(L10n.T("s9672B36B01C7")+(quota.ResetCount is {} n?n+L10n.T("sF81526EFCE19"):L10n.T("sF36CAC96220B"))));
+        body.Children.Add(ClaudeText(quota.FetchedAt is {} at?L10n.F("s6843540FA5C7",at.ToLocalTime()):L10n.T("s0D4EDA666026")));
+        body.Children.Add(StableExpander.Configure(new Expander{Header="Codex · "+L10n.T("sAD63795746F7"),Content=ClaudeText(quota.Status+L10n.T("s75B413F02FD0")),HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch}));
         codexDetailsHeader=header;codexDetailsCard=Card(body);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(codexDetailsCard,"codex-provider-card");
         return codexDetailsCard;

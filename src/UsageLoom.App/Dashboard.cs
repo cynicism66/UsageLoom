@@ -64,6 +64,7 @@ internal sealed partial class Dashboard : Window
     {
         Program.Log.Write("INFO", "UI", "构建界面开始 compact="+compact);
         this.app=app;this.compact=compact;Title=compact?L10n.T("s6777E778B75E"):L10n.T("sACBDF819A42B");
+        statisticsProvider=!app.Config.CodexEnabled&&app.Config.ClaudeEnabled?"claude":"codex";
         if(app.PreviewHourly)historyRangeIndex=0;
         overviewQuotaCard=Card(overviewQuota);
         historyFrom.Date=DateTimeOffset.Now.Date.AddDays(-6);historyThrough.Date=DateTimeOffset.Now.Date;
@@ -256,6 +257,7 @@ internal sealed partial class Dashboard : Window
             ShowPage(restore);
             Program.Log.Write("INFO","NavigationTest","Settings/statistics shortcut targets passed");
             VerifySessionTitleRefresh();
+            if(!app.PersonalizationCheck&&!app.ClaudeSettingsCheck)VerifyStatisticsProviders();
         }
         if(app.PersonalizationCheck){Navigate("settings");_ = VerifyPersonalizationAsync();}
         if(app.ClaudeSettingsCheck){Navigate("settings");_ = VerifyClaudeSettingsAsync();}
@@ -397,7 +399,7 @@ internal sealed partial class Dashboard : Window
         pageTitle.Text = title; pageSubtitle.Text = subtitle;
         actions.Children.Clear();
         if(selectedPage=="quota")actions.Children.Add(Button(L10n.T("s637A0D380AEC"),async()=>await app.RefreshQuotaAsync(true)));
-        else if(selectedPage is "overview" or "breakdown" or "sessions")actions.Children.Add(Button(L10n.T("s020FCEFB6A48"),async()=>await app.ScanAsync()));
+        else if(selectedPage is "overview" or "breakdown" or "sessions")actions.Children.Add(Button(L10n.T("s020FCEFB6A48"),async()=>{if(CodexStatisticsActive)await app.ScanAsync();}));
         actions.Visibility=actions.Children.Count==0?Visibility.Collapsed:Visibility.Visible;
         foreach(var button in actions.Children.OfType<Button>()){button.Background=accent;button.Foreground=new SolidColorBrush(ColorHelper.FromArgb(255,24,20,36));}
         var nextContent = selectedPage switch { "quota" => quotaPanel, "settings" => SettingsPanel(), "about" => AboutPanel(), _ => statsPanel };
@@ -431,6 +433,7 @@ internal sealed partial class Dashboard : Window
     }
     private void DrillIntoRange(DateOnly from,DateOnly through)
     {
+        if(!CodexStatisticsActive)return;
         updatingHistoryRangeControls=true;
         try
         {
@@ -458,12 +461,12 @@ internal sealed partial class Dashboard : Window
         UpdateCapacityInfo();
         if(capacityStatusText is not null)capacityStatusText.Text=app.CapacityCalculationStatus;
         if(compact){RenderCompact();return;}
-        if(selectedPage is "overview" or "breakdown" or "sessions")actions.Visibility=app.Config.CodexEnabled?Visibility.Visible:Visibility.Collapsed;
         UpdateCapacitySettingsDetails();
-        status.Text=compact||selectedPage=="quota"?app.Quota.Status:selectedPage is "overview" or "breakdown" or "sessions"?app.HistoryStatus:app.Message;
+        status.Text=compact||selectedPage=="quota"?"Codex · "+app.Quota.Status:selectedPage is "overview" or "breakdown" or "sessions"?app.HistoryStatus:app.Message;
         if(!app.Config.CodexEnabled&&selectedPage is "overview" or "quota" or "breakdown" or "sessions")
             status.Text=app.Config.ClaudeEnabled?app.ClaudeQuota.Describe(DateTimeOffset.Now):L10n.T("source.none");
         ToolTipService.SetToolTip(status,status.Text);
+        UpdateStatisticsActions();
         quotaPanel.Children.Clear();var quota=app.Quota;
         FillOverviewQuota();
         updateOverviewLayout?.Invoke();
@@ -494,10 +497,6 @@ internal sealed partial class Dashboard : Window
             card.Children.Add(new TextBlock{Text=reset,TextWrapping=TextWrapping.Wrap,Opacity=.7});
             quotaCards.Add(card);
         }
-        var quotaGroups=new List<UIElement>();
-        if(app.Config.CodexEnabled)quotaGroups.Add(CodexDetailsCard(quota,quotaCards));
-        claudeDetails=null;
-        if(app.Config.ClaudeEnabled)quotaGroups.Add(ClaudeDetailsCard());
         if(app.Config.CodexEnabled&&quota.HasQuotaDisplay&&quota.Windows.Any(window=>window.IsSpark))
         {
             var spark=new StackPanel{Spacing=12};
@@ -511,8 +510,12 @@ internal sealed partial class Dashboard : Window
                 row.Children.Add(new TextBlock{Text=window.ResetCountdown(DateTimeOffset.Now),FontSize=12,Opacity=.65,TextWrapping=TextWrapping.Wrap});
                 spark.Children.Add(row);
             }
-            quotaGroups.Add(Card(spark));
+            quotaCards.Add(spark);
         }
+        var quotaGroups=new List<UIElement>();
+        if(app.Config.CodexEnabled)quotaGroups.Add(CodexDetailsCard(quota,quotaCards));
+        claudeDetails=null;
+        if(app.Config.ClaudeEnabled)quotaGroups.Add(ClaudeDetailsCard());
         if(quotaGroups.Count>0)quotaPanel.Children.Add(ResponsiveCards(quotaGroups,2,360));
         if(!app.Config.CodexEnabled)
         {
@@ -520,9 +523,6 @@ internal sealed partial class Dashboard : Window
             if(selectedPage is "overview" or "breakdown" or "sessions")RenderStats();
             return;
         }
-        if(quota.HasQuotaDisplay)quotaPanel.Children.Add(new TextBlock{Text=L10n.T("s9672B36B01C7")+(quota.ResetCount is {} n?n+L10n.T("sF81526EFCE19"):L10n.T("sF36CAC96220B")),FontSize=14,Margin=new Thickness(0,4,0,0)});
-        if(!compact)quotaPanel.Children.Add(StableExpander.Configure(new Expander{Header=L10n.T("sAD63795746F7"),Content=new TextBlock{Text=quota.Status+L10n.T("s75B413F02FD0"),TextWrapping=TextWrapping.Wrap},HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch}));
-        quotaPanel.Children.Add(new TextBlock{Text=app.IsDemo?L10n.T("sC632B4643CF1"):quota.IsLocalAccount?L10n.T("sCEF08E1DE7C2"):quota.FetchedAt is {} date?L10n.F("sDE0A52AD84EA", date, (quota.Fresh?L10n.T("sAF82A5FFDAE8"):L10n.T("s2FE0E3339AC4"))):L10n.T("s66C3773FD559"),Opacity=.65});
         if(!compact&&selectedPage is "overview" or "breakdown" or "sessions")RenderStats();
         } finally { rendering=false; }
     }

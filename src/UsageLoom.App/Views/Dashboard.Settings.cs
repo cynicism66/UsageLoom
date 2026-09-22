@@ -45,6 +45,7 @@ internal sealed partial class Dashboard
         Section(L10n.T("s38C043E08502"),theme,language);
         dataSourcesSettings=Section(L10n.T("s6E89737A00E1"),Card(CodexSettings(cli,home)),Card(ClaudeSettings()));
         var codexChoice=codexEnabledChoice!;
+        panel.Children.Add(new TextBlock{Text=L10n.T("stats.codexSettings"),FontSize=20,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,Margin=new Thickness(8,12,0,0)});
         Section(L10n.T("s16685D3221B9"),auto,foreground,seconds);Section(L10n.T("sA28590E6B1D8"),low,threshold,reset,minutes);
         panel.Children.Add(CapacitySettings());
         var readClaudeDraft=readClaudeSettings!;
@@ -54,7 +55,6 @@ internal sealed partial class Dashboard
             {
                 await app.UseCachedLoginAsync(cli.Text.Trim(),home.Text.Trim());
             }));
-        panel.Children.Add(AppUpdatePanel());
         async Task Authorize(bool logout)
         {
             app.RequireCodexSource();
@@ -71,6 +71,7 @@ internal sealed partial class Dashboard
             Button(L10n.T("s3B0F18AAC8CE"),async()=>await Authorize(false)),
             Button(L10n.T("s16302475FAEB"),()=>{app.CancelAuthorization();return Task.CompletedTask;}),
             Button(L10n.T("s0F7D6E35193A"),async()=>await Authorize(true)));
+        panel.Children.Add(AppUpdatePanel());
         settingsSaveButton=Button(L10n.T("sC8550237BA70"),async()=>
         {
             app.RequireSourceSettingsIdle();

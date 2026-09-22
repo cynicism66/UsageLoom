@@ -45,6 +45,7 @@ internal sealed partial class Dashboard
         if(released)return;
         if(!DispatcherQueue.HasThreadAccess){DispatcherQueue.TryEnqueue(UpdateClaudeViews);return;}
         if(compact){if(compactContent is not null)UpdateCompactClaude();return;}
+        UpdateStatisticsActions();
         if(claudeOverview is not null)FillClaudeCard(claudeOverview);
         if(claudeDetails is not null)FillClaudeCard(claudeDetails);
         if(claudeSettingsStatus is not null)claudeSettingsStatus.Text=app.ClaudeQuota.Describe(DateTimeOffset.Now)+"\n"+app.ClaudeQuota.TimestampText+"\n"+L10n.T("claude.identityNotice");

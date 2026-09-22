@@ -11,7 +11,7 @@ internal sealed partial class Dashboard
     private void RenderStats()
     {
         var selectedRange=SelectedHistoryRange();
-        var filter=$"{selectedPage}|{historyRangeIndex}|{selectedRange.From}|{selectedRange.Through}|{historySearch.Text}|{sessionOrder.SelectedIndex}|{sessionPage}|{breakdownKind.SelectedIndex}|{DateTime.Today:yyyy-MM-dd}|{app.Config.ClaudeEnabled}|{app.Config.CodexEnabled}";
+        var filter=$"{selectedPage}|{statisticsProvider}|{historyRangeIndex}|{selectedRange.From}|{selectedRange.Through}|{historySearch.Text}|{sessionOrder.SelectedIndex}|{sessionPage}|{breakdownKind.SelectedIndex}|{DateTime.Today:yyyy-MM-dd}|{app.Config.ClaudeEnabled}|{app.Config.CodexEnabled}";
         if(ReferenceEquals(renderedEvents,app.Events)&&ReferenceEquals(renderedSessionNames,app.SessionNames)&&renderedFilter==filter)return;
         renderedEvents=app.Events;renderedSessionNames=app.SessionNames;renderedFilter=filter;
         DetachHistoryFilter();
@@ -21,21 +21,38 @@ internal sealed partial class Dashboard
         UIElement? pricingDetails=null;
         statsPanel.Children.Clear();
         claudeOverview=null;
-        if(!app.Config.CodexEnabled)
+        statisticsBody.Children.Clear();
+        sessionWorkspace.Children.Clear();sessionWorkspace.RowDefinitions.Clear();
+        if(selectedPage=="overview")
         {
-            sessionWorkspace.Children.Clear();sessionWorkspace.Children.Add(DisabledSourcesMessage());
-            if(selectedPage=="overview"&&app.Config.ClaudeEnabled)
-            {claudeOverview=new(){Spacing=8};FillClaudeCard(claudeOverview);statsPanel.Children.Add(Card(claudeOverview));}
-            else statsPanel.Children.Add(DisabledSourcesMessage());
+            var cards=new List<UIElement>();
+            if(app.Config.CodexEnabled)cards.Add(overviewQuotaCard);
+            if(app.Config.ClaudeEnabled){claudeOverview=new(){Spacing=8};FillClaudeCard(claudeOverview);cards.Add(Card(claudeOverview));}
+            if(cards.Count>0)statsPanel.Children.Add(ResponsiveCards(cards,2,300));
+        }
+        var providerHeader=StatisticsProviderHeader();
+        if(selectedPage=="sessions")
+        {
+            sessionWorkspace.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+            sessionWorkspace.Children.Add(providerHeader);
+        }
+        else
+        {
+            statisticsBody.Children.Add(providerHeader);
+            statisticsFrame??=new Border{Child=statisticsBody,BorderBrush=accent,BorderThickness=new Thickness(2,0,0,0),Padding=new Thickness(12,0,0,0)};
+            statsPanel.Children.Add(statisticsFrame);
+        }
+        if(!CodexStatisticsActive)
+        {
+            if(selectedPage=="sessions")
+            {
+                sessionWorkspace.RowDefinitions.Add(new RowDefinition{Height=new GridLength(1,GridUnitType.Star)});
+                var notice=new ScrollViewer{Content=StatisticsUnavailable(),VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
+                Grid.SetRow(notice,1);sessionWorkspace.Children.Add(notice);
+            }
+            else statisticsBody.Children.Add(StatisticsUnavailable());
             return;
         }
-        if(selectedPage=="overview"&&app.Config.ClaudeEnabled)
-        {
-            claudeOverview=new(){Spacing=8};FillClaudeCard(claudeOverview);
-            statsPanel.Children.Add(ResponsiveCards(new UIElement[]{overviewQuotaCard,Card(claudeOverview)},2,300));
-        }
-        if(app.Config.ClaudeEnabled)statsPanel.Children.Add(ClaudeText(L10n.T("claude.codexMetrics")));
-        sessionWorkspace.Children.Clear();
         historySearch.Visibility=selectedPage=="sessions"?Visibility.Visible:Visibility.Collapsed;
         var rows=historyRangeIndex==4&&!selectedRange.IsBounded?[]:HistoryQuery.Filter(app.Events,new(selectedRange.From,selectedRange.Through,selectedPage=="sessions"?historySearch.Text:""),app.SessionNames);
         var total=rows.Aggregate(new TokenUsage(),(a,e)=>a+e.Tokens);var estimate=Pricing.Summarize(rows);var sessionCount=rows.Select(item=>item.Session).Distinct(StringComparer.Ordinal).Count();
@@ -45,9 +62,9 @@ internal sealed partial class Dashboard
             return;
         }
         var rangeHeader=new Grid{ColumnSpacing=12};rangeHeader.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});rangeHeader.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
-        rangeHeader.Children.Add(filterBar);filterHost=rangeHeader;var rangeLabel=new TextBlock{Text=selectedRange.Label,Opacity=.62,FontSize=12,VerticalAlignment=VerticalAlignment.Top,Margin=new Thickness(0,8,0,0)};Grid.SetColumn(rangeLabel,1);rangeHeader.Children.Add(rangeLabel);
+        Grid.SetRow(filterBar,0);rangeHeader.Children.Add(filterBar);filterHost=rangeHeader;var rangeLabel=new TextBlock{Text=selectedRange.Label,Opacity=.62,FontSize=12,VerticalAlignment=VerticalAlignment.Top,Margin=new Thickness(0,8,0,0)};Grid.SetColumn(rangeLabel,1);rangeHeader.Children.Add(rangeLabel);
         rangeHeader.SizeChanged+=(_,e)=>rangeLabel.Visibility=e.NewSize.Width<820?Visibility.Collapsed:Visibility.Visible;
-        statsPanel.Children.Add(Card(rangeHeader));
+        statisticsBody.Children.Add(Card(rangeHeader));
         if(selectedPage=="overview")
         {
         UIElement[] cards;
@@ -57,12 +74,12 @@ internal sealed partial class Dashboard
             var inferredTotal=rows.Where(item=>item.AccountScope==accountKey&&item.AccountAttribution is ("restart-inferred" or "user-confirmed")).Sum(item=>item.Tokens.Total);
             var remainder=Math.Max(0,total.Total-accountTotal);
             var accountCards=new[]{Metric(L10n.T("s106A6D3ED1C9"),total.Total.ToString("N0"),L10n.T("s89FA01F64D00")),Metric(L10n.T(inferredTotal>0?"restart.account":"sF866B39A1323"),accountTotal.ToString("N0"),inferredTotal>0?L10n.F("restart.note",UsageNumbers.Compact(inferredTotal)):L10n.T("s9D26E20C07EF")),Metric(L10n.T("s79420D8F355C"),remainder.ToString("N0"),L10n.T("s2544E8C23B66"))};
-            statsPanel.Children.Add(Card(ResponsiveCards(accountCards,3,210)));
-            statsPanel.Children.Add(Button(L10n.T("attribution.inspect"),()=>ShowAttribution(rows.ToList(),accountKey)));
+            statisticsBody.Children.Add(Card(ResponsiveCards(accountCards,3,210)));
+            statisticsBody.Children.Add(Button(L10n.T("attribution.inspect"),()=>ShowAttribution(rows.ToList(),accountKey)));
             cards=[Metric("Session",sessionCount.ToString("N0"),L10n.T("s65188C08136A")),Metric(L10n.T("s9386F02260C5"),rows.Count.ToString("N0"),L10n.T("s1C7995A11FC3")),Metric(estimate.Status,rows.Count==0?L10n.T("s497C85690C4C"):estimate.DisplayAmount,L10n.T("s479A28B8FEA5")),Metric(L10n.T("s79868BCABA0B"),total.Total>0?$"{100d*estimate.Priced/total.Total:0.#}%":"—",L10n.F("s7A93A1B1657A", estimate.Unpriced))];
         }
         else cards=[Metric(L10n.T("s52497358558A"),total.Total.ToString("N0"),L10n.T("sC9084B3EDE58")),Metric("Session",sessionCount.ToString("N0"),L10n.F("s16BF7608AEAB", rows.Count)),Metric(estimate.Status,rows.Count==0?L10n.T("s497C85690C4C"):estimate.DisplayAmount,L10n.T("s479A28B8FEA5")),Metric(L10n.T("s79868BCABA0B"),total.Total>0?$"{100d*estimate.Priced/total.Total:0.#}%":"—",L10n.F("s7A93A1B1657A", estimate.Unpriced))];
-        var metrics=ResponsiveCards(cards,4,190);statsPanel.Children.Add(Card(metrics));
+        var metrics=ResponsiveCards(cards,4,190);statisticsBody.Children.Add(Card(metrics));
         if(rows.Count>0)
         {
             var details=new StackPanel{Spacing=12};
@@ -81,46 +98,40 @@ internal sealed partial class Dashboard
             pricingDetails=StableExpander.Configure(new Expander{Header=L10n.T("s0ADC58E779A7"),HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,Content=details});
         }
         }
-        else statsPanel.Children.Add(new TextBlock{Text=L10n.F("sDC533DFEA032", rows.Count, total.Total, estimate.DisplayAmount, estimate.Status),TextWrapping=TextWrapping.Wrap,Opacity=.7});
-        if(rows.Count==0)statsPanel.Children.Add(Card(new TextBlock{Text=app.Events.Count==0?L10n.T("s9610A3870D65"):historyRangeIndex==4&&!selectedRange.IsBounded?L10n.T("sFC65DDBF820C"):L10n.T("sFB1B61C7B33C"),FontSize=18,TextWrapping=TextWrapping.Wrap}));
+        else statisticsBody.Children.Add(new TextBlock{Text=L10n.F("sDC533DFEA032", rows.Count, total.Total, estimate.DisplayAmount, estimate.Status),TextWrapping=TextWrapping.Wrap,Opacity=.7});
+        if(rows.Count==0)statisticsBody.Children.Add(Card(new TextBlock{Text=app.Events.Count==0?L10n.T("s9610A3870D65"):historyRangeIndex==4&&!selectedRange.IsBounded?L10n.T("sFC65DDBF820C"):L10n.T("sFB1B61C7B33C"),FontSize=18,TextWrapping=TextWrapping.Wrap}));
         if(selectedPage=="overview")
         {
             var hourly=selectedRange.IsSingleDay;
             var trend = UsageCharts.Trend(hourly?HistoryQuery.HourlyTrend(rows,selectedRange.From!.Value):HistoryQuery.Trend(rows,selectedRange),DrillIntoRange,hourly);
             var modelPanel=new StackPanel{Spacing=12};modelPanel.Children.Add(new TextBlock{Text=L10n.T("s39F1A54A74FF"),FontSize=19,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
             modelPanel.Children.Add(UsageCharts.Models(rows));
-            statsPanel.Children.Add(Card(trend));
+            statisticsBody.Children.Add(Card(trend));
             var recent=new StackPanel{Spacing=12};recent.Children.Add(new TextBlock{Text=L10n.T("sEB6D48FEBAB7"),FontSize=19,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
             foreach(var session in HistoryQuery.Sessions(rows,"recent",app.SessionNames).Take(4))recent.Children.Add(new TextBlock{Text=L10n.F("sE1A5A63BFA3F", session.Name, session.Tokens, session.Project, session.ShortId),TextWrapping=TextWrapping.Wrap,FontSize=13});
             recent.Children.Add(Button(L10n.T("sD24CA3C355C7"),()=>{Navigate("sessions");return Task.CompletedTask;}));
-            // The quota summary updates independently without collapsing expanded history controls.
             var recentCard=Card(recent);
             var bottomItems=new List<UIElement>{Card(modelPanel),recentCard};
-            if(!app.Config.ClaudeEnabled)bottomItems.Add(overviewQuotaCard);
-            var bottom=ResponsiveCards(bottomItems,app.Config.ClaudeEnabled?2:3,300);
-            var localQuotaCard=overviewQuotaCard;
-            void FitBottom(){Grid.SetColumnSpan(recentCard,localQuotaCard.Visibility==Visibility.Collapsed&&bottom.ColumnDefinitions.Count>=3?2:1);}
-            bottom.SizeChanged+=(_,_)=>FitBottom();updateOverviewLayout=FitBottom;FitBottom();
-            statsPanel.Children.Add(bottom);
+            var bottom=ResponsiveCards(bottomItems,2,300);
+            statisticsBody.Children.Add(bottom);
             var composition=new StackPanel{Spacing=10};composition.Children.Add(new TextBlock{Text=L10n.T("s719CAC683641"),FontSize=19,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
             composition.Children.Add(new TextBlock{Text=L10n.F("sF6A9702B386C", total.Input, total.Output),FontSize=16});
             composition.Children.Add(new TextBlock{Text=L10n.F("sE1435C7E009C", total.Cached, total.CacheWrite, total.Reasoning),TextWrapping=TextWrapping.Wrap,Opacity=.65});
-            composition.Children.Add(new TextBlock{Text=L10n.T("s4D584456798B"),FontSize=12,Opacity=.6});statsPanel.Children.Add(StableExpander.Configure(new Expander{Header=L10n.T("sA29E4482CC69"),Content=composition,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch}));
+            composition.Children.Add(new TextBlock{Text=L10n.T("s4D584456798B"),FontSize=12,Opacity=.6});statisticsBody.Children.Add(StableExpander.Configure(new Expander{Header=L10n.T("sA29E4482CC69"),Content=composition,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch}));
         }
         else
         {
-            statsPanel.Children.Add(breakdownKind);
+            statisticsBody.Children.Add(breakdownKind);
             AddGroups((string)breakdownKind.SelectedItem,rows.GroupBy(e=>breakdownKind.SelectedIndex switch{1=>e.Project,2=>e.Agent,_=>e.Model}).OrderByDescending(g=>g.Sum(e=>e.Tokens.Total)));
         }
-        if(pricingDetails is not null)statsPanel.Children.Add(pricingDetails);
+        if(pricingDetails is not null)statisticsBody.Children.Add(pricingDetails);
     }
     private void BuildSessionWorkspace(List<UsageEvent> rows,TokenUsage total,Estimate estimate)
     {
-        sessionWorkspace.RowDefinitions.Clear();
         sessionWorkspace.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
         sessionWorkspace.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
         sessionWorkspace.RowDefinitions.Add(new RowDefinition{Height=new GridLength(1,GridUnitType.Star)});
-        sessionWorkspace.Children.Add(filterBar);filterHost=sessionWorkspace;
+        Grid.SetRow(filterBar,1);sessionWorkspace.Children.Add(filterBar);filterHost=sessionWorkspace;
 
         var sessions=HistoryQuery.Sessions(rows,sessionOrder.SelectedIndex switch{1=>"recent",2=>"name",_=>"tokens"},app.SessionNames);
         const int pageSize=30;sessionPage=Math.Clamp(sessionPage,0,Math.Max(0,(sessions.Count-1)/pageSize));
@@ -141,7 +152,7 @@ internal sealed partial class Dashboard
             Grid.SetColumn(paging,narrow?0:1);Grid.SetRow(paging,narrow?1:0);Grid.SetColumnSpan(paging,narrow?2:1);
             paging.HorizontalAlignment=narrow?HorizontalAlignment.Left:HorizontalAlignment.Right;
         };
-        Grid.SetRow(toolbar,1);sessionWorkspace.Children.Add(toolbar);
+        Grid.SetRow(toolbar,2);sessionWorkspace.Children.Add(toolbar);
 
         var list=new ListView{SelectionMode=ListViewSelectionMode.Single,HorizontalContentAlignment=HorizontalAlignment.Stretch,VerticalAlignment=VerticalAlignment.Stretch};
         var detail=new StackPanel{Spacing=12,VerticalAlignment=VerticalAlignment.Top};
@@ -195,7 +206,7 @@ internal sealed partial class Dashboard
             }
         }
         split.SizeChanged+=(_,e)=>Layout(e.NewSize.Width);Layout(1000);
-        Grid.SetRow(split,2);sessionWorkspace.Children.Add(split);
+        Grid.SetRow(split,3);sessionWorkspace.Children.Add(split);
     }
     private void AddGroups(string title,IEnumerable<IGrouping<string,UsageEvent>> groups)
     {
@@ -218,7 +229,7 @@ internal sealed partial class Dashboard
             ToolTipService.SetToolTip(row,estimate.Status+" · "+estimate.Reason);
             panel.Children.Add(new Border{Child=row,BorderThickness=new Thickness(0,1,0,0),BorderBrush=new SolidColorBrush(ColorHelper.FromArgb(35,140,145,160))});
         }
-        statsPanel.Children.Add(Card(new ScrollViewer{Content=panel,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollMode=ScrollMode.Enabled,VerticalScrollBarVisibility=ScrollBarVisibility.Disabled,VerticalScrollMode=ScrollMode.Disabled}));
-        statsPanel.Children.Add(new TextBlock{Text=L10n.T("s5689C7F8C468"),Opacity=.65,FontSize=12,TextWrapping=TextWrapping.Wrap});
+        statisticsBody.Children.Add(Card(new ScrollViewer{Content=panel,HorizontalScrollBarVisibility=ScrollBarVisibility.Auto,HorizontalScrollMode=ScrollMode.Enabled,VerticalScrollBarVisibility=ScrollBarVisibility.Disabled,VerticalScrollMode=ScrollMode.Disabled}));
+        statisticsBody.Children.Add(new TextBlock{Text=L10n.T("s5689C7F8C468"),Opacity=.65,FontSize=12,TextWrapping=TextWrapping.Wrap});
     }
 }
