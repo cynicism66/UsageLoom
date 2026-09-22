@@ -200,8 +200,16 @@ internal sealed partial class Dashboard
         if(compactView.QuotaCard.Child is not StackPanel quotaBody||quotaBody.Children[0]!=compactView.PlanRow||quotaPanel.Children.Contains(compactView.PlanRow)||!compactView.PlanRow.Children.Contains(compactView.Plan))
             throw new InvalidOperationException("Compact plan is not in the Codex quota header");
         Program.Log.Write("INFO","CapacityUiTest","Compact plan moved into quota header without standalone row passed");
-        var ids=new[]{"compact-quota-card","compact-usage-card","compact-capacity-row","compact-plan-row","compact-footer-row",
-            "compact-token-value","compact-request-value","compact-quota-value-0","compact-quota-progress-0","compact-quota-reset-0"};
+        void CheckRemovedUsageCard()
+        {
+            if(CapacityTestDescendants(root).OfType<FrameworkElement>().Any(element=>AutomationProperties.GetAutomationId(element) is "compact-usage-card" or "compact-token-value" or "compact-request-value"))
+                throw new InvalidOperationException("Removed compact usage card returned");
+            var expected=new UIElement[]{compactView.QuotaCard,compactView.ClaudeCard,compactView.Disabled,compactView.CapacityRow,quotaPanel.Children.Last()};
+            if(!quotaPanel.Children.SequenceEqual(expected))throw new InvalidOperationException("Compact panel retained an extra row or spacer");
+        }
+        CheckRemovedUsageCard();
+        var ids=new[]{"compact-quota-card","compact-capacity-row","compact-plan-row","compact-footer-row",
+            "compact-quota-value-0","compact-quota-progress-0","compact-quota-reset-0"};
         if(app.Config.ClaudeEnabled)ids=[..ids,"compact-claude-card","compact-claude-plan","compact-claude-progress-0","compact-claude-progress-1"];
         FrameworkElement Find(string id)=>CapacityTestDescendants(root).OfType<FrameworkElement>().Single(element=>AutomationProperties.GetAutomationId(element)==id);
         (Windows.Foundation.Rect Slot,Windows.Foundation.Rect Bounds) Geometry(FrameworkElement element)
@@ -244,7 +252,7 @@ internal sealed partial class Dashboard
             failure??=$"{phase}: compact window changed during data refresh/reopen: size={sender.Size.Width}x{sender.Size.Height}; position={sender.Position.X},{sender.Position.Y}; resized={e.DidSizeChange}; moved={e.DidPositionChange}";
         }
         root.LayoutUpdated+=LayoutChanged;AppWindow.Changed+=WindowChanged;
-        var tokenTexts=new HashSet<string>();var percentTexts=new HashSet<string>();var resetTexts=new HashSet<string>();
+        var tokenTotals=new HashSet<long>();var percentTexts=new HashSet<string>();var resetTexts=new HashSet<string>();
         try
         {
             for(var step=1;step<=18;step++)
@@ -254,14 +262,12 @@ internal sealed partial class Dashboard
                 await CapacityTestDispatcherSettled(this);
                 await Task.Delay(65); // Observe layout frames and native size/position notifications.
                 CheckGeometry();
-                var tokens=(TextBlock)Find("compact-token-value");var requests=(TextBlock)Find("compact-request-value");
+                CheckRemovedUsageCard();
                 var percent=(TextBlock)Find("compact-quota-value-0");
                 var rows=app.Events.Where(item=>item.LocalDate==DateTime.Today.ToString("yyyy-MM-dd")).ToList();
-                if(tokens.Text!=UsageNumbers.Compact(rows.Sum(item=>item.Tokens.Total))||requests.Text!=rows.Count.ToString("N0"))
-                    throw new InvalidOperationException("Stable compact controls stopped updating token/request values");
                 if(percent.Text!=app.Quota.PrimaryWindows.Single().RemainingText||((ProgressBar)Find("compact-quota-progress-0")).Value!=app.Quota.PrimaryWindows.Single().Remaining)
                     throw new InvalidOperationException("Stable compact controls stopped updating quota values");
-                tokenTexts.Add(tokens.Text);percentTexts.Add(percent.Text);resetTexts.Add(((TextBlock)Find("compact-quota-reset-0")).Text);
+                tokenTotals.Add(rows.Sum(item=>item.Tokens.Total));percentTexts.Add(percent.Text);resetTexts.Add(((TextBlock)Find("compact-quota-reset-0")).Text);
                 if(app.Config.ClaudeEnabled)
                 {
                     if(compactView.ClaudePlan.Text!=ClaudePlanLabel.Badge(app.Config.ClaudeManualPlan))throw new InvalidOperationException("Claude manual plan did not refresh");
@@ -281,7 +287,7 @@ internal sealed partial class Dashboard
                     failure??=phase+": compact window bounds changed";
                 if(failure is not null)throw new InvalidOperationException(failure);
             }
-            if(tokenTexts.Count<4||percentTexts.Count<6||resetTexts.Count<3)throw new InvalidOperationException("Compact stability fixtures did not exercise changing values and countdowns");
+            if(tokenTotals.Count<4||percentTexts.Count<6||resetTexts.Count<3)throw new InvalidOperationException("Compact stability fixtures did not exercise changing values and countdowns");
             phase="hide-and-reopen";
             Hide();ShowPanel();
             if(AppWindow.Size.Width!=size.Width||AppWindow.Size.Height!=size.Height)
@@ -289,7 +295,9 @@ internal sealed partial class Dashboard
             await CapacityTestDispatcherSettled(this);
             await Task.Delay(160);
             CheckGeometry();
+            CheckRemovedUsageCard();
             if(failure is not null)throw new InvalidOperationException(failure);
+            Program.Log.Write("INFO","CapacityUiTest","Compact daily usage card absent with no placeholder across refresh and reopen passed");
             Program.Log.Write("INFO","CapacityUiTest",$"Compact refresh stable: 18 changes; layoutChecks={layoutChecks}; nativeBoundsChanges={windowChanges}; {size.Width}x{size.Height}; hide/reopen has no second resize");
             if(app.Config.ClaudeEnabled)Program.Log.Write("INFO","CapacityUiTest","Claude compact progress: remaining values, unavailable states and fixed geometry passed");
         }

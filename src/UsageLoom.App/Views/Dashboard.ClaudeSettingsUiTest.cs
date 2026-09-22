@@ -101,7 +101,7 @@ internal sealed partial class Dashboard
             Navigate("overview");
             if(overviewQuotaCard.Visibility!=Visibility.Collapsed||claudeOverview is null)throw new InvalidOperationException("Claude-only overview not isolated");
             var small=app.DataSourceTestFlyout!.compactContent!;
-            if(small.QuotaCard.Visibility!=Visibility.Collapsed||small.UsageCard.Visibility!=Visibility.Collapsed||small.ClaudeCard.Visibility!=Visibility.Visible)
+            if(small.QuotaCard.Visibility!=Visibility.Collapsed||small.ClaudeCard.Visibility!=Visibility.Visible)
                 throw new InvalidOperationException("Claude-only compact view not isolated");
             Navigate("settings");CheckGrouping();
             codexEnabledChoice!.IsOn=true;CapacityTestInvoke(codexApplyButton!);

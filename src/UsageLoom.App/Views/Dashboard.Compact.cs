@@ -37,8 +37,6 @@ internal sealed partial class Dashboard
         internal readonly StackPanel Limits=new(){Spacing=12};
         internal readonly List<CompactQuotaRow> Windows=[];
         internal readonly TextBlock Unavailable=CompactText(13,70,true);
-        internal readonly TextBlock Tokens=CompactText(22,30);
-        internal readonly TextBlock Requests=CompactText(22,30);
         internal readonly TextBlock Capacity=CompactText(12,40,true);
         internal readonly TextBlock Footer=CompactText(12,18);
         internal readonly ContentControl Plan=new(){HorizontalContentAlignment=HorizontalAlignment.Right,VerticalContentAlignment=VerticalAlignment.Center,MaxWidth=110,Height=32};
@@ -46,7 +44,6 @@ internal sealed partial class Dashboard
         internal readonly Grid CapacityRow=CompactColumns(6,22);
         internal readonly Grid PlanRow=CompactColumns(8,110);
         internal Border QuotaCard=null!;
-        internal Border UsageCard=null!;
         internal readonly TextBlock Disabled=CompactText(12,40,true);
         internal Border ClaudeCard=null!;
         internal readonly TextBlock ClaudeTitle=CompactText(12,24);
@@ -95,15 +92,6 @@ internal sealed partial class Dashboard
         }
         view.ClaudeCard=CompactCard(claude,"compact-claude-card");view.ClaudeCard.Height=136;
         view.ClaudeCard.Visibility=app.Config.ClaudeEnabled?Visibility.Visible:Visibility.Collapsed;quotaPanel.Children.Add(view.ClaudeCard);
-        var usage=CompactColumns(16,double.NaN);
-        StackPanel Metric(string title,TextBlock value,string id)
-        {
-            var metric=new StackPanel{Spacing=4};var label=CompactText(12,18);label.Text=title;
-            AutomationProperties.SetAutomationId(value,id);metric.Children.Add(label);metric.Children.Add(value);return metric;
-        }
-        usage.Children.Add(Metric("Codex · "+L10n.T("s8B4B6EA0DA7D"),view.Tokens,"compact-token-value"));
-        var requests=Metric(L10n.T("sBDBF4C48B0A9"),view.Requests,"compact-request-value");
-        Grid.SetColumn(requests,1);usage.Children.Add(requests);view.UsageCard=CompactCard(usage,"compact-usage-card");quotaPanel.Children.Add(view.UsageCard);
         view.Disabled.Text=L10n.T("source.none");quotaPanel.Children.Add(view.Disabled);
         view.Capacity.Opacity=.75;view.CapacityRow.Height=40;
         view.CapacityRow.Children.Add(view.Capacity);
@@ -123,7 +111,7 @@ internal sealed partial class Dashboard
         UpdateCompactClaude();
         var view=compactContent!;var quota=app.Quota;
         var codexVisibility=app.Config.CodexEnabled?Visibility.Visible:Visibility.Collapsed;
-        view.QuotaCard.Visibility=codexVisibility;view.UsageCard.Visibility=codexVisibility;
+        view.QuotaCard.Visibility=codexVisibility;
         view.Disabled.Visibility=!app.Config.CodexEnabled&&!app.Config.ClaudeEnabled?Visibility.Visible:Visibility.Collapsed;
         if(!app.Config.CodexEnabled)capacityInfoFlyout?.Hide();
         var windows=quota.HasQuotaDisplay?quota.PrimaryWindows.ToArray():[];
@@ -149,12 +137,6 @@ internal sealed partial class Dashboard
         view.Unavailable.Visibility=windows.Length>0?Visibility.Collapsed:Visibility.Visible;
         view.Unavailable.Text=quota.IsLocalAccount?L10n.T("sF2D563561B79"):L10n.T("sF7A79B776C96");
         ToolTipService.SetToolTip(view.Unavailable,quota.Status);
-        var today=DateTime.Today.ToString("yyyy-MM-dd");
-        var rows=app.Events.Where(item=>item.LocalDate==today).ToList();var tokens=rows.Sum(item=>item.Tokens.Total);
-        view.Tokens.Text=app.HasLoadedHistory?UsageNumbers.Compact(tokens):L10n.T("sD04FCBDA737F");
-        view.Requests.Text=app.HasLoadedHistory?rows.Count.ToString("N0"):L10n.T("sD04FCBDA737F");
-        ToolTipService.SetToolTip(view.Tokens,$"{tokens:N0} Token");
-        ToolTipService.SetToolTip(view.Requests,rows.Count.ToString("N0")+" · "+L10n.T("sA19F66EB1728"));
         var estimate=quota.Fresh&&quota.HasQuotaDisplay?app.WeeklyCapacity.FirstOrDefault(e=>e.ObservedPercent>=5&&e.Samples>=2):null;
         view.Capacity.Text=estimate?.HistoricalAt is not null?L10n.T("capacity.previous")+": "+estimate.DollarDisplay:
             estimate is not null?L10n.F("s99933FEC8200",estimate.DollarDisplay,UsageNumbers.Compact(estimate.EstimatedTokens),estimate.PricingCoverage):
