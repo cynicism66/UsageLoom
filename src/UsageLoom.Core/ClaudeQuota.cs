@@ -5,6 +5,17 @@ using System.Text.Json;
 
 namespace UsageLoom.Core;
 
+public static class ClaudePlanLabel
+{
+    public static IReadOnlyList<string> Choices {get;}=Array.AsReadOnly(new[]{"free","pro","max","max5","max20","team","enterprise"});
+    public static string? Normalize(string? value)=>value?.Trim().ToLowerInvariant() is {} key&&Choices.Contains(key)?key:null;
+    public static string Display(string? value)=>Normalize(value) switch
+    {
+        "free"=>"Free","pro"=>"Pro","max"=>"Max","max5"=>"Max 5X","max20"=>"Max 20X","team"=>"Team","enterprise"=>"Enterprise",_=>L10n.T("claude.planUnset")
+    };
+    public static string Badge(string? value)=>Normalize(value) is null?L10n.T("claude.planUnset"):L10n.F("claude.planManual",Display(value));
+}
+
 // Deliberately separate from Codex QuotaState and capacity/attribution ledgers.
 public sealed record ClaudeQuotaWindow(string Key,double Used,DateTimeOffset? ResetsAt)
 {

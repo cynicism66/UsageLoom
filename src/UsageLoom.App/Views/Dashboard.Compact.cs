@@ -49,8 +49,10 @@ internal sealed partial class Dashboard
         internal Border UsageCard=null!;
         internal readonly TextBlock Disabled=CompactText(12,40,true);
         internal Border ClaudeCard=null!;
-        internal readonly TextBlock ClaudeTitle=CompactText(12,18);
+        internal readonly TextBlock ClaudeTitle=CompactText(12,24);
+        internal readonly TextBlock ClaudePlan=CompactText(11,24);
         internal readonly TextBlock[] ClaudeValues=[CompactText(12,18),CompactText(12,18)];
+        internal readonly ProgressBar[] ClaudeProgress=[new(){Minimum=0,Maximum=100,Height=4},new(){Minimum=0,Maximum=100,Height=4}];
         internal readonly TextBlock[] ClaudeResets=[CompactText(11,16),CompactText(11,16)];
         internal string? PlanKey;
     }
@@ -82,9 +84,16 @@ internal sealed partial class Dashboard
         AutomationProperties.SetAutomationId(view.PlanRow,"compact-plan-row");
         var quotaBody=new StackPanel();quotaBody.Children.Add(view.PlanRow);quotaBody.Children.Add(quota);
         view.QuotaCard=CompactCard(quotaBody,"compact-quota-card");quotaPanel.Children.Add(view.QuotaCard);
-        var claude=new StackPanel{Spacing=2};claude.Children.Add(view.ClaudeTitle);
-        for(var i=0;i<2;i++){claude.Children.Add(view.ClaudeValues[i]);claude.Children.Add(view.ClaudeResets[i]);}
-        view.ClaudeCard=CompactCard(claude,"compact-claude-card");view.ClaudeCard.Height=118;
+        var claude=new StackPanel{Spacing=2};var claudeHeader=CompactColumns(6,140);claudeHeader.Height=24;
+        claudeHeader.Children.Add(view.ClaudeTitle);Grid.SetColumn(view.ClaudePlan,1);view.ClaudePlan.TextAlignment=TextAlignment.Right;claudeHeader.Children.Add(view.ClaudePlan);
+        AutomationProperties.SetAutomationId(view.ClaudePlan,"compact-claude-plan");claude.Children.Add(claudeHeader);
+        for(var i=0;i<2;i++)
+        {
+            view.ClaudeProgress[i].Foreground=accent;
+            AutomationProperties.SetAutomationId(view.ClaudeProgress[i],$"compact-claude-progress-{i}");
+            claude.Children.Add(view.ClaudeValues[i]);claude.Children.Add(view.ClaudeProgress[i]);claude.Children.Add(view.ClaudeResets[i]);
+        }
+        view.ClaudeCard=CompactCard(claude,"compact-claude-card");view.ClaudeCard.Height=136;
         view.ClaudeCard.Visibility=app.Config.ClaudeEnabled?Visibility.Visible:Visibility.Collapsed;quotaPanel.Children.Add(view.ClaudeCard);
         var usage=CompactColumns(16,double.NaN);
         StackPanel Metric(string title,TextBlock value,string id)

@@ -2,13 +2,14 @@ using UsageLoom.Core;
 
 namespace UsageLoom.App;
 
-internal sealed record ClaudeSettingsInput(bool Enabled,string? Directory,string? Scope)
+internal sealed record ClaudeSettingsInput(bool Enabled,string? Directory,string? Scope,string? ManualPlan=null)
 {
     internal ClaudeSettingsInput Validated()
     {
         var directory=Directory?.Trim();
         if(!string.IsNullOrEmpty(directory)&&(!Path.IsPathFullyQualified(directory)||directory.StartsWith(@"\\")))throw new ArgumentException(L10n.T("claude.invalidPath"));
-        return this with{Directory=string.IsNullOrEmpty(directory)?null:directory,Scope=string.IsNullOrWhiteSpace(Scope)?null:Scope};
+        if(!string.IsNullOrWhiteSpace(ManualPlan)&&ClaudePlanLabel.Normalize(ManualPlan) is null)throw new ArgumentException(L10n.T("claude.invalidPlan"));
+        return this with{Directory=string.IsNullOrEmpty(directory)?null:directory,Scope=string.IsNullOrWhiteSpace(Scope)?null:Scope,ManualPlan=ClaudePlanLabel.Normalize(ManualPlan)};
     }
 }
 
@@ -47,16 +48,16 @@ public sealed partial class LoomApp
     }
     private bool PersistClaudeSettings(ClaudeSettingsInput? input)
     {
-        var before=new ClaudeSettingsInput(Config.ClaudeEnabled,Config.ClaudeDataDirectory,Config.ClaudeScope);
+        var before=new ClaudeSettingsInput(Config.ClaudeEnabled,Config.ClaudeDataDirectory,Config.ClaudeScope,Config.ClaudeManualPlan);
         var next=input?.Validated()??before;
-        Config.ClaudeEnabled=next.Enabled;Config.ClaudeDataDirectory=next.Directory;Config.ClaudeScope=next.Scope;
+        Config.ClaudeEnabled=next.Enabled;Config.ClaudeDataDirectory=next.Directory;Config.ClaudeScope=next.Scope;Config.ClaudeManualPlan=next.ManualPlan;
         try{Config.Save();}
-        catch{Config.ClaudeEnabled=before.Enabled;Config.ClaudeDataDirectory=before.Directory;Config.ClaudeScope=before.Scope;throw;}
-        return next!=before;
+        catch{Config.ClaudeEnabled=before.Enabled;Config.ClaudeDataDirectory=before.Directory;Config.ClaudeScope=before.Scope;Config.ClaudeManualPlan=before.ManualPlan;throw;}
+        return (next with{ManualPlan=before.ManualPlan})!=before;
     }
     private async Task CompleteClaudeSettingsAsync(bool changed,bool forceRead=false)
     {
-        if(!changed){if(forceRead)await RefreshClaudeAsync(true);return;}
+        if(!changed){ClaudeChanged?.Invoke();if(forceRead)await RefreshClaudeAsync(true);return;}
         claudeGeneration++;claudeCancellation?.Cancel();
         ClaudeQuota=ClaudeQuotaSnapshot.Empty(Config.ClaudeEnabled?"waiting":"disabled");ClaudeChanged?.Invoke();Changed?.Invoke();
         if(claudeTask is {} pending)await pending;
@@ -80,11 +81,13 @@ public sealed partial class LoomApp
     {
         if(!CapacityUiCheck||!args.Contains("--preview-claude"))return;
         var now=DateTimeOffset.Now;
-        ClaudeQuota=(step%4) switch
+        Config.ClaudeManualPlan=(step%4) switch{0=>null,1=>"pro",2=>"max20",_=>"enterprise"};
+        ClaudeQuota=(step%6) switch
         {
             0=>ClaudeQuotaSnapshot.Empty("readFailed"),
             1=>new("snapshot",[new("five_hour",100,now.AddMinutes(-1)),new("seven_day",70,now.AddHours(2))],now.AddHours(-1),"preview",["preview"]),
             2=>new("snapshot",[new("five_hour",32,null)],now,"preview",["preview"],true),
+            4=>new("snapshot",[new("five_hour",0,now.AddHours(3)),new("seven_day",100,now.AddDays(2))],now,"preview",["preview"]),
             _=>new("snapshot",[new("five_hour",32,now.AddHours(3)),new("seven_day",70,now.AddDays(2))],now,"preview",["preview"])
         };
         ClaudeChanged?.Invoke();

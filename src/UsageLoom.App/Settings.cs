@@ -17,6 +17,7 @@ internal sealed class Settings
     public bool CodexBoundaryPending { get; set; }
     public string? ClaudeDataDirectory { get; set; }
     public string? ClaudeScope { get; set; }
+    public string? ClaudeManualPlan { get; set; }
     public bool AutoUpdateCheck { get; set; }=true;
     public int UpdateCheckHours { get; set; }=24;
     public DateTimeOffset? LastUpdateCheck { get; set; }
@@ -41,6 +42,7 @@ internal sealed class Settings
             var settings=File.Exists(p)?JsonSerializer.Deserialize<Settings>(File.ReadAllText(p))??new():new();
             settings.BackgroundSeconds=Math.Clamp(settings.BackgroundSeconds,30,3600);
             settings.UpdateCheckHours=UpdateSchedule.NormalizeHours(settings.UpdateCheckHours);
+            settings.ClaudeManualPlan=ClaudePlanLabel.Normalize(settings.ClaudeManualPlan);
             settings.ForegroundSeconds=Math.Clamp(settings.ForegroundSeconds,15,3600);
             settings.LowPercent=Math.Clamp(settings.LowPercent,1,99);
             settings.ResetMinutes=Math.Clamp(settings.ResetMinutes,1,120);

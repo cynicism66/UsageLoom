@@ -202,7 +202,7 @@ internal sealed partial class Dashboard
         Program.Log.Write("INFO","CapacityUiTest","Compact plan moved into quota header without standalone row passed");
         var ids=new[]{"compact-quota-card","compact-usage-card","compact-capacity-row","compact-plan-row","compact-footer-row",
             "compact-token-value","compact-request-value","compact-quota-value-0","compact-quota-progress-0","compact-quota-reset-0"};
-        if(app.Config.ClaudeEnabled)ids=[..ids,"compact-claude-card"];
+        if(app.Config.ClaudeEnabled)ids=[..ids,"compact-claude-card","compact-claude-plan","compact-claude-progress-0","compact-claude-progress-1"];
         FrameworkElement Find(string id)=>CapacityTestDescendants(root).OfType<FrameworkElement>().Single(element=>AutomationProperties.GetAutomationId(element)==id);
         (Windows.Foundation.Rect Slot,Windows.Foundation.Rect Bounds) Geometry(FrameworkElement element)
         {
@@ -262,6 +262,21 @@ internal sealed partial class Dashboard
                 if(percent.Text!=app.Quota.PrimaryWindows.Single().RemainingText||((ProgressBar)Find("compact-quota-progress-0")).Value!=app.Quota.PrimaryWindows.Single().Remaining)
                     throw new InvalidOperationException("Stable compact controls stopped updating quota values");
                 tokenTexts.Add(tokens.Text);percentTexts.Add(percent.Text);resetTexts.Add(((TextBlock)Find("compact-quota-reset-0")).Text);
+                if(app.Config.ClaudeEnabled)
+                {
+                    if(compactView.ClaudePlan.Text!=ClaudePlanLabel.Badge(app.Config.ClaudeManualPlan))throw new InvalidOperationException("Claude manual plan did not refresh");
+                    for(var index=0;index<2;index++)
+                    {
+                        var window=app.ClaudeQuota.Windows.FirstOrDefault(w=>w.Key==(index==0?"five_hour":"seven_day"));
+                        var available=window is not null&&!window.Expired(DateTimeOffset.Now);
+                        var bar=(ProgressBar)Find($"compact-claude-progress-{index}");
+                        if(bar.Value!=(available?100-window!.Used:0)||Math.Abs(bar.Opacity-(available?1:0.3))>0.000001||bar.IsIndeterminate)
+                            throw new InvalidOperationException($"Claude compact progress mismatch: step={step}, index={index}, available={available}, value={bar.Value}, expected={(available?100-window!.Used:0)}, opacity={bar.Opacity:R}, indeterminate={bar.IsIndeterminate}");
+                        var bounds=bar.TransformToVisual(compactView.ClaudeCard).TransformBounds(new(0,0,bar.ActualWidth,bar.ActualHeight));
+                        if(bounds.Top<0||bounds.Bottom>compactView.ClaudeCard.ActualHeight||bounds.Left<0||bounds.Right>compactView.ClaudeCard.ActualWidth)
+                            throw new InvalidOperationException("Claude progress is outside its compact card");
+                    }
+                }
                 if(AppWindow.Size.Width!=size.Width||AppWindow.Size.Height!=size.Height||AppWindow.Position.X!=position.X||AppWindow.Position.Y!=position.Y)
                     failure??=phase+": compact window bounds changed";
                 if(failure is not null)throw new InvalidOperationException(failure);
@@ -276,6 +291,7 @@ internal sealed partial class Dashboard
             CheckGeometry();
             if(failure is not null)throw new InvalidOperationException(failure);
             Program.Log.Write("INFO","CapacityUiTest",$"Compact refresh stable: 18 changes; layoutChecks={layoutChecks}; nativeBoundsChanges={windowChanges}; {size.Width}x{size.Height}; hide/reopen has no second resize");
+            if(app.Config.ClaudeEnabled)Program.Log.Write("INFO","CapacityUiTest","Claude compact progress: remaining values, unavailable states and fixed geometry passed");
         }
         finally{root.LayoutUpdated-=LayoutChanged;AppWindow.Changed-=WindowChanged;}
         // Simulate stale bounds left by a display transition without changing

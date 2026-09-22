@@ -2198,6 +2198,15 @@ Test("额度读取方式文案区分本机登录与本地缓存，并保留异�
     finally{L10n.Language=before;}
 });
 PricingReliabilityTests.Run(Test);
+Test("Claude 手动套餐仅映射已知类型，未知输入不伪装成 Pro",()=>
+{
+    Check(ClaudePlanLabel.Normalize(" PRO ")=="pro");
+    Check(ClaudePlanLabel.Normalize(null) is null&&ClaudePlanLabel.Normalize("unexpected") is null);
+    Check(ClaudePlanLabel.Display("max20")=="Max 20X");
+    Check(ClaudePlanLabel.Badge("pro")==L10n.F("claude.planManual","Pro"));
+    Check(ClaudePlanLabel.Badge(null)==L10n.T("claude.planUnset"));
+    Check(ClaudePlanLabel.Choices.Count==7&&ClaudePlanLabel.Choices.Distinct().Count()==7);
+});
 Test("小窗分辨率、DPI、多屏与工作区边界",()=>
 {
     foreach(var scale in new[]{1d,1.25,1.5,2,3})

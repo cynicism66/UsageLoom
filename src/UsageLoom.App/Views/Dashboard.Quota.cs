@@ -75,7 +75,7 @@ internal sealed partial class Dashboard
             throw new InvalidOperationException("Detached provider title exists above the cards");
         if(app.Config.ClaudeEnabled)
         {
-            if(claudeDetails?.Parent is not Border claudeCard||providers.Children.Count<2||providers.Children[1]!=claudeCard||claudeDetails.Children[0] is not TextBlock claudeTitle||claudeTitle.FontSize!=title.FontSize)
+            if(claudeDetails?.Parent is not Border claudeCard||providers.Children.Count<2||providers.Children[1]!=claudeCard||claudeDetails.Children[0] is not Grid claudeHeader||claudeHeader.Children[0] is not TextBlock claudeTitle||claudeTitle.FontSize!=title.FontSize||claudeHeader.Children[1] is not TextBlock claudePlan||claudePlan.Text!=ClaudePlanLabel.Badge(app.Config.ClaudeManualPlan))
                 throw new InvalidOperationException("Codex and Claude card hierarchy differs");
             if(providers.ColumnDefinitions.Count>1)
             {

@@ -10,6 +10,7 @@ internal sealed partial class Dashboard
     private StackPanel? claudeOverview,claudeDetails;
     private TextBlock? claudeSettingsStatus;
     private ComboBox? claudeScopeChoice;
+    private ComboBox? claudePlanChoice;
     private ToggleSwitch? claudeEnabledChoice;
     private TextBox? claudeDirectoryChoice;
     private Button? claudeApplyButton;
@@ -20,7 +21,11 @@ internal sealed partial class Dashboard
     private void FillClaudeCard(StackPanel panel)
     {
         var snapshot=app.ClaudeQuota;var now=DateTimeOffset.Now;panel.Children.Clear();
-        panel.Children.Add(ClaudeText(L10n.T("claude.title"),18));
+        var header=new Grid{ColumnSpacing=8};header.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});header.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
+        header.Children.Add(ClaudeText(L10n.T("claude.title"),18));
+        var plan=CompactText(12,24);plan.MaxWidth=170;plan.Text=ClaudePlanLabel.Badge(app.Config.ClaudeManualPlan);plan.HorizontalAlignment=HorizontalAlignment.Right;
+        AutomationProperties.SetAutomationId(plan,"claude-plan-label");ToolTipService.SetToolTip(plan,L10n.T("claude.planNotice"));
+        Grid.SetColumn(plan,1);header.Children.Add(plan);panel.Children.Add(header);
         panel.Children.Add(ClaudeText(snapshot.Describe(now)));
         foreach(var key in new[]{"five_hour","seven_day"})
         {
@@ -65,13 +70,19 @@ internal sealed partial class Dashboard
         directory.TextChanged+=(_,_)=>{if(!string.Equals(directory.Text.Trim(),app.Config.ClaudeDataDirectory??"",StringComparison.OrdinalIgnoreCase))scopeChoice.SelectedIndex=0;};
         claudeSettingsStatus=ClaudeText("");
         var panel=SourceSettingsGroup(L10n.T("claude.title"),enabled,directory,claudeScopeChoice);
+        claudePlanChoice=new ComboBox{Header=L10n.T("claude.planChoice"),HorizontalAlignment=HorizontalAlignment.Stretch};
+        claudePlanChoice.Items.Add(new ComboBoxItem{Content=L10n.T("claude.planUnset"),Tag=""});
+        foreach(var key in ClaudePlanLabel.Choices)claudePlanChoice.Items.Add(new ComboBoxItem{Content=ClaudePlanLabel.Display(key),Tag=key});
+        claudePlanChoice.SelectedIndex=0;
+        foreach(ComboBoxItem item in claudePlanChoice.Items)if((string)item.Tag==app.Config.ClaudeManualPlan)claudePlanChoice.SelectedItem=item;
+        var planChoice=claudePlanChoice;panel.Children.Add(planChoice);panel.Children.Add(ClaudeText(L10n.T("claude.planNotice")));
         claudeSettingsPanel=panel;
         panel.Children.Add(ClaudeText(L10n.T("claude.notice")));panel.Children.Add(claudeSettingsStatus);
         ClaudeSettingsInput ReadDraft()
         {
             var scope=(scopeChoice.SelectedItem as ComboBoxItem)?.Tag as string;
             var directoryChanged=!string.Equals(directory.Text.Trim(),app.Config.ClaudeDataDirectory??"",StringComparison.OrdinalIgnoreCase);
-            var draft=new ClaudeSettingsInput(enabled.IsOn,directory.Text,directoryChanged?null:scope).Validated();
+            var draft=new ClaudeSettingsInput(enabled.IsOn,directory.Text,directoryChanged?null:scope,(planChoice.SelectedItem as ComboBoxItem)?.Tag as string).Validated();
             if(directoryChanged)scopeChoice.SelectedIndex=0; // An old choice must not return on the next save.
             return draft;
         }
@@ -88,11 +99,17 @@ internal sealed partial class Dashboard
         if(view.ClaudeCard.Visibility!=visibility){view.ClaudeCard.Visibility=visibility;displayState=null;}
         if(!app.Config.ClaudeEnabled)return;
         var snapshot=app.ClaudeQuota;var now=DateTimeOffset.Now;
+        view.ClaudePlan.Text=ClaudePlanLabel.Badge(app.Config.ClaudeManualPlan);
+        ToolTipService.SetToolTip(view.ClaudePlan,L10n.T("claude.planNotice"));
         view.ClaudeTitle.Text="Claude · "+L10n.T(snapshot.Status=="snapshot"&&snapshot.ObservedAt>=now.AddMinutes(-15)&&snapshot.ObservedAt<=now?"claude.compactFresh":"claude.compactStale");
         for(var i=0;i<2;i++)
         {
             var key=i==0?"five_hour":"seven_day";var window=snapshot.Windows.FirstOrDefault(w=>w.Key==key);
             view.ClaudeValues[i].Text=L10n.T("claude."+key)+" · "+L10n.F("claude.remaining",window?.RemainingText(now)??"—");
+            var available=window is not null&&!window.Expired(now);
+            view.ClaudeProgress[i].Value=available?100-window!.Used:0;
+            view.ClaudeProgress[i].Opacity=available?1:0.3;
+            AutomationProperties.SetName(view.ClaudeProgress[i],view.ClaudeValues[i].Text);
             view.ClaudeResets[i].Text=window?.Countdown(now)??snapshot.Describe(now);
         }
         ToolTipService.SetToolTip(view.ClaudeCard,snapshot.Describe(now)+"\n"+snapshot.TimestampText);

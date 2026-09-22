@@ -42,6 +42,7 @@ internal sealed partial class Dashboard
             if(app.ClaudeSettingsRestartCheck)
             {
                 CheckSaved(true,fixtureDirectory,null);
+                if(app.Config.ClaudeManualPlan!="pro"||(claudePlanChoice?.SelectedItem as ComboBoxItem)?.Tag as string!="pro")throw new InvalidOperationException("Claude manual plan reverted on restart");
                 if(app.Config.CodexEnabled||codexEnabledChoice!.IsOn)throw new InvalidOperationException("Disabled Codex source reverted on restart");
                 await app.VerifyDisabledSourceAsync();
                 Program.Log.Write("INFO","ClaudeSettingsTest","Data sources independent switches, stop guards, retained history and safe boundary passed");
@@ -116,6 +117,32 @@ internal sealed partial class Dashboard
             finally{Directory.Delete(temporary);}
             await app.VerifyPendingSourceBoundaryAsync();
             await app.ConfigureClaudeAsync(new(true,fixtureDirectory,null));
+            Reenter(true);
+            void ChoosePlan(string value)
+            {
+                foreach(ComboBoxItem item in claudePlanChoice!.Items)if((string)item.Tag==value)claudePlanChoice.SelectedItem=item;
+            }
+            ChoosePlan("pro");
+            snapshot=app.ClaudeQuota;
+            CapacityTestInvoke(settingsSaveButton!);
+            await CapacityTestWait(()=>app.Config.ClaudeManualPlan=="pro"&&settingsSaveButton!.IsEnabled,"Global save did not persist manual plan");
+            if(Settings.Load().ClaudeManualPlan!="pro"||!ReferenceEquals(snapshot,app.ClaudeQuota))throw new InvalidOperationException("Display-only plan reset snapshot or did not persist");
+            Reenter(true);ChoosePlan("max20");
+            CapacityTestInvoke(claudeApplyButton!);
+            await CapacityTestWait(()=>app.Config.ClaudeManualPlan=="max20"&&claudeApplyButton!.IsEnabled,"Section save did not persist manual plan");
+            if(Settings.Load().ClaudeManualPlan!="max20")throw new InvalidOperationException("Section plan not saved");
+            Directory.CreateDirectory(temporary);
+            try
+            {
+                try{await app.ConfigureClaudeAsync(new(true,fixtureDirectory,null,"pro"));throw new InvalidOperationException("Plan write failure accepted");}
+                catch(Exception ex)when(ex is IOException or UnauthorizedAccessException){if(app.Config.ClaudeManualPlan!="max20"||Settings.Load().ClaudeManualPlan!="max20")throw new InvalidOperationException("Plan write failure did not roll back");}
+            }
+            finally{Directory.Delete(temporary);}
+            await app.ConfigureClaudeAsync(new(true,fixtureDirectory,null,"pro"));
+            Navigate("quota");
+            if(claudeDetails?.Children[0] is not Grid planHeader||planHeader.Children[1] is not TextBlock planText||planText.Text!=ClaudePlanLabel.Badge("pro")||small.ClaudePlan.Text!=planText.Text)
+                throw new InvalidOperationException("Claude manual plan is missing or inconsistent across details and compact views");
+            Program.Log.Write("INFO","ClaudeSettingsTest","Claude manual plan: both save paths, navigation, rollback and matching card labels passed");
             if(!ReferenceEquals(retainedEvents,app.Events)||app.Config.CodexHome!=source)throw new InvalidOperationException("Source switches removed history or changed source");
             Program.Log.Write("INFO","ClaudeSettingsTest","Data sources independent switches, stop guards, retained history and safe boundary passed");
             Program.Log.Write("INFO","ClaudeSettingsTest","Claude global/section save, navigation, source draft, validation and write rollback passed");
