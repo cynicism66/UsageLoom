@@ -81,11 +81,15 @@ internal sealed partial class Dashboard
         var planChoice=claudePlanChoice;panel.Children.Add(planChoice);panel.Children.Add(ClaudeText(L10n.T("claude.planNotice")));
         claudeSettingsPanel=panel;
         panel.Children.Add(ClaudeText(L10n.T("claude.notice")));panel.Children.Add(claudeSettingsStatus);
+        var codeEnabled=new ToggleSwitch{Header=L10n.T("claude.code.enable"),IsOn=app.Config.ClaudeCodeEnabled};
+        var codeHome=new TextBox{Header=L10n.T("claude.code.path"),Text=app.Config.ClaudeCodeHome??"",PlaceholderText=ClaudeCodeReader.DefaultHome,IsReadOnly=app.IsDemo};
+        AutomationProperties.SetAutomationId(codeEnabled,"claude-code-enabled");AutomationProperties.SetAutomationId(codeHome,"claude-code-home");
+        panel.Children.Add(codeEnabled);panel.Children.Add(codeHome);panel.Children.Add(ClaudeText(L10n.T("claude.code.privacy")));
         ClaudeSettingsInput ReadDraft()
         {
             var scope=(scopeChoice.SelectedItem as ComboBoxItem)?.Tag as string;
             var directoryChanged=!string.Equals(directory.Text.Trim(),app.Config.ClaudeDataDirectory??"",StringComparison.OrdinalIgnoreCase);
-            var draft=new ClaudeSettingsInput(enabled.IsOn,directory.Text,directoryChanged?null:scope,(planChoice.SelectedItem as ComboBoxItem)?.Tag as string).Validated();
+            var draft=new ClaudeSettingsInput(enabled.IsOn,directory.Text,directoryChanged?null:scope,(planChoice.SelectedItem as ComboBoxItem)?.Tag as string,codeEnabled.IsOn,codeHome.Text).Validated();
             if(directoryChanged)scopeChoice.SelectedIndex=0; // An old choice must not return on the next save.
             return draft;
         }

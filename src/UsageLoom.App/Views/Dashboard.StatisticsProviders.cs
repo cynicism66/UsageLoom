@@ -49,7 +49,7 @@ internal sealed partial class Dashboard
     {
         var provider=statisticsProvider=="codex"?"Codex":"Claude";
         var enabled=statisticsProvider=="codex"?app.Config.CodexEnabled:app.Config.ClaudeEnabled;
-        if(statisticsProvider=="claude"&&enabled&&selectedPage=="overview")return ClaudeHistoryPanel();
+        if(statisticsProvider=="claude"&&enabled)return ClaudeCodePanel();
         var panel=new StackPanel{Spacing=12};
         panel.Children.Add(ClaudeText(enabled?L10n.T("stats.claudeUnavailable"):L10n.F("stats.sourceDisabled",provider),18));
         panel.Children.Add(ClaudeText(enabled?L10n.T("stats.claudeNotice"):L10n.T("stats.enableNotice"),14));

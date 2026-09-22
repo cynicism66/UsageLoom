@@ -29,7 +29,7 @@ internal sealed partial class Dashboard
         {
             root.UpdateLayout();
             var workspace=selectedPage=="sessions"?(DependencyObject)sessionWorkspace:statisticsBody;
-            var expected=statisticsProvider=="claude"&&app.Config.ClaudeEnabled&&selectedPage=="overview"?"claude-history":"stats-unavailable";
+            var expected=statisticsProvider=="claude"&&app.Config.ClaudeEnabled?"claude-code-statistics":"stats-unavailable";
             if(!CapacityTestDescendants(workspace).OfType<FrameworkElement>().Any(e=>AutomationProperties.GetAutomationId(e)==expected)||
                 CapacityTestDescendants(workspace).Any(e=>ReferenceEquals(e,filterBar))||actions.Visibility!=Visibility.Collapsed)
                 throw new InvalidOperationException("Unavailable provider leaked Codex statistics, filters or scan action");
@@ -49,13 +49,21 @@ internal sealed partial class Dashboard
             Switch("claude");ShowPage("breakdown");CheckUnavailable();ShowPage("overview");CheckUnavailable();
             claudeHistoryDays=30;renderedFilter=null;RenderStats();CheckUnavailable();
             ShowPage("sessions");ShowPage("overview");root.UpdateLayout();
-            if(claudeHistoryDays!=30||!CapacityTestDescendants(root).OfType<ToggleButton>().Any(t=>AutomationProperties.GetAutomationId(t)=="claude-history-days-30"&&t.IsChecked==true)&&app.Config.ClaudeEnabled)
+            if(claudeHistoryDays!=30)
                 throw new InvalidOperationException("Claude history date selection lost");
-            if(app.Config.ClaudeEnabled&&app.ClaudeQuota.History.Count>0&&!CapacityTestDescendants(root).OfType<Canvas>().Any())
-                throw new InvalidOperationException("Claude quota history chart missing");
-            var oldHistoryPanel=CapacityTestDescendants(root).OfType<FrameworkElement>().FirstOrDefault(e=>AutomationProperties.GetAutomationId(e)=="claude-history");
+            if(app.Config.ClaudeEnabled)
+            {
+                var history=CapacityTestDescendants(root).OfType<Expander>().Single(e=>Equals(e.Header,L10n.T("claude.code.quotaHistory")));
+                history.IsExpanded=true;root.UpdateLayout();
+                if(!CapacityTestDescendants(history).OfType<ToggleButton>().Any(t=>AutomationProperties.GetAutomationId(t)=="claude-history-days-30"&&t.IsChecked==true))throw new InvalidOperationException("Collapsed quota history lost its date selector");
+                if(app.ClaudeQuota.History.Count>0&&!CapacityTestDescendants(history).OfType<Canvas>().Any())throw new InvalidOperationException("Auxiliary quota history chart missing");
+                history.IsExpanded=false;
+            }
+            if(app.Config.ClaudeEnabled&&app.ClaudeCode.Rows.Count>0&&!CapacityTestDescendants(root).OfType<Canvas>().Any(c=>AutomationProperties.GetAutomationId(c)=="claude-token-chart"))
+                throw new InvalidOperationException("Claude Token chart missing");
+            var oldHistoryPanel=CapacityTestDescendants(root).OfType<FrameworkElement>().FirstOrDefault(e=>AutomationProperties.GetAutomationId(e)=="claude-code-statistics");
             UpdateClaudeViews();root.UpdateLayout();
-            if(app.Config.ClaudeEnabled&&!ReferenceEquals(oldHistoryPanel,CapacityTestDescendants(root).OfType<FrameworkElement>().FirstOrDefault(e=>AutomationProperties.GetAutomationId(e)=="claude-history")))
+            if(app.Config.ClaudeEnabled&&!ReferenceEquals(oldHistoryPanel,CapacityTestDescendants(root).OfType<FrameworkElement>().FirstOrDefault(e=>AutomationProperties.GetAutomationId(e)=="claude-code-statistics")))
                 throw new InvalidOperationException("Unchanged Claude snapshot rebuilt the history view");
             Switch("codex");
             var date=new DateOnly(2026,9,8);DrillIntoRange(date,date);root.UpdateLayout();
@@ -64,8 +72,8 @@ internal sealed partial class Dashboard
             app.Config.CodexEnabled=false;renderedFilter=null;Render();CheckUnavailable();
             Switch("claude");app.Config.ClaudeEnabled=false;renderedFilter=null;Render();CheckUnavailable();
             app.Config.ClaudeEnabled=true;renderedFilter=null;Render();CheckUnavailable();
-            if(!CapacityTestDescendants(sessionWorkspace).OfType<TextBlock>().Any(t=>t.Text==L10n.T("stats.claudeNotice")))
-                throw new InvalidOperationException("Claude unsupported statistics explanation missing");
+            if(!CapacityTestDescendants(sessionWorkspace).OfType<TextBlock>().Any(t=>t.Text==L10n.T("claude.code.scope")))
+                throw new InvalidOperationException("Claude local Token scope explanation missing");
             foreach(var key in new[]{"attribution.inspect","maintenance.repair","maintenance.clear","maintenance.restart","sD9EBFF4C171F"})
                 if(!L10n.T(key).Contains("Codex",StringComparison.Ordinal))throw new InvalidOperationException("Operation has ambiguous provider: "+key);
             Program.Log.Write("INFO","NavigationTest","Statistics providers: isolated views, retained filters, drilldown and disabled sources passed");

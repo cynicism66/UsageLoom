@@ -18,6 +18,8 @@ internal sealed class Settings
     public string? ClaudeDataDirectory { get; set; }
     public string? ClaudeScope { get; set; }
     public string? ClaudeManualPlan { get; set; }
+    public bool ClaudeCodeEnabled { get; set; }
+    public string? ClaudeCodeHome { get; set; }
     public bool AutoUpdateCheck { get; set; }=true;
     public int UpdateCheckHours { get; set; }=24;
     public DateTimeOffset? LastUpdateCheck { get; set; }

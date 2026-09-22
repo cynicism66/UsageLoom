@@ -15,6 +15,7 @@ internal sealed partial class Dashboard
         if(ReferenceEquals(renderedEvents,app.Events)&&ReferenceEquals(renderedSessionNames,app.SessionNames)&&renderedFilter==filter)return;
         renderedEvents=app.Events;renderedSessionNames=app.SessionNames;renderedFilter=filter;
         renderedClaudeStatistics=app.ClaudeQuota;
+        renderedClaudeCode=app.ClaudeCode;
         renderedClaudeDescription=app.ClaudeQuota.Describe(DateTimeOffset.Now);renderedClaudeHistoryError=app.ClaudeHistoryError;
         DetachHistoryFilter();
         updateOverviewLayout=null;

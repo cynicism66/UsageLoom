@@ -48,6 +48,7 @@ internal sealed partial class Dashboard
             {
                 CheckSaved(true,fixtureDirectory,null);
                 if(app.Config.ClaudeManualPlan!="pro"||(claudePlanChoice?.SelectedItem as ComboBoxItem)?.Tag as string!="pro")throw new InvalidOperationException("Claude manual plan reverted on restart");
+                if(!app.Config.ClaudeCodeEnabled||app.Config.ClaudeCodeHome!=Path.Combine(Program.DataPath,"code-fixture"))throw new InvalidOperationException("Claude Code settings reverted on restart");
                 if(app.Config.CodexEnabled||codexEnabledChoice!.IsOn)throw new InvalidOperationException("Disabled Codex source reverted on restart");
                 await app.VerifyDisabledSourceAsync();
                 Program.Log.Write("INFO","ClaudeSettingsTest","Data sources independent switches, stop guards, retained history and safe boundary passed");
@@ -148,6 +149,21 @@ internal sealed partial class Dashboard
             if(claudeDetails?.Children[0] is not Grid planHeader||planHeader.Children[1] is not TextBlock planText||planText.Text!=ClaudePlanLabel.Badge("pro")||small.ClaudePlan.Text!=planText.Text)
                 throw new InvalidOperationException("Claude manual plan is missing or inconsistent across details and compact views");
             Program.Log.Write("INFO","ClaudeSettingsTest","Claude manual plan: both save paths, navigation, rollback and matching card labels passed");
+            Navigate("settings");
+            var codeSwitch=CapacityTestDescendants(claudeSettingsPanel!).OfType<ToggleSwitch>().Single(t=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(t)=="claude-code-enabled");
+            var codePath=CapacityTestDescendants(claudeSettingsPanel!).OfType<TextBox>().Single(t=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(t)=="claude-code-home");
+            codeSwitch.IsOn=true;codePath.Text=Path.Combine(Program.DataPath,"code-fixture");CapacityTestInvoke(settingsSaveButton!);
+            await CapacityTestWait(()=>app.Config.ClaudeCodeEnabled&&settingsSaveButton!.IsEnabled,"Claude Code global save failed");
+            Reenter(true);
+            if(!readClaudeSettings!().CodeEnabled||readClaudeSettings!().CodeHome!=codePath.Text||!Settings.Load().ClaudeCodeEnabled)throw new InvalidOperationException("Claude Code draft/save/navigation mismatch");
+            Directory.CreateDirectory(temporary);
+            try
+            {
+                try{await app.ConfigureClaudeAsync(new(true,fixtureDirectory,null,"pro",false));throw new InvalidOperationException("Claude Code write failure accepted");}
+                catch(Exception ex)when(ex is IOException or UnauthorizedAccessException){if(!app.Config.ClaudeCodeEnabled||!Settings.Load().ClaudeCodeEnabled)throw new InvalidOperationException("Claude Code settings rollback failed");}
+            }
+            finally{Directory.Delete(temporary);}
+            Program.Log.Write("INFO","ClaudeSettingsTest","Claude Code enable, custom path, persistence and rollback passed");
             if(!ReferenceEquals(retainedEvents,app.Events)||app.Config.CodexHome!=source)throw new InvalidOperationException("Source switches removed history or changed source");
             Program.Log.Write("INFO","ClaudeSettingsTest","Data sources independent switches, stop guards, retained history and safe boundary passed");
             Program.Log.Write("INFO","ClaudeSettingsTest","Claude global/section save, navigation, source draft, validation and write rollback passed");

@@ -13,11 +13,12 @@ internal sealed partial class Dashboard
 {
     private int claudeHistoryDays=7;
     private ClaudeQuotaSnapshot? renderedClaudeStatistics;
+    private ClaudeCodeSnapshot? renderedClaudeCode;
     private string? renderedClaudeDescription,renderedClaudeHistoryError;
     private bool ClaudeHistoryViewChanged()
     {
         var current=app.ClaudeQuota;var previous=renderedClaudeStatistics;
-        return previous is null||previous.Status!=current.Status||previous.Scope!=current.Scope||previous.ObservedAt!=current.ObservedAt||
+        return !ReferenceEquals(renderedClaudeCode,app.ClaudeCode)||previous is null||previous.Status!=current.Status||previous.Scope!=current.Scope||previous.ObservedAt!=current.ObservedAt||
             previous.HistoryOnly!=current.HistoryOnly||!previous.Windows.SequenceEqual(current.Windows)||!previous.History.SequenceEqual(current.History)||
             renderedClaudeDescription!=current.Describe(DateTimeOffset.Now)||renderedClaudeHistoryError!=app.ClaudeHistoryError;
     }
@@ -66,9 +67,9 @@ internal sealed partial class Dashboard
             {
                 chart.Children.Add(ClaudeHistoryChart(steps));
                 var pairs=steps.Count(s=>s.Connected);var delta=pairs>0?steps.Sum(s=>s.Increase??0).ToString("0.#"):"—";
-                chart.Children.Add(ClaudeText(L10n.F("claude.historyIncrease",delta,pairs)));
-                chart.Children.Add(ClaudeText(L10n.F("claude.historyQuality",steps.Count(s=>s.Point.ResetsAt is null),steps.Count(s=>s.Point.Used is null),steps.Skip(1).Count(s=>!s.Connected))));
-                chart.Children.Add(ClaudeText(L10n.T("claude.historyLegend")));
+                var summary=ClaudeText(L10n.F("claude.historyIncrease",delta,pairs));
+                ToolTipService.SetToolTip(summary,L10n.F("claude.historyQuality",steps.Count(s=>s.Point.ResetsAt is null),steps.Count(s=>s.Point.Used is null),steps.Skip(1).Count(s=>!s.Connected))+"\n"+L10n.T("claude.historyLegend"));
+                chart.Children.Add(summary);
                 if(steps.Count>600)chart.Children.Add(ClaudeText(L10n.T("claude.historyChartLimit")));
                 var cycles=new StackPanel{Spacing=8};
                 foreach(var cycle in steps.Where(s=>s.Point.ResetsAt is not null&&s.Point.At<s.Point.ResetsAt).GroupBy(s=>s.Point.ResetsAt!.Value).OrderByDescending(g=>g.Key).Take(6))
@@ -117,7 +118,10 @@ internal sealed partial class Dashboard
                 }
                 var y=Y(used);
                 if(i>0&&s.Connected&&points[i-1].Point.Used is {} old)
-                    canvas.Children.Add(new Line{X1=X(points[i-1].Point),Y1=Y(old),X2=x,Y2=y,Stroke=accent,StrokeThickness=2});
+                {
+                    canvas.Children.Add(new Line{X1=X(points[i-1].Point),Y1=Y(old),X2=x,Y2=Y(old),Stroke=accent,StrokeThickness=2});
+                    canvas.Children.Add(new Line{X1=x,Y1=Y(old),X2=x,Y2=y,Stroke=accent,StrokeThickness=2});
+                }
                 var dot=new Ellipse{Width=6,Height=6,Fill=accent};Canvas.SetLeft(dot,x-3);Canvas.SetTop(dot,y-3);
                 ToolTipService.SetToolTip(dot,L10n.F("claude.historyPoint",s.Point.At.ToLocalTime(),used));canvas.Children.Add(dot);
             }
