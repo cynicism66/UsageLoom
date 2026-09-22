@@ -15,10 +15,15 @@ internal sealed partial class Dashboard
                 throw new InvalidOperationException("Legacy settings disabled Codex during migration");
             void CheckGrouping()
             {
-                if(dataSourcesSettings?.Content is not StackPanel sources||claudeSettingsPanel is null||!sources.Children.Contains(claudeSettingsPanel))
+                if(dataSourcesSettings?.Content is not StackPanel sources||claudeSettingsPanel is null||sources.Children.OfType<Border>().SingleOrDefault(card=>card.Child==claudeSettingsPanel) is not {} claudeCard)
                     throw new InvalidOperationException("Claude settings are not inside Data sources");
-                if(codexSettingsPanel is null||!sources.Children.Contains(codexSettingsPanel)||codexSettingsPanel.Children[1]!=codexEnabledChoice||claudeSettingsPanel.Children[1]!=claudeEnabledChoice||!Equals(codexEnabledChoice!.Header,claudeEnabledChoice!.Header))
+                if(codexSettingsPanel is null||sources.Children.OfType<Border>().SingleOrDefault(card=>card.Child==codexSettingsPanel) is not {} codexCard||codexSettingsPanel.Children[1]!=codexEnabledChoice||claudeSettingsPanel.Children[1]!=claudeEnabledChoice||!Equals(codexEnabledChoice!.Header,claudeEnabledChoice!.Header))
                     throw new InvalidOperationException("Provider settings formats or enable controls differ");
+                if(ReferenceEquals(codexCard,claudeCard)||sources.Spacing<12||sources.Children.IndexOf(codexCard)>=sources.Children.IndexOf(claudeCard))
+                    throw new InvalidOperationException("Provider setting cards are not independently separated");
+                foreach(var card in new[]{codexCard,claudeCard})
+                    if(card.BorderThickness.Left<1||card.CornerRadius.TopLeft<8||card.Padding.Left<16||card.Background is null||card.BorderBrush is null)
+                        throw new InvalidOperationException("Provider setting card lost its border, spacing or theme brushes");
                 if(sources.Children.OfType<Expander>().Any()||((StackPanel)scrollContent.Content).Children.OfType<Expander>().Any(e=>Equals(e.Header,L10n.T("claude.title"))))
                     throw new InvalidOperationException("Claude settings retained a separate expander");
                 dataSourcesSettings.IsExpanded=true;dataSourcesSettings.UpdateLayout();

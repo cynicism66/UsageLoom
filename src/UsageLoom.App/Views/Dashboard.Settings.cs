@@ -43,7 +43,7 @@ internal sealed partial class Dashboard
             return section;
         }
         Section(L10n.T("s38C043E08502"),theme,language);
-        dataSourcesSettings=Section(L10n.T("s6E89737A00E1"),CodexSettings(cli,home),ClaudeSettings());
+        dataSourcesSettings=Section(L10n.T("s6E89737A00E1"),Card(CodexSettings(cli,home)),Card(ClaudeSettings()));
         var codexChoice=codexEnabledChoice!;
         Section(L10n.T("s16685D3221B9"),auto,foreground,seconds);Section(L10n.T("sA28590E6B1D8"),low,threshold,reset,minutes);
         panel.Children.Add(CapacitySettings());
