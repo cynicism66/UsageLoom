@@ -200,11 +200,33 @@ internal sealed partial class Dashboard
         if(compactView.QuotaCard.Child is not StackPanel quotaBody||quotaBody.Children[0]!=compactView.PlanRow||quotaPanel.Children.Contains(compactView.PlanRow)||!compactView.PlanRow.Children.Contains(compactView.Plan))
             throw new InvalidOperationException("Compact plan is not in the Codex quota header");
         Program.Log.Write("INFO","CapacityUiTest","Compact plan moved into quota header without standalone row passed");
+        if(quotaBody.Children.Last()!=compactView.CapacityRow||quotaPanel.Children.Contains(compactView.CapacityRow))
+            throw new InvalidOperationException("Codex estimate is not inside its quota card");
+        var capacityEnabled=app.Config.CapacityEnabled;
+        var enabledHeight=compactView.QuotaCard.Height;
+        try
+        {
+            app.Config.CapacityEnabled=false;UpdateCompactContent();
+            if(compactView.CapacityRow.Visibility!=Visibility.Collapsed||capacityEnabled&&compactView.QuotaCard.Height!=enabledHeight-48)
+                throw new InvalidOperationException("Disabled estimate retained its reserved card space");
+        }
+        finally{app.Config.CapacityEnabled=capacityEnabled;UpdateCompactContent();}
+        await CapacityTestDispatcherSettled(this);
+        void CheckEstimateContainment()
+        {
+            if(compactView.CapacityRow.Visibility!=Visibility.Visible)return;
+            var bounds=compactView.CapacityRow.TransformToVisual(compactView.QuotaCard).TransformBounds(new(0,0,compactView.CapacityRow.ActualWidth,compactView.CapacityRow.ActualHeight));
+            var limits=compactView.Limits.TransformToVisual(compactView.QuotaCard).TransformBounds(new(0,0,compactView.Limits.ActualWidth,compactView.Limits.ActualHeight));
+            if(bounds.Left<13||bounds.Right>compactView.QuotaCard.ActualWidth-13||bounds.Bottom>compactView.QuotaCard.ActualHeight-11||bounds.Top<limits.Bottom+7)
+                throw new InvalidOperationException("Codex estimate overlaps or escapes its quota card");
+            if(!compactView.CapacityRow.Children.OfType<Button>().Any())throw new InvalidOperationException("Codex estimate lost its details entry");
+        }
+        CheckEstimateContainment();
         void CheckRemovedUsageCard()
         {
             if(CapacityTestDescendants(root).OfType<FrameworkElement>().Any(element=>AutomationProperties.GetAutomationId(element) is "compact-usage-card" or "compact-token-value" or "compact-request-value"))
                 throw new InvalidOperationException("Removed compact usage card returned");
-            var expected=new UIElement[]{compactView.QuotaCard,compactView.ClaudeCard,compactView.Disabled,compactView.CapacityRow,quotaPanel.Children.Last()};
+            var expected=new UIElement[]{compactView.QuotaCard,compactView.ClaudeCard,compactView.Disabled,quotaPanel.Children.Last()};
             if(!quotaPanel.Children.SequenceEqual(expected))throw new InvalidOperationException("Compact panel retained an extra row or spacer");
         }
         CheckRemovedUsageCard();
@@ -232,6 +254,7 @@ internal sealed partial class Dashboard
             if(failure is not null)return;
             try
             {
+                CheckEstimateContainment();
                 foreach(var pair in baseline)
                 {
                     var element=Find(pair.Key);var geometry=Geometry(element);
@@ -298,6 +321,7 @@ internal sealed partial class Dashboard
             CheckRemovedUsageCard();
             if(failure is not null)throw new InvalidOperationException(failure);
             Program.Log.Write("INFO","CapacityUiTest","Compact daily usage card absent with no placeholder across refresh and reopen passed");
+            Program.Log.Write("INFO","CapacityUiTest","Codex estimate contained in quota card with details entry and disabled space reclaimed passed");
             Program.Log.Write("INFO","CapacityUiTest",$"Compact refresh stable: 18 changes; layoutChecks={layoutChecks}; nativeBoundsChanges={windowChanges}; {size.Width}x{size.Height}; hide/reopen has no second resize");
             if(app.Config.ClaudeEnabled)Program.Log.Write("INFO","CapacityUiTest","Claude compact progress: remaining values, unavailable states and fixed geometry passed");
         }

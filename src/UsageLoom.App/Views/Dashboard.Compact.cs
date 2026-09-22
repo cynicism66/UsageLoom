@@ -93,10 +93,10 @@ internal sealed partial class Dashboard
         view.ClaudeCard=CompactCard(claude,"compact-claude-card");view.ClaudeCard.Height=136;
         view.ClaudeCard.Visibility=app.Config.ClaudeEnabled?Visibility.Visible:Visibility.Collapsed;quotaPanel.Children.Add(view.ClaudeCard);
         view.Disabled.Text=L10n.T("source.none");quotaPanel.Children.Add(view.Disabled);
-        view.Capacity.Opacity=.75;view.CapacityRow.Height=40;
+        view.Capacity.Opacity=.75;view.CapacityRow.Height=40;view.CapacityRow.Margin=new Thickness(0,8,0,0);
         view.CapacityRow.Children.Add(view.Capacity);
         var info=CapacityInfoButton();Grid.SetColumn(info,1);view.CapacityRow.Children.Add(info);
-        AutomationProperties.SetAutomationId(view.CapacityRow,"compact-capacity-row");quotaPanel.Children.Add(view.CapacityRow);
+        AutomationProperties.SetAutomationId(view.CapacityRow,"compact-capacity-row");quotaBody.Children.Add(view.CapacityRow);
         var footer=CompactColumns(8,32);footer.Height=32;view.Footer.Opacity=.6;footer.Children.Add(view.Footer);
         var settings=new Button{Content=new FontIcon{Glyph="\uE713",FontSize=18},Width=32,Height=32,Padding=new Thickness(0),
             Background=new SolidColorBrush(Microsoft.UI.Colors.Transparent),BorderThickness=new Thickness(0),CornerRadius=new CornerRadius(6)};
@@ -132,7 +132,8 @@ internal sealed partial class Dashboard
         // Offline/unavailable states retain the quota slot; ordinary values never
         // change row heights or cause the whole Viewbox to rescale.
         var slots=Math.Max(1,view.Windows.Count);
-        view.QuotaCard.Height=58+slots*70+(slots-1)*12;
+        var showCapacity=app.Config.CodexEnabled&&app.Config.CapacityEnabled;
+        view.QuotaCard.Height=58+slots*70+(slots-1)*12+(showCapacity?48:0);
         view.Limits.Visibility=windows.Length>0?Visibility.Visible:Visibility.Collapsed;
         view.Unavailable.Visibility=windows.Length>0?Visibility.Collapsed:Visibility.Visible;
         view.Unavailable.Text=quota.IsLocalAccount?L10n.T("sF2D563561B79"):L10n.T("sF7A79B776C96");
@@ -141,7 +142,7 @@ internal sealed partial class Dashboard
         view.Capacity.Text=estimate?.HistoricalAt is not null?L10n.T("capacity.previous")+": "+estimate.DollarDisplay:
             estimate is not null?L10n.F("s99933FEC8200",estimate.DollarDisplay,UsageNumbers.Compact(estimate.EstimatedTokens),estimate.PricingCoverage):
             quota.Fresh&&windows.Any(window=>window.Minutes==10080)?L10n.T("s51D06B357E84"):L10n.T("s5AFCDACD073E");
-        view.CapacityRow.Visibility=app.Config.CodexEnabled&&app.Config.CapacityEnabled?Visibility.Visible:Visibility.Collapsed;
+        view.CapacityRow.Visibility=showCapacity?Visibility.Visible:Visibility.Collapsed;
         var planKey=$"{quota.Plan}|{quota.IsLocalAccount}|{new Windows.UI.ViewManagement.AccessibilitySettings().HighContrast}";
         if(view.PlanKey!=planKey)
         {

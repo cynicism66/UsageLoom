@@ -45,6 +45,7 @@ foreach($scenario in $scenarios){
     if($CapacityDetails -and !($lines -match 'Capacity detail entry and compact layout passed')){throw 'Capacity detail and compact layout check did not complete'}
     if($CapacityDetails -and !($lines -match 'Capacity settings navigation and live content passed')){throw 'Capacity settings navigation and live content check did not complete'}
     if($CapacityDetails -and !($lines -match 'Compact refresh stable: 18 changes')){throw 'Compact refresh stability check did not complete'}
+    if($CapacityDetails -and !($lines -match 'Codex estimate contained in quota card with details entry and disabled space reclaimed passed')){throw 'Codex estimate card containment check did not complete'}
     if($CapacityDetails -and !($lines -match 'Compact daily usage card absent with no placeholder across refresh and reopen passed')){throw 'Removed compact usage card regression check did not complete'}
     if($CapacityDetails -and $Claude -and !($lines -match 'Claude compact progress: remaining values, unavailable states and fixed geometry passed')){throw 'Claude compact progress check did not complete'}
     if($CapacityDetails -and !($lines -match 'Compact plan moved into quota header without standalone row passed')){throw 'Compact plan placement check did not complete'}
