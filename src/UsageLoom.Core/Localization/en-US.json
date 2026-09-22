@@ -1,11 +1,12 @@
 {
   "source.enable": "Enable data source",
+  "source.codexLocalQuery": "Online query · using local sign-in",
   "source.codexNotice": "Disabling stops log scans, quota queries, identity renewal and sampling, and hides Codex content. Settings and history are retained. Re-enabling starts with a fresh snapshot; paused logs may be imported but are not automatically attributed or used across the pause for estimates.",
   "source.codexDisabled": "Codex data source is disabled. Enable it in Settings → Data sources.",
   "source.none": "This data source is disabled. Enable it in Settings → Data sources. Existing history is retained.",
   "source.boundaryFailed": "Unable to save the sampling boundary. Codex collection remains paused and will retry.",
 "claude.title":"Claude Desktop",
-"claude.snapshot":"Local snapshot · not a live query",
+"claude.snapshot":"Local cache · updated by Claude",
 "claude.stale":"Older snapshot · awaiting Claude",
 "claude.history":"Percentage snapshot · reset time unavailable",
 "claude.disabled":"Disabled",

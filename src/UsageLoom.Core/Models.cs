@@ -65,6 +65,7 @@ public sealed record QuotaState(List<QuotaWindow> Windows, int? ResetCount, Date
     public IEnumerable<QuotaWindow> OtherWindows => Windows.Where(window=>!window.IsPrimary);
     public QuotaState ClearUnverifiedSnapshot(string status)=>SnapshotOnly?this with{Windows=[],ResetCount=null,FetchedAt=null,Fresh=false,Status=status}:this;
     public string AccountLabel => IsAuthorizedAccount?L10n.T("s7FA72B2E0D53"):IsCachedAccount?L10n.T("s4D9071E7F3DD"):AccountKey is null ? L10n.T("s99D2089F4407") : L10n.T("s1ECA54C16740");
+    public string SourceLabel => IsCachedAccount&&!IsAuthorizedAccount&&!IsLocalAccount?L10n.T("source.codexLocalQuery"):AccountLabel;
     public string PlanDisplay => IsLocalAccount?L10n.T("sE4174722F2CB"):string.IsNullOrWhiteSpace(Plan)?L10n.T("s0607D6675FE0"):
         L10n.T("s63F426BC249E")+(Plan.Trim().ToLowerInvariant() switch{"free"=>"Free","plus"=>"Plus","prolite"=>"Pro 5X","pro"=>"Pro 20X","team"=>"Team","business"=>"Business","enterprise"=>"Enterprise","edu"=>"Edu",_=>Plan.Trim()+L10n.T("s93D0582816C8")})+(Fresh?"":L10n.T("s5B8BFF4DF405"));
     public static QuotaState LocalAccount => new([],null,null,L10n.T("s3EC630C3E092"),false){IsLocalAccount=true};

@@ -1,11 +1,12 @@
 {
   "source.enable": "启用数据源",
+  "source.codexLocalQuery": "在线查询 · 使用本机登录状态",
   "source.codexNotice": "停用后停止日志扫描、额度查询、账号续验和采样，隐藏 Codex 内容；保留设置和历史。重新启用先获取新快照，停用期间的日志可补扫，但不自动归属或跨停用区间估算。",
   "source.codexDisabled": "Codex 数据源未启用，请在设置 → 数据来源中开启。",
   "source.none": "对应数据源未启用。请在设置 → 数据来源中开启；已有历史数据仍保留。",
   "source.boundaryFailed": "采样边界保存失败，Codex 采集暂未恢复，稍后自动重试。",
 "claude.title":"Claude 桌面版",
-"claude.snapshot":"本地快照 · 非实时查询",
+"claude.snapshot":"本地缓存 · 由 Claude 更新",
 "claude.stale":"较旧快照 · 等待 Claude 更新",
 "claude.history":"仅百分比快照 · 无重置时间",
 "claude.disabled":"未启用",

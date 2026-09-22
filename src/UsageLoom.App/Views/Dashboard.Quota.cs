@@ -55,7 +55,7 @@ internal sealed partial class Dashboard
         var badge=PlanBadge(quota,true);badge.VerticalAlignment=VerticalAlignment.Center;
         Grid.SetColumn(badge,1);header.Children.Add(badge);
         body.Children.Add(header);
-        body.Children.Add(new TextBlock{Text=app.IsDemo?L10n.T("s9EE75C455D70"):quota.AccountLabel,FontSize=12,TextWrapping=TextWrapping.Wrap});
+        body.Children.Add(new TextBlock{Text=app.IsDemo?L10n.T("s9EE75C455D70"):quota.SourceLabel,FontSize=12,TextWrapping=TextWrapping.Wrap});
         var content=new StackPanel{Spacing=16,Margin=new Thickness(0,8,0,0)};
         foreach(var window in windows)content.Children.Add(window);
         if(windows.Count==0)content.Children.Add(new TextBlock{Text=quota.HasQuotaDisplay?L10n.T("s3073BC52B5B6"):L10n.T("s540071E2CE7C")+quota.Status,FontSize=14,TextWrapping=TextWrapping.Wrap,Opacity=.7});

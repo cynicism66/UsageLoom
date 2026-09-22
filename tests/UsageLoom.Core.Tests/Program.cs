@@ -2170,6 +2170,33 @@ Test("语言仅改变展示且不改变账号窗口与计价",()=>
     }
     finally{L10n.Language=before;}
 });
+Test("额度读取方式文案区分本机登录与本地缓存，并保留异常状态",()=>
+{
+    var before=L10n.Language;
+    try
+    {
+        var now=DateTimeOffset.UtcNow;
+        var codex=new QuotaState([],null,now,"",true){IsCachedAccount=true};
+        var claude=new ClaudeQuotaSnapshot("snapshot",[],now);
+        foreach(var language in new[]{"zh-CN","en-US"})
+        {
+            L10n.Language=language;
+            Check(codex.SourceLabel==L10n.T("source.codexLocalQuery"));
+            Check(codex.AccountLabel==L10n.T("s4D9071E7F3DD"));
+            Check(QuotaState.LocalAccount.SourceLabel==QuotaState.LocalAccount.AccountLabel);
+            var authorized=codex with{IsAuthorizedAccount=true};
+            Check(authorized.SourceLabel==authorized.AccountLabel);
+            Check(claude.Describe(now)==L10n.T("claude.snapshot"));
+            Check(claude.Describe(now.AddMinutes(16))==L10n.T("claude.stale"));
+            Check((claude with{HistoryOnly=true}).Describe(now)==L10n.T("claude.history"));
+            Check(ClaudeQuotaSnapshot.Empty("readFailed").Describe(now)==L10n.T("claude.readFailed"));
+        }
+        L10n.Language="zh-CN";
+        Check(codex.SourceLabel=="在线查询 · 使用本机登录状态");
+        Check(claude.Describe(now)=="本地缓存 · 由 Claude 更新");
+    }
+    finally{L10n.Language=before;}
+});
 PricingReliabilityTests.Run(Test);
 Test("小窗分辨率、DPI、多屏与工作区边界",()=>
 {
