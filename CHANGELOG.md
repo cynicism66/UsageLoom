@@ -1,5 +1,11 @@
 # 变更日志
 
+## Windows 0.8.30 — 2026-09-23
+
+- 概览、模型与项目、Session 明细的 Codex／Claude 切换按钮移到页面固定标题区，滚动内容时保持可见；移除重复的“使用统计”标题和说明。
+- Claude 概览改用与 Codex 一致的汇总指标、Token 趋势、模型分布、最近 Session 和 Token 构成布局，并复用趋势与模型图表样式。
+- 只有可识别的本机 Claude Code 日志才填写 Token 等指标；未取得时显示“—”与来源说明，不把 Claude 套餐额度百分比换算为 Token，也不将缺失数据当作零。
+
 ## Windows 0.8.29 — 2026-09-22
 
 - 新增本机 Claude Code JSONL Token 读取，默认关闭，可设置独立 Home；提供今日小时趋势、近 7／30 天日趋势、模型、项目和匿名 Session 汇总。
