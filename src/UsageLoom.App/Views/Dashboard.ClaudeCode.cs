@@ -21,7 +21,7 @@ internal sealed partial class Dashboard
         toolbar.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
         toolbar.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
         toolbar.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
-        var choices=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};
+        var choices=new StackPanel{Orientation=Orientation.Horizontal,Spacing=HistoryRangeButtonSpacing};
         var range=ClaudeCodeRange();
         for(var index=0;index<5;index++)
         {

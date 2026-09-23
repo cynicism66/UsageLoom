@@ -19,7 +19,8 @@ internal sealed partial class Dashboard : Window
     private IReadOnlyDictionary<string,string>? renderedSessionNames;
     private string? renderedFilter;
     private readonly TextBlock status=new(){TextWrapping=TextWrapping.Wrap,FontSize=13};
-    private readonly StackPanel historyRangeButtons=new(){Orientation=Orientation.Horizontal,Spacing=4};
+    private const double HistoryRangeButtonSpacing=4;
+    private readonly StackPanel historyRangeButtons=new(){Orientation=Orientation.Horizontal,Spacing=HistoryRangeButtonSpacing};
     private readonly List<Microsoft.UI.Xaml.Controls.Primitives.ToggleButton> historyRangeButtonList=[];
     private int historyRangeIndex=1;
     private bool updatingHistoryRangeControls;

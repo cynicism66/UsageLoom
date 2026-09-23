@@ -6,7 +6,9 @@ Windows 11 上的 Codex 用量与额度面板，并可同时查看 Claude 桌面
 
 UsageLoom 是独立开源项目，不隶属于 OpenAI 或 Anthropic。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.8.33
+## Windows 桌面版 0.8.34
+
+Claude 与 Codex 概览日期筛选按钮使用相同的间距，卡片排列保持一致。[发布说明](docs/releases/RELEASE-0.8.34.md)
 
 Claude 额度卡片新增实验性的每周容量参考估算：将同一周期的连续额度快照与本机 Claude Code Token 日志配对；样本不足或来源不明确时直接说明原因，不把本机用量冒充全账号额度。[使用边界](docs/CLAUDE.md) · [发布说明](docs/releases/RELEASE-0.8.33.md)
 

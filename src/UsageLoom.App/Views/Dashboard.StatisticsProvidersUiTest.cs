@@ -61,6 +61,11 @@ internal sealed partial class Dashboard
                 for(var i=0;i<5;i++)
                     if(!CapacityTestDescendants(statisticsBody).OfType<ToggleButton>().Any(e=>AutomationProperties.GetAutomationId(e)=="claude-code-range-"+i))
                         throw new InvalidOperationException("Claude overview is missing a shared date-range choice: "+i);
+                var claudeRangeButton=CapacityTestDescendants(statisticsBody).OfType<ToggleButton>()
+                    .Single(e=>AutomationProperties.GetAutomationId(e)=="claude-code-range-0");
+                if(VisualTreeHelper.GetParent(claudeRangeButton) is not StackPanel claudeRangeButtons||
+                    claudeRangeButtons.Spacing!=historyRangeButtons.Spacing)
+                    throw new InvalidOperationException("Claude date-range button spacing differs from Codex");
                 claudeCodeRangeIndex=4;renderedFilter=null;RenderStats();root.UpdateLayout();
                 var claudeDates=CapacityTestDescendants(statisticsBody).OfType<CalendarDatePicker>().ToArray();
                 if(claudeDates.Length!=2||
