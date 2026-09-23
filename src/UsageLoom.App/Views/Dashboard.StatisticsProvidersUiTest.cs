@@ -16,7 +16,7 @@ internal sealed partial class Dashboard
         var range=historyRangeIndex;var from=historyFrom.Date;var through=historyThrough.Date;
         var search=historySearch.Text;var order=sessionOrder.SelectedIndex;var grouping=breakdownKind.SelectedIndex;
         var savedSessionPage=sessionPage;
-        var savedClaudeDays=claudeHistoryDays;
+        var savedClaudeDays=claudeHistoryDays;var savedClaudeCodeRange=claudeCodeRangeIndex;
         var events=app.Events;var snapshot=app.ClaudeQuota;
         var root=(FrameworkElement)Content;
         void Switch(string provider)
@@ -61,6 +61,15 @@ internal sealed partial class Dashboard
                 for(var i=0;i<5;i++)
                     if(!CapacityTestDescendants(statisticsBody).OfType<ToggleButton>().Any(e=>AutomationProperties.GetAutomationId(e)=="claude-code-range-"+i))
                         throw new InvalidOperationException("Claude overview is missing a shared date-range choice: "+i);
+                claudeCodeRangeIndex=4;renderedFilter=null;RenderStats();root.UpdateLayout();
+                var claudeDates=CapacityTestDescendants(statisticsBody).OfType<CalendarDatePicker>().ToArray();
+                if(claudeDates.Length!=2||
+                    !Equals(claudeDates[0].Header,historyFrom.Header)||!Equals(claudeDates[1].Header,historyThrough.Header)||
+                    claudeDates[0].PlaceholderText!=historyFrom.PlaceholderText||claudeDates[1].PlaceholderText!=historyThrough.PlaceholderText||
+                    claudeDates[0].DateFormat!=historyFrom.DateFormat||claudeDates[1].DateFormat!=historyThrough.DateFormat||
+                    claudeDates[0].MinWidth!=historyFrom.MinWidth||claudeDates[1].MinWidth!=historyThrough.MinWidth)
+                    throw new InvalidOperationException("Claude custom date pickers differ from Codex labels or ISO date format");
+                claudeCodeRangeIndex=savedClaudeCodeRange;renderedFilter=null;RenderStats();
             }
             claudeHistoryDays=30;renderedFilter=null;RenderStats();CheckUnavailable();
             ShowPage("sessions");ShowPage("overview");root.UpdateLayout();
@@ -102,7 +111,7 @@ internal sealed partial class Dashboard
             finally{updatingHistoryRangeControls=false;}
             historySearch.Text=search;sessionOrder.SelectedIndex=order;breakdownKind.SelectedIndex=grouping;sessionPage=savedSessionPage;
             statisticsProvider=savedProvider;renderedFilter=null;ShowPage(savedPage);Render();
-            claudeHistoryDays=savedClaudeDays;renderedFilter=null;RenderStats();
+            claudeHistoryDays=savedClaudeDays;claudeCodeRangeIndex=savedClaudeCodeRange;renderedFilter=null;RenderStats();
         }
     }
 }

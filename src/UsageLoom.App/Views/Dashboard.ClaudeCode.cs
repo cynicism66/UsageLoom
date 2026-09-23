@@ -16,7 +16,11 @@ internal sealed partial class Dashboard
     {
         var snapshot=app.ClaudeCode;var panel=new StackPanel{Spacing=16};
         AutomationProperties.SetAutomationId(panel,"claude-code-statistics");
-        var toolbar=new StackPanel{Spacing=10};
+        var toolbar=new Grid{ColumnSpacing=12,RowSpacing=8};
+        toolbar.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
+        toolbar.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
+        toolbar.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
+        toolbar.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
         var choices=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};
         var range=ClaudeCodeRange();
         for(var index=0;index<5;index++)
@@ -27,21 +31,25 @@ internal sealed partial class Dashboard
             AutomationProperties.SetAutomationId(button,"claude-code-range-"+index);
             button.Click+=(_,_)=>{claudeCodeRangeIndex=selected;claudeCodePage=0;renderedFilter=null;RenderStats();};choices.Children.Add(button);
         }
-        var rangeHeader=new Grid{ColumnSpacing=12};
-        rangeHeader.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
-        rangeHeader.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
-        rangeHeader.Children.Add(choices);
-        var rangeLabel=ClaudeText(range.Label,12);rangeLabel.Opacity=.62;rangeLabel.VerticalAlignment=VerticalAlignment.Center;
-        Grid.SetColumn(rangeLabel,1);rangeHeader.Children.Add(rangeLabel);
-        toolbar.Children.Add(rangeHeader);
+        choices.VerticalAlignment=VerticalAlignment.Center;
+        toolbar.Children.Add(choices);
         if(claudeCodeRangeIndex==4)
         {
-            var dates=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};
-            var from=new CalendarDatePicker{Date=new DateTimeOffset(claudeCodeFrom.ToDateTime(TimeOnly.MinValue))};
-            var through=new CalendarDatePicker{Date=new DateTimeOffset(claudeCodeThrough.ToDateTime(TimeOnly.MinValue))};
+            var dates=new StackPanel{Orientation=Orientation.Horizontal,Spacing=10};
+            var from=HistoryDatePicker("sD2BB025A2E51","s760506491EEF");
+            var through=HistoryDatePicker("sC7B24E7997E9","s895CD52FBBB6");
+            from.Date=new DateTimeOffset(claudeCodeFrom.ToDateTime(TimeOnly.MinValue));
+            through.Date=new DateTimeOffset(claudeCodeThrough.ToDateTime(TimeOnly.MinValue));
+            dates.SizeChanged+=(_,e)=>dates.Orientation=e.NewSize.Width<320?Orientation.Vertical:Orientation.Horizontal;
             from.DateChanged+=(_,_)=>{if(from.Date is {} value){claudeCodeFrom=DateOnly.FromDateTime(value.LocalDateTime);renderedFilter=null;RenderStats();}};
             through.DateChanged+=(_,_)=>{if(through.Date is {} value){claudeCodeThrough=DateOnly.FromDateTime(value.LocalDateTime);renderedFilter=null;RenderStats();}};
-            dates.Children.Add(from);dates.Children.Add(through);toolbar.Children.Add(dates);
+            dates.Children.Add(from);dates.Children.Add(through);
+            Grid.SetColumn(dates,1);toolbar.Children.Add(dates);
+            toolbar.SizeChanged+=(_,e)=>
+            {
+                var narrow=e.NewSize.Width<720;
+                Grid.SetColumn(dates,narrow?0:1);Grid.SetRow(dates,narrow?1:0);Grid.SetColumnSpan(dates,narrow?2:1);
+            };
         }
         ToolTipService.SetToolTip(toolbar,L10n.T("claude.code.scope"));panel.Children.Add(Card(toolbar));
         if(snapshot.Status is not "ready")

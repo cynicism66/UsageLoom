@@ -24,8 +24,13 @@ internal sealed partial class Dashboard : Window
     private int historyRangeIndex=1;
     private bool updatingHistoryRangeControls;
     private readonly TextBox historySearch=new(){PlaceholderText=L10n.T("s4566FC389381"),MinWidth=200};
-    private readonly CalendarDatePicker historyFrom=new(){Header=L10n.T("sD2BB025A2E51"),PlaceholderText=L10n.T("s760506491EEF"),DateFormat="{year.full}-{month.integer(2)}-{day.integer(2)}",MinWidth=140};
-    private readonly CalendarDatePicker historyThrough=new(){Header=L10n.T("sC7B24E7997E9"),PlaceholderText=L10n.T("s895CD52FBBB6"),DateFormat="{year.full}-{month.integer(2)}-{day.integer(2)}",MinWidth=140};
+    private static CalendarDatePicker HistoryDatePicker(string headerKey,string placeholderKey)=>new()
+    {
+        Header=L10n.T(headerKey),PlaceholderText=L10n.T(placeholderKey),
+        DateFormat="{year.full}-{month.integer(2)}-{day.integer(2)}",MinWidth=140
+    };
+    private readonly CalendarDatePicker historyFrom=HistoryDatePicker("sD2BB025A2E51","s760506491EEF");
+    private readonly CalendarDatePicker historyThrough=HistoryDatePicker("sC7B24E7997E9","s895CD52FBBB6");
     private readonly ComboBox sessionOrder=new(){ItemsSource=new[]{L10n.T("sA821A0A35B3A"),L10n.T("s41F5CADA11ED"),L10n.T("s1034068B43DF")},SelectedIndex=0,Width=180};
     private readonly StackPanel dateControls=new(){Orientation=Orientation.Horizontal,Spacing=10};
     private readonly Grid filterBar;
