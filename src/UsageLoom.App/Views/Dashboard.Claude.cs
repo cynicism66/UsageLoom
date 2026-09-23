@@ -21,7 +21,21 @@ internal sealed partial class Dashboard
     private ClaudeCodeSnapshot? cachedCapacityCode;
     private ClaudeWeeklyCapacity? cachedCapacity;
     private DateTimeOffset cachedCapacityAt;
+    private Flyout? claudeCapacityInfoFlyout;
     private static TextBlock ClaudeText(string text,double size=12)=>new(){Text=text,FontSize=size,TextWrapping=TextWrapping.Wrap};
+    private Button ClaudeCapacityInfoButton(string detail)
+    {
+        var flyout=new Flyout{Content=new TextBlock{Text=detail,TextWrapping=TextWrapping.Wrap,MaxWidth=340,FontSize=12}};
+        claudeCapacityInfoFlyout=flyout;
+        var button=new Button{Content=new FontIcon{Glyph="\uE946",FontSize=12},Width=22,Height=22,MinWidth=0,MinHeight=0,
+            Padding=new Thickness(0),VerticalAlignment=VerticalAlignment.Center,
+            Background=new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent),
+            BorderThickness=new Thickness(0),CornerRadius=new CornerRadius(4),Flyout=flyout};
+        AutomationProperties.SetAutomationId(button,"claude-capacity-info");
+        AutomationProperties.SetName(button,L10n.T("claude.capacity.info"));
+        ToolTipService.SetToolTip(button,L10n.T("claude.capacity.info"));
+        return button;
+    }
     private ClaudeWeeklyCapacity ClaudeCapacityAt(DateTimeOffset now)
     {
         if(cachedCapacity is null||!ReferenceEquals(cachedCapacityQuota,app.ClaudeQuota)||
@@ -54,12 +68,11 @@ internal sealed partial class Dashboard
         {
             var summary=new Grid{ColumnSpacing=8};summary.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});summary.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
             AutomationProperties.SetAutomationId(summary,"claude-overview-capacity");
-            var estimateText=estimate.Ready?L10n.F("claude.capacity.tokens",estimate.ProjectedTokens):L10n.T("claude.capacity.overviewUnavailable");
+            var estimateText=estimate.Ready?L10n.F("claude.capacity.tokens",estimate.ProjectedTokens):L10n.T("claude.capacity.overview."+estimate.Status);
             summary.Children.Add(ClaudeText(L10n.T("claude.capacity.title")+" · "+estimateText));
-            var info=new TextBlock{Text="\uE946",FontFamily=new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons"),FontSize=12,VerticalAlignment=VerticalAlignment.Center};
-            AutomationProperties.SetName(info,L10n.T("claude.capacity.title"));
-            ToolTipService.SetToolTip(info,(estimate.Ready?L10n.T("claude.capacity.note"):L10n.T("claude.capacity.status."+estimate.Status))+"\n"+
-                L10n.F("claude.capacity.progress",estimate.PercentagePoints,estimate.Intervals)+"\n"+L10n.T("claude.capacity.scope"));
+            var detail=(estimate.Ready?L10n.T("claude.capacity.note"):L10n.T("claude.capacity.status."+estimate.Status))+"\n"+
+                L10n.F("claude.capacity.progress",estimate.PercentagePoints,estimate.Intervals)+"\n"+L10n.T("claude.capacity.scope");
+            var info=ClaudeCapacityInfoButton(detail);
             Grid.SetColumn(info,1);summary.Children.Add(info);panel.Children.Add(summary);
             panel.Children.Add(ClaudeText(snapshot.TimestampText));
             return;

@@ -51,6 +51,14 @@ internal sealed partial class Dashboard
                     throw new InvalidOperationException("Provider switch lost Codex filters");
             }
             Switch("claude");ShowPage("breakdown");CheckUnavailable();ShowPage("overview");CheckUnavailable();
+            if(app.Config.ClaudeEnabled&&claudeOverview is not null)
+            {
+                var capacityInfo=CapacityTestDescendants(claudeOverview).OfType<Button>()
+                    .Single(button=>AutomationProperties.GetAutomationId(button)=="claude-capacity-info");
+                CapacityTestInvoke(capacityInfo);root.UpdateLayout();
+                if(claudeCapacityInfoFlyout?.IsOpen!=true)throw new InvalidOperationException("Claude capacity info icon did not open on click");
+                claudeCapacityInfoFlyout.Hide();
+            }
             if(CapacityTestDescendants(statisticsBody).OfType<TextBlock>().Any(t=>t.Text==L10n.F("stats.title","Claude")||t.Text==L10n.T("stats.scope")))
                 throw new InvalidOperationException("Removed provider title or instructions remain in the statistics body");
             if(app.Config.ClaudeEnabled)

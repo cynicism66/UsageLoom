@@ -50,11 +50,16 @@ internal sealed partial class Dashboard
             throw new InvalidOperationException("Codex overview has an extra action or mismatched progress bar");
         if(claudeOverview is not null)
         {
+            var capacity=claudeOverview.Children.OfType<Grid>().FirstOrDefault(grid=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(grid)=="claude-overview-capacity");
             if(claudeOverview.Spacing!=overviewQuota.Spacing||
                 claudeOverview.Children.OfType<ProgressBar>().Any(bar=>bar.Height!=5)||
-                !claudeOverview.Children.OfType<Grid>().Any(grid=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(grid)=="claude-overview-capacity")||
+                capacity is null||capacity.Children.Count!=2||capacity.Children[0] is not TextBlock summary||
+                capacity.Children[1] is not Button info||Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(info)!="claude-capacity-info"||
                 claudeOverview.Children.OfType<StackPanel>().Any(stack=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(stack)=="claude-weekly-capacity"))
                 throw new InvalidOperationException("Claude overview does not match the compact Codex card layout");
+            var estimate=ClaudeCapacityAt(DateTimeOffset.Now);
+            if(!estimate.Ready&&!summary.Text.Contains(L10n.T("claude.capacity.overview."+estimate.Status),StringComparison.Ordinal))
+                throw new InvalidOperationException("Claude overview hides the actual estimation reason");
         }
         foreach(FrameworkElement child in header.Children)
         {
