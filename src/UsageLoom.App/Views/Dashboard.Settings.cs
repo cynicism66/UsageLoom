@@ -27,7 +27,7 @@ internal sealed partial class Dashboard
         var language=new ComboBox{Header=L10n.T("s9087B82BC720"),ItemsSource=new[]{"简体中文","English"},SelectedIndex=app.Config.Language=="en-US"?1:0};
         appearanceChoice=theme;languageChoice=language;
         language.SelectionChanged+=(_,_)=>app.SetLanguage(language.SelectedIndex==1?"en-US":"zh-CN");
-        Expander Section(string title, params UIElement[] controls)
+        StackPanel SectionBody(params UIElement[] controls)
         {
             var group=new StackPanel{Spacing=12};
             foreach(var control in controls)
@@ -38,6 +38,18 @@ internal sealed partial class Dashboard
                 var caption=new TextBlock{Text=label.ToString(),VerticalAlignment=VerticalAlignment.Center,TextWrapping=TextWrapping.Wrap};
                 group.Children.Add(ResponsiveCards(new UIElement[]{caption,control},2,250));
             }
+            return group;
+        }
+        UIElement ProviderCard(string title,params UIElement[] controls)
+        {
+            var group=new StackPanel{Spacing=12};
+            group.Children.Add(new TextBlock{Text=title,FontSize=18,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
+            group.Children.Add(SectionBody(controls));
+            return Card(group);
+        }
+        Expander Section(string title, params UIElement[] controls)
+        {
+            var group=SectionBody(controls);
             var section=StableExpander.Configure(new Expander{Header=title,IsExpanded=false,Content=group,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch});
             panel.Children.Add(section);
             return section;
@@ -45,16 +57,18 @@ internal sealed partial class Dashboard
         Section(L10n.T("s38C043E08502"),theme,language);
         dataSourcesSettings=Section(L10n.T("s6E89737A00E1"),Card(CodexSettings(cli,home)),Card(ClaudeSettings()));
         var codexChoice=codexEnabledChoice!;
-        panel.Children.Add(new TextBlock{Text=L10n.T("stats.codexSettings"),FontSize=20,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,Margin=new Thickness(8,12,0,0)});
-        Section(L10n.T("s16685D3221B9"),auto,foreground,seconds);Section(L10n.T("sA28590E6B1D8"),low,threshold,reset,minutes);
+        Section(L10n.T("s16685D3221B9"),ProviderCard("Codex",auto,foreground,seconds),ProviderCard(L10n.T("claude.desktop"),
+            new TextBlock{Text=L10n.T("settings.claude.refresh"),TextWrapping=TextWrapping.Wrap}));
+        Section(L10n.T("sA28590E6B1D8"),ProviderCard("Codex",low,threshold,reset,minutes),ProviderCard(L10n.T("claude.desktop"),
+            new TextBlock{Text=L10n.T("settings.claude.notifications"),TextWrapping=TextWrapping.Wrap}));
         panel.Children.Add(CapacitySettings());
         var readClaudeDraft=readClaudeSettings!;
         Section(L10n.T("sD39DC68172D7"),
-            new TextBlock{Text=L10n.T("s9371F74C3221"),TextWrapping=TextWrapping.Wrap},
+            ProviderCard("Codex",new TextBlock{Text=L10n.T("s9371F74C3221"),TextWrapping=TextWrapping.Wrap},
             Button(L10n.T("sE400A5FF247B"),async()=>
             {
                 await app.UseCachedLoginAsync(cli.Text.Trim(),home.Text.Trim());
-            }));
+            })),ProviderCard(L10n.T("claude.desktop"),new TextBlock{Text=L10n.T("settings.claude.cache"),TextWrapping=TextWrapping.Wrap}));
         async Task Authorize(bool logout)
         {
             app.RequireCodexSource();
@@ -67,10 +81,11 @@ internal sealed partial class Dashboard
             await app.AuthorizeAsync(logout);
         }
         Section(L10n.T("s5AB943671D29"),
-            new TextBlock{Text=L10n.T("s9DD1731C07FC"),TextWrapping=TextWrapping.Wrap},
+            ProviderCard("Codex",new TextBlock{Text=L10n.T("s9DD1731C07FC"),TextWrapping=TextWrapping.Wrap},
             Button(L10n.T("s3B0F18AAC8CE"),async()=>await Authorize(false)),
             Button(L10n.T("s16302475FAEB"),()=>{app.CancelAuthorization();return Task.CompletedTask;}),
-            Button(L10n.T("s0F7D6E35193A"),async()=>await Authorize(true)));
+            Button(L10n.T("s0F7D6E35193A"),async()=>await Authorize(true))),
+            ProviderCard(L10n.T("claude.desktop"),new TextBlock{Text=L10n.T("settings.claude.login"),TextWrapping=TextWrapping.Wrap}));
         panel.Children.Add(AppUpdatePanel());
         settingsSaveButton=Button(L10n.T("sC8550237BA70"),async()=>
         {

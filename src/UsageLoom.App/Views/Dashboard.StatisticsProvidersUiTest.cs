@@ -55,9 +55,12 @@ internal sealed partial class Dashboard
                 throw new InvalidOperationException("Removed provider title or instructions remain in the statistics body");
             if(app.Config.ClaudeEnabled)
             {
-                foreach(var id in new[]{"claude-overview-metrics","claude-overview-models","claude-overview-sessions"})
+                foreach(var id in new[]{"claude-overview-attribution","claude-overview-metrics","claude-overview-models","claude-overview-sessions"})
                     if(!CapacityTestDescendants(statisticsBody).OfType<FrameworkElement>().Any(e=>AutomationProperties.GetAutomationId(e)==id))
                         throw new InvalidOperationException("Claude overview is missing Codex-style section: "+id);
+                for(var i=0;i<5;i++)
+                    if(!CapacityTestDescendants(statisticsBody).OfType<ToggleButton>().Any(e=>AutomationProperties.GetAutomationId(e)=="claude-code-range-"+i))
+                        throw new InvalidOperationException("Claude overview is missing a shared date-range choice: "+i);
             }
             claudeHistoryDays=30;renderedFilter=null;RenderStats();CheckUnavailable();
             ShowPage("sessions");ShowPage("overview");root.UpdateLayout();
@@ -84,9 +87,9 @@ internal sealed partial class Dashboard
             app.Config.CodexEnabled=false;renderedFilter=null;Render();CheckUnavailable();
             Switch("claude");app.Config.ClaudeEnabled=false;renderedFilter=null;Render();CheckUnavailable();
             app.Config.ClaudeEnabled=true;renderedFilter=null;Render();CheckUnavailable();
-            if(!CapacityTestDescendants(sessionWorkspace).OfType<TextBlock>().Any(t=>t.Text==L10n.T("claude.code.scope")))
+            if(!CapacityTestDescendants(sessionWorkspace).OfType<FrameworkElement>().Any(t=>ToolTipService.GetToolTip(t) as string==L10n.T("claude.code.scope")))
                 throw new InvalidOperationException("Claude local Token scope explanation missing");
-            foreach(var key in new[]{"attribution.inspect","maintenance.repair","maintenance.clear","maintenance.restart","sD9EBFF4C171F"})
+            foreach(var key in new[]{"attribution.inspect","maintenance.repair","maintenance.clear","maintenance.restart"})
                 if(!L10n.T(key).Contains("Codex",StringComparison.Ordinal))throw new InvalidOperationException("Operation has ambiguous provider: "+key);
             Program.Log.Write("INFO","NavigationTest","Statistics providers: isolated views, retained filters, drilldown and disabled sources passed");
             Program.Log.Write("INFO","NavigationTest","Claude history: scoped observations, independent date filter and disabled source boundaries passed");

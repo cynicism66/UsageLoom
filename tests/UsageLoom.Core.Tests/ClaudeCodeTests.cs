@@ -17,6 +17,21 @@ static class ClaudeCodeTests
             var metadata=JsonSerializer.Serialize(row);Check(!metadata.Contains("PRIVATE_SENTINEL")&&!metadata.Contains("SECRET_BODY")&&!metadata.Contains("session-a"));
             Check(row.Model=="claude-test"&&row.Session.Length==64);
         });
+        test("Claude Code：仅给已知模型估 API 等价值，缓存有效期拆分且未知模型不冒充零费用",()=>
+        {
+            var baseRow=Parse(Line())!;
+            Check(baseRow.CacheWrite1h==0);
+            var hour=Parse(Line().Replace("ephemeral_5m_input_tokens","ephemeral_1h_input_tokens"))!;
+            Check(hour.CacheWrite1h==30&&hour.Total==62);
+            var row=baseRow with{Model="claude-sonnet-5-20260901",Input=1_000_000,Output=1_000_000,CacheRead=1_000_000,CacheWrite=1_000_000,CacheWrite1h=500_000};
+            var price=ClaudeCodePricing.Summarize([row]);
+            Check(price.Cost==15.45m&&price.Priced==4_000_000&&price.Unpriced==0&&!price.Assumed5m);
+            var mixed=ClaudeCodePricing.Summarize([row,baseRow]);
+            Check(mixed.Cost==price.Cost&&mixed.Unpriced==baseRow.Total&&mixed.Coverage<100);
+            Check(ClaudeCodePricing.Find("fake-claude-sonnet-5") is null);
+            Check(ClaudeCodePricing.Find("claude-opus-5-5")?.CacheRead==.20m);
+            Check(ClaudeCodePricing.Summarize([row with{CacheWrite1h=null}]).Assumed5m);
+        });
         test("Claude Code：回复身份去重而非 uuid，最新 usage 替换，跨文件副本与侧链重放",()=>
         {
             var first=Parse(Line())!;var last=Parse(Line(uuid:"row-b",output:20,at:"2026-09-22T12:00:01Z"))!;

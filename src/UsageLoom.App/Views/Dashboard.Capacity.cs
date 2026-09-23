@@ -48,7 +48,14 @@ internal sealed partial class Dashboard
         calculation.Children.Add(new TextBlock{Text=L10n.T("s0F58A8B1B0E1"),TextWrapping=TextWrapping.Wrap,FontSize=12,Opacity=.7});
         calculation.Children.Add(new TextBlock{Text=L10n.T("capacity.stableNote"),TextWrapping=TextWrapping.Wrap,FontSize=12,Opacity=.7});
         estimates.Children.Add(StableExpander.Configure(new Expander{Header=L10n.T("s6B5C96B6A49F"),IsExpanded=false,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,Content=calculation}));
-        capacitySettingsExpander=StableExpander.Configure(new Expander{Header=L10n.T("sD9EBFF4C171F"),IsExpanded=false,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,Content=estimates});
+        var codex=new StackPanel{Spacing=12};
+        codex.Children.Add(new TextBlock{Text="Codex",FontSize=18,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
+        codex.Children.Add(estimates);
+        var claude=new StackPanel{Spacing=12};
+        claude.Children.Add(new TextBlock{Text=L10n.T("claude.desktop"),FontSize=18,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
+        claude.Children.Add(new TextBlock{Text=L10n.T("settings.claude.capacity"),TextWrapping=TextWrapping.Wrap});
+        var providers=new StackPanel{Spacing=12};providers.Children.Add(Card(codex));providers.Children.Add(Card(claude));
+        capacitySettingsExpander=StableExpander.Configure(new Expander{Header=L10n.T("sD9EBFF4C171F"),IsExpanded=false,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch,Content=providers});
         capacitySettingsExpander.Loaded+=(_,_)=>RevealCapacitySettings();
         UpdateCapacitySettingsDetails();
         return capacitySettingsExpander;

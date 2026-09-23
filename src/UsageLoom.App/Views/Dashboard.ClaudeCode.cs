@@ -8,28 +8,50 @@ namespace UsageLoom.App;
 
 internal sealed partial class Dashboard
 {
-    private int claudeCodeDays=7,claudeCodePage;
+    private int claudeCodeRangeIndex=1,claudeCodePage;
+    private DateOnly claudeCodeFrom=DateOnly.FromDateTime(DateTime.Today.AddDays(-6)),claudeCodeThrough=DateOnly.FromDateTime(DateTime.Today);
     private bool claudeHistoryExpanded;
+    private HistoryDateRange ClaudeCodeRange()=>HistoryQuery.ResolveRange(claudeCodeRangeIndex switch{0=>HistoryRangeKind.Day,1=>HistoryRangeKind.Rolling7Days,2=>HistoryRangeKind.Week,3=>HistoryRangeKind.Month,_=>HistoryRangeKind.Custom},DateOnly.FromDateTime(DateTime.Today),claudeCodeFrom,claudeCodeThrough);
     private UIElement ClaudeCodePanel()
     {
         var snapshot=app.ClaudeCode;var panel=new StackPanel{Spacing=16};
         AutomationProperties.SetAutomationId(panel,"claude-code-statistics");
         var toolbar=new StackPanel{Spacing=10};
         var choices=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};
-        foreach(var days in new[]{1,7,30})
+        var range=ClaudeCodeRange();
+        for(var index=0;index<5;index++)
         {
-            var button=new ToggleButton{Content=L10n.T(days==1?"claude.code.today":days==7?"claude.code.week":"claude.code.month"),IsChecked=claudeCodeDays==days,Padding=new Thickness(12,7,12,7)};
-            button.Click+=(_,_)=>{claudeCodeDays=days;claudeCodePage=0;renderedFilter=null;RenderStats();};choices.Children.Add(button);
+            var selected=index;
+            var key=index switch{0=>"s85217F7AFF77",1=>"s2261B06712A3",2=>"s5C553EC3F6DB",3=>"s1625179BADC0",_=>"s4EAFA9E925B3"};
+            var button=new ToggleButton{Content=L10n.T(key),IsChecked=claudeCodeRangeIndex==index,Padding=new Thickness(12,6,12,6),CornerRadius=new CornerRadius(8),MinWidth=42};
+            AutomationProperties.SetAutomationId(button,"claude-code-range-"+index);
+            button.Click+=(_,_)=>{claudeCodeRangeIndex=selected;claudeCodePage=0;renderedFilter=null;RenderStats();};choices.Children.Add(button);
         }
-        toolbar.Children.Add(choices);toolbar.Children.Add(ClaudeText(L10n.T("claude.code.scope")));
-        toolbar.Children.Add(Button(L10n.T("claude.code.refresh"),()=>app.RefreshClaudeAsync(true)));panel.Children.Add(Card(toolbar));
+        var rangeHeader=new Grid{ColumnSpacing=12};
+        rangeHeader.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
+        rangeHeader.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
+        rangeHeader.Children.Add(choices);
+        var rangeLabel=ClaudeText(range.Label,12);rangeLabel.Opacity=.62;rangeLabel.VerticalAlignment=VerticalAlignment.Center;
+        Grid.SetColumn(rangeLabel,1);rangeHeader.Children.Add(rangeLabel);
+        toolbar.Children.Add(rangeHeader);
+        if(claudeCodeRangeIndex==4)
+        {
+            var dates=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};
+            var from=new CalendarDatePicker{Date=new DateTimeOffset(claudeCodeFrom.ToDateTime(TimeOnly.MinValue))};
+            var through=new CalendarDatePicker{Date=new DateTimeOffset(claudeCodeThrough.ToDateTime(TimeOnly.MinValue))};
+            from.DateChanged+=(_,_)=>{if(from.Date is {} value){claudeCodeFrom=DateOnly.FromDateTime(value.LocalDateTime);renderedFilter=null;RenderStats();}};
+            through.DateChanged+=(_,_)=>{if(through.Date is {} value){claudeCodeThrough=DateOnly.FromDateTime(value.LocalDateTime);renderedFilter=null;RenderStats();}};
+            dates.Children.Add(from);dates.Children.Add(through);toolbar.Children.Add(dates);
+        }
+        ToolTipService.SetToolTip(toolbar,L10n.T("claude.code.scope"));panel.Children.Add(Card(toolbar));
         if(snapshot.Status is not "ready")
         {
             var notice=new StackPanel{Spacing=10};notice.Children.Add(ClaudeText(L10n.T("claude.code.status."+snapshot.Status),15));
             notice.Children.Add(Button(L10n.T("sDF3D58C7D84B"),()=>{Navigate("settings");return Task.CompletedTask;}));panel.Children.Add(Card(notice));
         }
-        var start=DateTime.Today.AddDays(1-claudeCodeDays);var now=DateTimeOffset.Now;
-        var rows=snapshot.Rows.Where(r=>r.At.LocalDateTime>=start&&r.At<=now).ToArray();
+        var start=range.From?.ToDateTime(TimeOnly.MinValue)??DateTime.MaxValue;
+        var end=range.Through?.ToDateTime(TimeOnly.MaxValue)??DateTime.MinValue;
+        var rows=snapshot.Rows.Where(r=>r.At.LocalDateTime>=start&&r.At.LocalDateTime<=end).ToArray();
         if(selectedPage=="overview")
         {
             panel.Children.Add(ClaudeOverviewStatistics(rows,start));
@@ -87,33 +109,46 @@ internal sealed partial class Dashboard
     private UIElement ClaudeOverviewStatistics(IReadOnlyList<ClaudeCodeUsage> rows,DateTime start)
     {
         var panel=new StackPanel{Spacing=16};
+        var range=ClaudeCodeRange();
+        var end=range.Through?.ToDateTime(TimeOnly.MaxValue)??start;
         var hasRows=rows.Count>0;
         var total=rows.Sum(r=>r.Total);
+        var all=app.ClaudeCode.Rows.Sum(r=>r.Total);
+        var hasHistory=app.ClaudeCode.Rows.Count>0;
         var sessions=rows.Select(r=>r.Session).Distinct(StringComparer.Ordinal).Count();
-        var cached=rows.Sum(r=>r.CacheRead+r.CacheWrite);
+        var estimate=ClaudeCodePricing.Summarize(rows);
         var observed=hasRows?L10n.T("claude.code.observed"):L10n.T("claude.code.unobserved");
+        var attributionCard=Card(ResponsiveCards(new UIElement[]{
+            Metric(L10n.T("claude.code.allHistory"),hasHistory?all.ToString("N0"):"—",L10n.T("claude.code.allScope")),
+            Metric(L10n.T("claude.code.selectedTokens"),hasRows?total.ToString("N0"):"—",observed),
+            Metric(L10n.T("claude.code.outsideRange"),hasHistory?Math.Max(0,all-total).ToString("N0"):"—",L10n.T("claude.code.outsideScope"))},3,210));
+        AutomationProperties.SetAutomationId(attributionCard,"claude-overview-attribution");panel.Children.Add(attributionCard);
+        panel.Children.Add(Button(L10n.T("claude.code.refresh"),()=>app.RefreshClaudeAsync(true)));
         var metricsCard=Card(ResponsiveCards(new UIElement[]{
-            Metric(L10n.T("claude.code.metricTokens"),hasRows?total.ToString("N0"):"—",observed),
             Metric("Session",hasRows?sessions.ToString("N0"):"—",L10n.T("claude.code.sessionScope")),
             Metric(L10n.T("claude.code.metricResponses"),hasRows?rows.Count.ToString("N0"):"—",L10n.T("claude.code.responseScope")),
-            Metric(L10n.T("claude.code.metricCache"),hasRows?cached.ToString("N0"):"—",L10n.T("claude.code.cacheScope"))},4,190));
+            Metric(L10n.T("claude.code.estimate"),estimate.Priced>0?"$"+estimate.Cost.ToString("N4"):"—",L10n.T("claude.code.estimateScope")),
+            Metric(L10n.T("claude.code.coverage"),total>0?$"{estimate.Coverage:0.#}%":"—",L10n.F("claude.code.unpriced",estimate.Unpriced))},4,190));
         AutomationProperties.SetAutomationId(metricsCard,"claude-overview-metrics");panel.Children.Add(metricsCard);
 
         var buckets=new List<HistoryTrendBucket>();
         if(hasRows)
         {
-            var hourly=claudeCodeDays==1;
-            var count=hourly?DateTime.Now.Hour+1:claudeCodeDays;
+            var hourly=range.IsSingleDay;
+            var count=hourly?24:Math.Min(60,(end.Date-start.Date).Days+1);
+            var daysPerBucket=hourly?1:Math.Max(1,(int)Math.Ceiling(((end.Date-start.Date).Days+1)/(double)count));
+            var grouped=rows.GroupBy(r=>hourly?r.At.LocalDateTime.Hour:Math.Min(count-1,(r.At.LocalDateTime.Date-start.Date).Days/daysPerBucket))
+                .ToDictionary(g=>g.Key,g=>(Tokens:g.Sum(r=>r.Total),Requests:g.Count(),Cost:ClaudeCodePricing.Summarize(g).Cost));
             for(var i=0;i<count;i++)
             {
-                var from=hourly?DateTime.Today.AddHours(i):start.AddDays(i);
-                var through=from.Add(hourly?TimeSpan.FromHours(1):TimeSpan.FromDays(1));
-                var matching=rows.Where(r=>r.At.LocalDateTime>=from&&r.At.LocalDateTime<through).ToArray();
+                var from=hourly?start:start.AddDays(i*daysPerBucket);
                 var day=DateOnly.FromDateTime(from);
-                buckets.Add(new(day,day,hourly?$"{i:00}:00":from.ToString("MM-dd"),matching.Sum(r=>r.Total),matching.Length,0));
+                var through=hourly?day:DateOnly.FromDayNumber(Math.Min(range.Through!.Value.DayNumber,day.DayNumber+daysPerBucket-1));
+                var values=grouped.GetValueOrDefault(i);
+                buckets.Add(new(day,through,hourly?$"{i:00}:00":from.ToString("MM-dd"),values.Tokens,values.Requests,values.Cost));
             }
         }
-        var trend=UsageCharts.Trend(buckets,(_,_)=>{},claudeCodeDays==1,tokenOnly:true);
+        var trend=UsageCharts.Trend(buckets,(_,_)=>{},range.IsSingleDay,tokenOnly:true);
         panel.Children.Add(Card(trend));
 
         var models=new StackPanel{Spacing=12};
@@ -135,6 +170,11 @@ internal sealed partial class Dashboard
         composition.Children.Add(ClaudeText(hasRows?L10n.F("claude.code.counters",rows.Sum(r=>r.Input),rows.Sum(r=>r.Output),rows.Sum(r=>r.CacheRead),rows.Sum(r=>r.CacheWrite)):L10n.T("claude.code.unobserved"),15));
         composition.Children.Add(ClaudeText(L10n.T("claude.code.definition")));
         panel.Children.Add(StableExpander.Configure(new Expander{Header=L10n.T("sA29E4482CC69"),Content=composition,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch}));
+        var pricing=new StackPanel{Spacing=8};
+        pricing.Children.Add(ClaudeText(L10n.T("claude.code.estimateExplain")));
+        if(estimate.Assumed5m)pricing.Children.Add(ClaudeText(L10n.T("claude.code.cacheAssumption")));
+        pricing.Children.Add(new HyperlinkButton{Content=L10n.T("claude.code.priceSource"),NavigateUri=new Uri(ClaudeCodePricing.Source)});
+        panel.Children.Add(StableExpander.Configure(new Expander{Header=L10n.T("claude.code.estimateDetails"),Content=pricing,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch}));
         panel.Children.Add(ClaudeText(L10n.F("claude.code.quality",app.ClaudeCode.Files,app.ClaudeCode.Skipped)));
         return panel;
     }

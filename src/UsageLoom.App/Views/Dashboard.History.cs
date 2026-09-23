@@ -11,7 +11,7 @@ internal sealed partial class Dashboard
     private void RenderStats()
     {
         var selectedRange=SelectedHistoryRange();
-        var filter=$"{selectedPage}|{statisticsProvider}|{historyRangeIndex}|{selectedRange.From}|{selectedRange.Through}|{historySearch.Text}|{sessionOrder.SelectedIndex}|{sessionPage}|{breakdownKind.SelectedIndex}|{DateTime.Today:yyyy-MM-dd}|{app.Config.ClaudeEnabled}|{app.Config.CodexEnabled}";
+        var filter=$"{selectedPage}|{statisticsProvider}|{historyRangeIndex}|{selectedRange.From}|{selectedRange.Through}|{historySearch.Text}|{sessionOrder.SelectedIndex}|{sessionPage}|{breakdownKind.SelectedIndex}|{DateTime.Today:yyyy-MM-dd}|{app.Config.ClaudeEnabled}|{app.Config.CodexEnabled}|{claudeCodeRangeIndex}|{claudeCodeFrom}|{claudeCodeThrough}";
         if(ReferenceEquals(renderedEvents,app.Events)&&ReferenceEquals(renderedSessionNames,app.SessionNames)&&renderedFilter==filter)return;
         renderedEvents=app.Events;renderedSessionNames=app.SessionNames;renderedFilter=filter;
         renderedClaudeStatistics=app.ClaudeQuota;

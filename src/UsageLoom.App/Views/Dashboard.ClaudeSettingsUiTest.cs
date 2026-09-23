@@ -24,6 +24,17 @@ internal sealed partial class Dashboard
                 foreach(var card in new[]{codexCard,claudeCard})
                     if(card.BorderThickness.Left<1||card.CornerRadius.TopLeft<8||card.Padding.Left<16||card.Background is null||card.BorderBrush is null)
                         throw new InvalidOperationException("Provider setting card lost its border, spacing or theme brushes");
+                foreach(var key in new[]{"s16685D3221B9","sA28590E6B1D8","sD9EBFF4C171F","sD39DC68172D7","s5AB943671D29"})
+                {
+                    var section=((StackPanel)scrollContent.Content).Children.OfType<Expander>().SingleOrDefault(e=>Equals(e.Header,L10n.T(key)));
+                    if(section?.Content is not StackPanel collection||collection.Children.Count!=2||
+                        collection.Children[0] is not Border first||collection.Children[1] is not Border second||
+                        first.Child is not StackPanel codex||second.Child is not StackPanel claude||
+                        codex.Children.FirstOrDefault() is not TextBlock codexTitle||codexTitle.Text!="Codex"||
+                        claude.Children.FirstOrDefault() is not TextBlock claudeTitle||claudeTitle.Text!=L10n.T("claude.desktop")||
+                        first.BorderThickness.Left<1||second.BorderThickness.Left<1)
+                        throw new InvalidOperationException("AI settings section is not separated into Codex and Claude cards: "+key);
+                }
                 if(sources.Children.OfType<Expander>().Any()||((StackPanel)scrollContent.Content).Children.OfType<Expander>().Any(e=>Equals(e.Header,L10n.T("claude.title"))))
                     throw new InvalidOperationException("Claude settings retained a separate expander");
                 dataSourcesSettings.IsExpanded=true;dataSourcesSettings.UpdateLayout();

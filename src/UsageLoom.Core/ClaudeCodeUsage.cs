@@ -10,6 +10,8 @@ public sealed record ClaudeCodeUsage(string Message,string Request,string Sessio
     DateTimeOffset At,long Input,long Output,long CacheRead,long CacheWrite,bool Sidechain=false)
 {
     public long Total=>Input+Output+CacheRead+CacheWrite;
+    // Null means the transcript did not expose a trustworthy write-TTL split.
+    public long? CacheWrite1h { get; init; }
 }
 public sealed record ClaudeCodeSnapshot(string Status,IReadOnlyList<ClaudeCodeUsage> Rows,int Files=0,int Skipped=0,int Duplicates=0)
 {
@@ -24,7 +26,7 @@ public static class ClaudeCodeParser
     {
         var reader=new Utf8JsonReader(line,new JsonReaderOptions{MaxDepth=64});
         string type="",id="",request="",session="",model="",timestamp="";bool sidechain=false,hasUsage=false,invalid=false;
-        long? input=null,output=null;long read=0,write=0;
+        long? input=null,output=null;long read=0,write=0;long? write1h=null,write5m=null;
         try
         {
             if(!reader.Read()||reader.TokenType!=JsonTokenType.StartObject)return null;
@@ -58,6 +60,20 @@ public static class ClaudeCodeParser
                                         if(reader.TokenType!=JsonTokenType.Number||!reader.TryGetInt64(out var value)||value<0||value>1_000_000_000_000L){invalid=true;reader.Skip();continue;}
                                         switch(counter){case "input_tokens":input=value;break;case "output_tokens":output=value;break;case "cache_read_input_tokens":read=value;break;case "cache_creation_input_tokens":write=value;break;}
                                     }
+                                    else if(counter=="cache_creation"&&reader.TokenType==JsonTokenType.StartObject)
+                                    {
+                                        while(reader.Read()&&reader.TokenType!=JsonTokenType.EndObject)
+                                        {
+                                            if(reader.TokenType!=JsonTokenType.PropertyName)return null;
+                                            var part=reader.GetString();if(!reader.Read())return null;
+                                            if(part is "ephemeral_1h_input_tokens" or "ephemeral_5m_input_tokens")
+                                            {
+                                                if(reader.TokenType!=JsonTokenType.Number||!reader.TryGetInt64(out var value)||value<0||value>1_000_000_000_000L){invalid=true;reader.Skip();continue;}
+                                                if(part=="ephemeral_1h_input_tokens")write1h=value;else write5m=value;
+                                            }
+                                            else reader.Skip();
+                                        }
+                                    }
                                     else reader.Skip(); // Includes nested cache TTL breakdown: never count it twice.
                                 }
                             }
@@ -73,8 +89,11 @@ public static class ClaudeCodeParser
                 string.IsNullOrWhiteSpace(model)||model.Length>128||model.StartsWith('<'))return null;
             // message.id is shared by streaming content blocks; record uuid is NOT that identity.
             if(string.IsNullOrWhiteSpace(id))return null; // No reliable identity: do not risk double counting.
+            if(write1h>write||write5m>write||write1h is not null&&write5m is not null&&write1h+write5m!=write)return null;
+            if(write1h is null&&write5m==write)write1h=0;
+            if(write1h==write)write5m=0;
             return new(Digest(id),string.IsNullOrEmpty(request)?"":Digest(request),Digest(string.IsNullOrEmpty(session)?fallbackSession:session),
-                project,model,at,input.Value,output.Value,read,write,sidechain);
+                project,model,at,input.Value,output.Value,read,write,sidechain){CacheWrite1h=write1h};
         }
         catch(JsonException){return null;}
     }
