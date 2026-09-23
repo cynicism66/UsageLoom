@@ -2224,6 +2224,7 @@ CapacityReliabilityTests.Run(Test);
 ClaudeQuotaTests.Run(Test,fixtureRoot);
 ClaudeHistoryTests.Run(Test,fixtureRoot);
 ClaudeCodeTests.Run(Test,fixtureRoot);
+ClaudeWeeklyCapacityTests.Run(Test);
 AsyncTest("模式时间线与真实扫描链路",ModeScannerTests.Run);
 ModeStorageTests.Run(AsyncTest,fixtureRoot);
 try

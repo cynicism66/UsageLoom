@@ -89,6 +89,8 @@ internal sealed partial class Dashboard
         {
             if(claudeDetails?.Parent is not Border claudeCard||providers.Children.Count<2||providers.Children[1]!=claudeCard||claudeDetails.Children[0] is not Grid claudeHeader||claudeHeader.Children[0] is not TextBlock claudeTitle||claudeTitle.FontSize!=title.FontSize||claudeHeader.Children[1] is not TextBlock claudePlan||claudePlan.Text!=ClaudePlanLabel.Badge(app.Config.ClaudeManualPlan))
                 throw new InvalidOperationException("Codex and Claude card hierarchy differs");
+            if(!claudeDetails.Children.OfType<StackPanel>().Any(p=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(p)=="claude-weekly-capacity"))
+                throw new InvalidOperationException("Claude quota card has no weekly comparison or sampling status");
             if(providers.ColumnDefinitions.Count>1)
             {
                 var codexTop=codexDetailsCard.TransformToVisual(providers).TransformPoint(new(0,0)).Y;
