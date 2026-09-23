@@ -77,6 +77,10 @@ static class ClaudeQuotaTests
             File.WriteAllBytes(Path.Combine(cache,"f_000001"),compressed);File.WriteAllBytes(Path.Combine(cache,"f_000002"),header);
             var snapshot=ClaudeDesktopReader.Read(root,null,now);
             Check(snapshot.Status=="snapshot"&&snapshot.Windows.Count==2&&snapshot.Windows[0].ResetsAt==now.AddHours(1));
+            var historyPath=Path.Combine(root,"plan-usage-history.json");
+            File.WriteAllText(historyPath,"{incomplete");
+            Check(ClaudeDesktopReader.Read(root,null,now).Status=="snapshot");
+            File.Delete(historyPath);
             // Expired snapshot remains historical, not a new full window.
             Check(ClaudeDesktopReader.Read(root,null,now.AddHours(2)).Windows[0].RemainingText(now.AddHours(2))=="—");
             Check(File.ReadAllBytes(Path.Combine(cache,"data_1")).SequenceEqual(block));
@@ -99,6 +103,21 @@ static class ClaudeQuotaTests
             Check(snapshot.HistoryOnly&&snapshot.Windows[0].ResetsAt is null&&snapshot.Windows[1].Used==25);
             Check(ClaudeQuotaParser.History("{\"version\":1,\"samples\":[]}"u8.ToArray(),root,null,now).Status=="unsupported");
             Check(ClaudeDesktopReader.Read(Path.Combine(root,"absent"),null,now).Status=="notFound");
+        });
+        test("Claude 缓存并发损坏时使用已校验历史，不将旧值冒充实时额度",()=>
+        {
+            var fallbackRoot=Path.Combine(fixtureRoot,"claude-cache-fallback");
+            var cache=Path.Combine(fallbackRoot,"Cache","Cache_Data");
+            Directory.CreateDirectory(cache);
+            File.WriteAllBytes(Path.Combine(cache,"index"),new byte[16]);
+            Check(ClaudeDesktopReader.Read(fallbackRoot,null,now).Status=="readFailed");
+            var data=JsonSerializer.SerializeToUtf8Bytes(new{version=2,samples=new[]{new{org,t=now.ToUnixTimeMilliseconds(),u=new{fh=12,sd=25}}}});
+            File.WriteAllBytes(Path.Combine(fallbackRoot,"plan-usage-history.json"),data);
+            var fallback=ClaudeDesktopReader.Read(fallbackRoot,null,now);
+            Check(fallback.Status=="snapshot"&&fallback.HistoryOnly&&fallback.Windows.Count==2);
+            Check(fallback.Windows[0].Used==12&&fallback.Windows[0].ResetsAt is null);
+            File.WriteAllText(Path.Combine(fallbackRoot,"plan-usage-history.json"),"{broken");
+            Check(ClaudeDesktopReader.Read(fallbackRoot,null,now).Status=="readFailed");
         });
         test("Claude 新历史不沿用旧周期重置，不忽略跨来源冲突",()=>
         {

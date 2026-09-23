@@ -37,17 +37,29 @@ public sealed class ClaudeDesktopReader
             if(!Path.IsPathFullyQualified(directory)||directory.StartsWith(@"\\")||!Directory.Exists(directory))return ClaudeQuotaSnapshot.Empty("notFound");
             var reader=new ClaudeDesktopReader(directory,cancellation);
             ClaudeQuotaSnapshot? history=null;
+            var historyFailed=false;
             if(File.Exists(Path.Combine(directory,"plan-usage-history.json")))
             {
-                var data=reader.ReadWhole("plan-usage-history.json",2*MaxIndex);
-                if(!data.AsSpan().SequenceEqual(reader.ReadWhole("plan-usage-history.json",2*MaxIndex)))throw new IOException("Changing history");
-                history=ClaudeQuotaParser.History(data,directory,scope,now);
+                for(var attempt=0;attempt<3;attempt++)
+                {
+                    try
+                    {
+                        var data=reader.ReadWhole("plan-usage-history.json",2*MaxIndex);
+                        if(!data.AsSpan().SequenceEqual(reader.ReadWhole("plan-usage-history.json",2*MaxIndex)))throw new IOException("Changing history");
+                        history=ClaudeQuotaParser.History(data,directory,scope,now);
+                        break;
+                    }
+                    catch(IOException)when(attempt<2)
+                    {reader.RetryDelay(attempt);}
+                    catch(Exception ex)when(ex is not OperationCanceledException and not OutOfMemoryException)
+                    {historyFailed=true;break;}
+                }
             }
             var index=Path.Combine("Cache","Cache_Data","index");
             if(File.Exists(Path.Combine(directory,index)))
             {
-                // Retry once for cache rotation/concurrent writes; never modify or lock the source.
-                for(var attempt=0;attempt<2;attempt++)
+                // Retry bounded concurrent writes; the first immediate retry alone often sees the same dirty entry.
+                for(var attempt=0;attempt<3;attempt++)
                 {
                     try
                     {
@@ -63,14 +75,16 @@ public sealed class ClaudeDesktopReader
                         }
                         break;
                     }
-                    catch(NotSupportedException){return ClaudeQuotaSnapshot.Empty("unsupported");}
-                    catch(IOException)when(attempt==0){cancellation.ThrowIfCancellationRequested();}
+                    catch(NotSupportedException){return history?.Status=="snapshot"?history:ClaudeQuotaSnapshot.Empty("unsupported");}
+                    catch(IOException)when(attempt<2){reader.RetryDelay(attempt);}
+                    catch(Exception ex)when(ex is not OperationCanceledException and not OutOfMemoryException)
+                    {return history?.Status=="snapshot"?history:ClaudeQuotaSnapshot.Empty("readFailed");}
                 }
             }
             else if(Directory.Exists(Path.Combine(directory,"Cache","Cache_Data"))&&
-                Directory.EnumerateFiles(Path.Combine(directory,"Cache","Cache_Data"),"*_0").Any())return ClaudeQuotaSnapshot.Empty("unsupported");
+                Directory.EnumerateFiles(Path.Combine(directory,"Cache","Cache_Data"),"*_0").Any())return history?.Status=="snapshot"?history:ClaudeQuotaSnapshot.Empty("unsupported");
             if(history is not null)return history;
-            return ClaudeQuotaSnapshot.Empty("waiting");
+            return ClaudeQuotaSnapshot.Empty(historyFailed?"readFailed":"waiting");
         }
         catch(OperationCanceledException){throw;}
         catch(Exception ex)when(ex is not OutOfMemoryException){return ClaudeQuotaSnapshot.Empty("readFailed");}
@@ -79,6 +93,13 @@ public sealed class ClaudeDesktopReader
     {
         cancellation.ThrowIfCancellationRequested();
         if(elapsed.Elapsed>TimeSpan.FromSeconds(8))throw new IOException("Read deadline");
+    }
+    private void RetryDelay(int attempt)
+    {
+        Check();
+        if(cancellation.WaitHandle.WaitOne(TimeSpan.FromMilliseconds(attempt==0?80:240)))
+            cancellation.ThrowIfCancellationRequested();
+        Check();
     }
     private string SafePath(string relative)
     {
