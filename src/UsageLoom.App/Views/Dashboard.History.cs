@@ -33,15 +33,8 @@ internal sealed partial class Dashboard
             if(app.Config.ClaudeEnabled){claudeOverview=new(){Spacing=8};FillClaudeCard(claudeOverview);cards.Add(Card(claudeOverview));}
             if(cards.Count>0)statsPanel.Children.Add(ResponsiveCards(cards,2,300));
         }
-        var providerHeader=StatisticsProviderHeader();
-        if(selectedPage=="sessions")
+        if(selectedPage!="sessions")
         {
-            sessionWorkspace.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
-            sessionWorkspace.Children.Add(providerHeader);
-        }
-        else
-        {
-            statisticsBody.Children.Add(providerHeader);
             statisticsFrame??=new Border{Child=statisticsBody,BorderBrush=accent,BorderThickness=new Thickness(2,0,0,0),Padding=new Thickness(12,0,0,0)};
             statsPanel.Children.Add(statisticsFrame);
         }
@@ -51,7 +44,7 @@ internal sealed partial class Dashboard
             {
                 sessionWorkspace.RowDefinitions.Add(new RowDefinition{Height=new GridLength(1,GridUnitType.Star)});
                 var notice=new ScrollViewer{Content=StatisticsUnavailable(),VerticalScrollBarVisibility=ScrollBarVisibility.Auto};
-                Grid.SetRow(notice,1);sessionWorkspace.Children.Add(notice);
+                Grid.SetRow(notice,0);sessionWorkspace.Children.Add(notice);
             }
             else statisticsBody.Children.Add(StatisticsUnavailable());
             return;
@@ -134,7 +127,7 @@ internal sealed partial class Dashboard
         sessionWorkspace.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
         sessionWorkspace.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
         sessionWorkspace.RowDefinitions.Add(new RowDefinition{Height=new GridLength(1,GridUnitType.Star)});
-        Grid.SetRow(filterBar,1);sessionWorkspace.Children.Add(filterBar);filterHost=sessionWorkspace;
+        Grid.SetRow(filterBar,0);sessionWorkspace.Children.Add(filterBar);filterHost=sessionWorkspace;
 
         var sessions=HistoryQuery.Sessions(rows,sessionOrder.SelectedIndex switch{1=>"recent",2=>"name",_=>"tokens"},app.SessionNames);
         const int pageSize=30;sessionPage=Math.Clamp(sessionPage,0,Math.Max(0,(sessions.Count-1)/pageSize));
@@ -155,7 +148,7 @@ internal sealed partial class Dashboard
             Grid.SetColumn(paging,narrow?0:1);Grid.SetRow(paging,narrow?1:0);Grid.SetColumnSpan(paging,narrow?2:1);
             paging.HorizontalAlignment=narrow?HorizontalAlignment.Left:HorizontalAlignment.Right;
         };
-        Grid.SetRow(toolbar,2);sessionWorkspace.Children.Add(toolbar);
+        Grid.SetRow(toolbar,1);sessionWorkspace.Children.Add(toolbar);
 
         var list=new ListView{SelectionMode=ListViewSelectionMode.Single,HorizontalContentAlignment=HorizontalAlignment.Stretch,VerticalAlignment=VerticalAlignment.Stretch};
         var detail=new StackPanel{Spacing=12,VerticalAlignment=VerticalAlignment.Top};
@@ -209,7 +202,7 @@ internal sealed partial class Dashboard
             }
         }
         split.SizeChanged+=(_,e)=>Layout(e.NewSize.Width);Layout(1000);
-        Grid.SetRow(split,3);sessionWorkspace.Children.Add(split);
+        Grid.SetRow(split,2);sessionWorkspace.Children.Add(split);
     }
     private void AddGroups(string title,IEnumerable<IGrouping<string,UsageEvent>> groups)
     {

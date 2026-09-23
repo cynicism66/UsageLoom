@@ -2,6 +2,7 @@ using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Automation;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
+using Microsoft.UI.Xaml.Media;
 using UsageLoom.Core;
 
 namespace UsageLoom.App;
@@ -24,6 +25,9 @@ internal sealed partial class Dashboard
             var tab=CapacityTestDescendants(root).OfType<ToggleButton>().Single(t=>AutomationProperties.GetAutomationId(t)=="stats-provider-"+provider);
             tab.IsChecked=true;root.UpdateLayout();
             if(statisticsProvider!=provider)throw new InvalidOperationException("Provider selector did not switch the view");
+            for(DependencyObject? parent=tab;parent is not null;parent=VisualTreeHelper.GetParent(parent))
+                if(ReferenceEquals(parent,pageScroll)||ReferenceEquals(parent,sessionWorkspace))
+                    throw new InvalidOperationException("Provider selector moved into scrolling content");
         }
         void CheckUnavailable()
         {
@@ -47,6 +51,14 @@ internal sealed partial class Dashboard
                     throw new InvalidOperationException("Provider switch lost Codex filters");
             }
             Switch("claude");ShowPage("breakdown");CheckUnavailable();ShowPage("overview");CheckUnavailable();
+            if(CapacityTestDescendants(statisticsBody).OfType<TextBlock>().Any(t=>t.Text==L10n.F("stats.title","Claude")||t.Text==L10n.T("stats.scope")))
+                throw new InvalidOperationException("Removed provider title or instructions remain in the statistics body");
+            if(app.Config.ClaudeEnabled)
+            {
+                foreach(var id in new[]{"claude-overview-metrics","claude-overview-models","claude-overview-sessions"})
+                    if(!CapacityTestDescendants(statisticsBody).OfType<FrameworkElement>().Any(e=>AutomationProperties.GetAutomationId(e)==id))
+                        throw new InvalidOperationException("Claude overview is missing Codex-style section: "+id);
+            }
             claudeHistoryDays=30;renderedFilter=null;RenderStats();CheckUnavailable();
             ShowPage("sessions");ShowPage("overview");root.UpdateLayout();
             if(claudeHistoryDays!=30)

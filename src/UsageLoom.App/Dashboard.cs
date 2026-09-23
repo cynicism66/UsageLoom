@@ -132,14 +132,15 @@ internal sealed partial class Dashboard : Window
         var headingText = new StackPanel { Spacing = 4 };
         headingText.Children.Add(pageTitle);headingText.Children.Add(pageSubtitle);
         var heading = new Grid{ColumnSpacing=16,RowSpacing=10,Margin=new Thickness(compact?0:32,0,compact?0:32,20),MaxWidth=1600,HorizontalAlignment=compact?HorizontalAlignment.Stretch:HorizontalAlignment.Left};
+        heading.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
         heading.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
         heading.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
         heading.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
         heading.RowDefinitions.Add(new RowDefinition{Height=GridLength.Auto});
-        heading.Children.Add(headingText);heading.Children.Add(actions);
+        heading.Children.Add(headingText);InitializeStatisticsTabs();Grid.SetColumn(statisticsTabs,1);heading.Children.Add(statisticsTabs);Grid.SetColumn(actions,2);heading.Children.Add(actions);
         body.SizeChanged+=(_,e)=>
         {
-            var narrow=e.NewSize.Width<620;
+            var narrow=e.NewSize.Width<760;
             var inset=narrow?16:24;
             body.Padding=compact?new Thickness(inset,16,inset,16):new Thickness(0,16,0,16);
             heading.Margin=compact?new Thickness(0,0,0,12):new Thickness(inset,0,inset,20);
@@ -156,8 +157,9 @@ internal sealed partial class Dashboard : Window
             }
             pageTitle.FontSize=compact?16:narrow?24:30;
             pageSubtitle.Visibility=compact||narrow?Visibility.Collapsed:Visibility.Visible;
-            Grid.SetColumn(actions,!compact&&narrow?0:1);Grid.SetRow(actions,!compact&&narrow?1:0);
-            Grid.SetColumnSpan(headingText,!compact&&narrow?2:1);
+            Grid.SetColumn(statisticsTabs,narrow?0:1);Grid.SetRow(statisticsTabs,narrow?1:0);Grid.SetColumnSpan(statisticsTabs,narrow?2:1);
+            Grid.SetColumn(actions,2);Grid.SetRow(actions,!compact&&narrow?1:0);
+            Grid.SetColumnSpan(headingText,!compact&&narrow?3:1);
             actions.HorizontalAlignment=narrow?HorizontalAlignment.Left:HorizontalAlignment.Right;
         };
         actions.Children.Add(Button(compact?L10n.T("sAEE887434131"):L10n.T("s637A0D380AEC"),async()=>await app.RefreshQuotaAsync(true)));
@@ -397,6 +399,7 @@ internal sealed partial class Dashboard : Window
             "about" => (L10n.T("s5E2B0B3F20D6"), L10n.T("sE4E047F974F7")),
             _ => (L10n.T("sA96599373E64"), L10n.T("s66AFCA0BDCC6")) };
         pageTitle.Text = title; pageSubtitle.Text = subtitle;
+        UpdateStatisticsTabs();
         actions.Children.Clear();
         if(selectedPage=="quota")actions.Children.Add(Button(L10n.T("s637A0D380AEC"),async()=>await app.RefreshQuotaAsync(true)));
         else if(selectedPage is "overview" or "breakdown" or "sessions")actions.Children.Add(Button(L10n.T("s020FCEFB6A48"),async()=>{if(CodexStatisticsActive)await app.ScanAsync();}));

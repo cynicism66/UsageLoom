@@ -12,7 +12,7 @@ internal static class UsageCharts
 {
     private enum TrendMetric { Tokens, Requests, Cost }
     internal static readonly Windows.UI.Color[] Colorset=[ColorHelper.FromArgb(255,163,138,245),ColorHelper.FromArgb(255,199,181,255),ColorHelper.FromArgb(255,116,134,215),ColorHelper.FromArgb(255,101,179,184),ColorHelper.FromArgb(255,184,151,201),ColorHelper.FromArgb(255,130,139,157)];
-    internal static FrameworkElement Trend(IReadOnlyList<HistoryTrendBucket> buckets,Action<DateOnly,DateOnly> select,bool hourly=false)
+    internal static FrameworkElement Trend(IReadOnlyList<HistoryTrendBucket> buckets,Action<DateOnly,DateOnly> select,bool hourly=false,bool tokenOnly=false)
     {
         const double height=286,left=36,right=18,top=34,bottom=58;
         var root=new StackPanel{Spacing=12};var header=new Grid{ColumnSpacing=16,RowSpacing=8};
@@ -24,15 +24,16 @@ internal static class UsageCharts
         var totalText=new TextBlock{FontSize=18,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,Foreground=new SolidColorBrush(Colorset[0]),VerticalAlignment=VerticalAlignment.Center,Margin=new Thickness(0,0,4,0)};headerRight.Children.Add(totalText);
         var metricButtons=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};headerRight.Children.Add(metricButtons);
         var buttons=new Dictionary<TrendMetric,Button>();
-        foreach(var (metric,label) in new[]{(TrendMetric.Tokens,L10n.T("s9638021CAEE5")),(TrendMetric.Requests,L10n.T("s855754C132F3")),(TrendMetric.Cost,L10n.T("sB8D69B30E00B"))})
+        foreach(var (metric,label) in new[]{(TrendMetric.Tokens,L10n.T("s9638021CAEE5")),(TrendMetric.Requests,L10n.T("s855754C132F3")),(TrendMetric.Cost,L10n.T("sB8D69B30E00B"))}.Where(item=>!tokenOnly||item.Item1==TrendMetric.Tokens))
         {
             var button=new Button{Content=label,Padding=new Thickness(11,6,11,6),CornerRadius=new CornerRadius(8),FontSize=12};
             buttons[metric]=button;metricButtons.Children.Add(button);
         }
-        var caption=new TextBlock{Text=(hourly?L10n.T("s3A3C6EC37497"):L10n.T("s18A912CFCF51"))+L10n.T("s94186ECB2771"),FontSize=11,Opacity=.62,TextWrapping=TextWrapping.Wrap};Grid.SetRow(caption,1);Grid.SetColumnSpan(caption,2);header.Children.Add(caption);
+        var caption=new TextBlock{Text=tokenOnly?L10n.T("claude.code.chartNotice"):(hourly?L10n.T("s3A3C6EC37497"):L10n.T("s18A912CFCF51"))+L10n.T("s94186ECB2771"),FontSize=11,Opacity=.62,TextWrapping=TextWrapping.Wrap};Grid.SetRow(caption,1);Grid.SetColumnSpan(caption,2);header.Children.Add(caption);
         root.Children.Add(header);
         var chartHost=new Grid{Height=292,MinWidth=0};
         var canvas=new Canvas{Height=height,HorizontalAlignment=HorizontalAlignment.Stretch,VerticalAlignment=VerticalAlignment.Stretch,Background=new SolidColorBrush(Colors.Transparent)};chartHost.Children.Add(canvas);root.Children.Add(chartHost);
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(canvas,tokenOnly?"claude-token-chart":"codex-token-chart");
         if(buckets.Count==0)
         {
             chartHost.Children.Clear();chartHost.Children.Add(new TextBlock{Text=L10n.T("s6518A3BADD61"),FontSize=15,Opacity=.65,TextAlignment=TextAlignment.Center,HorizontalAlignment=HorizontalAlignment.Center,VerticalAlignment=VerticalAlignment.Center});
@@ -102,11 +103,11 @@ internal static class UsageCharts
         {
             if(currentPoints.Length==0||indicator is null||tooltip is null||tooltipText is null)return;
             var index=Nearest(e.GetCurrentPoint(canvas).Position.X);indicator.X1=indicator.X2=currentPoints[index].X;indicator.Visibility=Visibility.Visible;
-            tooltipText.Text=$"{buckets[index].From:yyyy-MM-dd}"+(hourly?$" · {buckets[index].Label}":buckets[index].From==buckets[index].Through?"":L10n.F("sBB1DCF021E6A", buckets[index].Through))+L10n.F("s0B429D8FF175", buckets[index].Tokens, buckets[index].Requests, buckets[index].EstimatedCost);
+            tooltipText.Text=tokenOnly?$"{buckets[index].Label} · {buckets[index].Tokens:N0} Token":$"{buckets[index].From:yyyy-MM-dd}"+(hourly?$" · {buckets[index].Label}":buckets[index].From==buckets[index].Through?"":L10n.F("sBB1DCF021E6A", buckets[index].Through))+L10n.F("s0B429D8FF175", buckets[index].Tokens, buckets[index].Requests, buckets[index].EstimatedCost);
             Canvas.SetLeft(tooltip,Math.Clamp(currentPoints[index].X-102,8,currentWidth-212));Canvas.SetTop(tooltip,8);tooltip.Visibility=Visibility.Visible;
         };
         canvas.PointerExited+=(_,_)=>{if(indicator is not null)indicator.Visibility=Visibility.Collapsed;if(tooltip is not null)tooltip.Visibility=Visibility.Collapsed;};
-        canvas.PointerPressed+=(_,e)=>{if(hourly||currentPoints.Length==0)return;var index=Nearest(e.GetCurrentPoint(canvas).Position.X);select(buckets[index].From,buckets[index].Through);};
+        canvas.PointerPressed+=(_,e)=>{if(tokenOnly||hourly||currentPoints.Length==0)return;var index=Nearest(e.GetCurrentPoint(canvas).Position.X);select(buckets[index].From,buckets[index].Through);};
         header.SizeChanged+=(_,e)=>
         {
             var narrow=e.NewSize.Width<700;
@@ -140,9 +141,10 @@ internal static class UsageCharts
         }
         return grid;
     }
-    internal static FrameworkElement Models(IEnumerable<UsageEvent> events)
+    internal static FrameworkElement Models(IEnumerable<UsageEvent> events)=>Models(events.GroupBy(e=>e.Model).Select(g=>(Name:g.Key,Total:g.Sum(e=>e.Tokens.Total))));
+    internal static FrameworkElement Models(IEnumerable<(string Name,long Total)> modelTotals)
     {
-        var groups=events.GroupBy(e=>e.Model).Select(g=>(Name:g.Key,Total:g.Sum(e=>e.Tokens.Total))).OrderByDescending(g=>g.Total).ToList();
+        var groups=modelTotals.OrderByDescending(g=>g.Total).ToList();
         if(groups.Count>5){var rest=groups.Skip(5).Sum(g=>g.Total);groups=groups.Take(5).Append((Name:L10n.T("sE010BA9D2A30"),Total:rest)).ToList();}
         var total=groups.Sum(g=>g.Total);var panel=new StackPanel{Spacing=14};var ring=new Grid{Width=166,Height=166,HorizontalAlignment=HorizontalAlignment.Center,Margin=new Thickness(0,12,0,0)};
         ring.Children.Add(new Ellipse{Stroke=new SolidColorBrush(ColorHelper.FromArgb(50,150,150,170)),StrokeThickness=20,Margin=new Thickness(9)});

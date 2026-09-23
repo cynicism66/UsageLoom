@@ -10,6 +10,8 @@ internal sealed partial class Dashboard
 {
     private string statisticsProvider="codex";
     private readonly StackPanel statisticsBody=new(){Spacing=16};
+    private readonly StackPanel statisticsTabs=new(){Orientation=Orientation.Horizontal,Spacing=8,VerticalAlignment=VerticalAlignment.Center,HorizontalAlignment=HorizontalAlignment.Left};
+    private readonly Dictionary<string,ToggleButton> statisticsTabButtons=[];
     private Border? statisticsFrame;
     private bool IsStatisticsPage=>selectedPage is "overview" or "breakdown" or "sessions";
     private bool CodexStatisticsActive=>statisticsProvider=="codex"&&app.Config.CodexEnabled;
@@ -19,30 +21,35 @@ internal sealed partial class Dashboard
         if(provider is not ("codex" or "claude"))throw new ArgumentException("Unknown statistics provider");
         if(statisticsProvider==provider)return;
         statisticsProvider=provider;renderedFilter=null;
-        capacityInfoFlyout?.Hide();Render();
+        capacityInfoFlyout?.Hide();UpdateStatisticsTabs();Render();
         pageScroll.ChangeView(null,0,null);
     }
 
-    private UIElement StatisticsProviderHeader()
+    private void InitializeStatisticsTabs()
     {
-        var panel=new StackPanel{Spacing=10};
-        var tabs=new StackPanel{Orientation=Orientation.Horizontal,Spacing=8};
         foreach(var provider in new[]{"codex","claude"})
         {
-            var enabled=provider=="codex"?app.Config.CodexEnabled:app.Config.ClaudeEnabled;
             var label=provider=="codex"?"Codex":"Claude";
-            var tab=new ToggleButton{Content=label+(enabled?"":" · "+L10n.T("stats.disabled")),IsChecked=statisticsProvider==provider,MinWidth=100,Padding=new Thickness(14,8,14,8)};
+            var tab=new ToggleButton{Content=label,IsChecked=statisticsProvider==provider,MinWidth=100,Padding=new Thickness(14,8,14,8)};
             AutomationProperties.SetAutomationId(tab,"stats-provider-"+provider);
             AutomationProperties.SetName(tab,L10n.F("stats.view",label));
             tab.Checked+=(_,_)=>SelectStatisticsProvider(provider);
             tab.Unchecked+=(_,_)=>{if(statisticsProvider==provider)tab.IsChecked=true;};
             tab.Click+=(_,_)=>{if(statisticsProvider==provider)tab.IsChecked=true;else SelectStatisticsProvider(provider);};
-            tabs.Children.Add(tab);
+            statisticsTabButtons.Add(provider,tab);statisticsTabs.Children.Add(tab);
         }
-        panel.Children.Add(tabs);
-        panel.Children.Add(new TextBlock{Text=L10n.F("stats.title",statisticsProvider=="codex"?"Codex":"Claude"),FontSize=20,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
-        panel.Children.Add(ClaudeText(L10n.T("stats.scope")));
-        var card=Card(panel);AutomationProperties.SetAutomationId(card,"stats-provider-header");return card;
+        UpdateStatisticsTabs();
+    }
+
+    private void UpdateStatisticsTabs()
+    {
+        statisticsTabs.Visibility=!compact&&IsStatisticsPage?Visibility.Visible:Visibility.Collapsed;
+        foreach(var (provider,tab) in statisticsTabButtons)
+        {
+            var enabled=provider=="codex"?app.Config.CodexEnabled:app.Config.ClaudeEnabled;
+            tab.Content=(provider=="codex"?"Codex":"Claude")+(enabled?"":" · "+L10n.T("stats.disabled"));
+            tab.IsChecked=statisticsProvider==provider;
+        }
     }
 
     private UIElement StatisticsUnavailable()
@@ -61,6 +68,7 @@ internal sealed partial class Dashboard
 
     private void UpdateStatisticsActions()
     {
+        UpdateStatisticsTabs();
         if(!IsStatisticsPage)return;
         actions.Visibility=CodexStatisticsActive?Visibility.Visible:Visibility.Collapsed;
         status.Text=statisticsProvider=="claude"?(app.Config.ClaudeEnabled?"Claude · "+app.ClaudeQuota.Describe(DateTimeOffset.Now):L10n.F("stats.sourceDisabled","Claude")):
