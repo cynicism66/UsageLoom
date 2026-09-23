@@ -33,12 +33,12 @@ internal sealed partial class Dashboard
         }
         return cachedCapacity;
     }
-    private void FillClaudeCard(StackPanel panel)
+    private void FillClaudeCard(StackPanel panel,bool overview=false)
     {
         var snapshot=app.ClaudeQuota;var now=DateTimeOffset.Now;panel.Children.Clear();
-        var header=new Grid{ColumnSpacing=8};header.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});header.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
-        header.Children.Add(ClaudeText(L10n.T("claude.title"),18));
-        var plan=CompactText(12,24);plan.MaxWidth=170;plan.Text=ClaudePlanLabel.Badge(app.Config.ClaudeManualPlan);plan.HorizontalAlignment=HorizontalAlignment.Right;
+        var header=new Grid{ColumnSpacing=12};header.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});header.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
+        header.Children.Add(new TextBlock{Text=L10n.T("claude.title"),FontSize=18,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,TextWrapping=TextWrapping.Wrap,VerticalAlignment=VerticalAlignment.Center});
+        var plan=CompactText(12,24);plan.MaxWidth=170;plan.Text=ClaudePlanLabel.Badge(app.Config.ClaudeManualPlan);plan.HorizontalAlignment=HorizontalAlignment.Right;plan.VerticalAlignment=VerticalAlignment.Center;
         AutomationProperties.SetAutomationId(plan,"claude-plan-label");ToolTipService.SetToolTip(plan,L10n.T("claude.planNotice"));
         Grid.SetColumn(plan,1);header.Children.Add(plan);panel.Children.Add(header);
         panel.Children.Add(ClaudeText(snapshot.Describe(now)));
@@ -46,10 +46,24 @@ internal sealed partial class Dashboard
         {
             var window=snapshot.Windows.FirstOrDefault(w=>w.Key==key);
             panel.Children.Add(ClaudeText(L10n.T("claude."+key)+" · "+L10n.F("claude.remaining",window?.RemainingText(now)??"—"),14));
-            panel.Children.Add(new ProgressBar{Minimum=0,Maximum=100,Value=window is not null&&!window.Expired(now)?100-window.Used:0,Height=4,Foreground=accent,Opacity=(window is null||window.Expired(now))?0.3:1});
+            panel.Children.Add(new ProgressBar{Minimum=0,Maximum=100,Value=window is not null&&!window.Expired(now)?100-window.Used:0,Height=5,Foreground=accent,Opacity=(window is null||window.Expired(now))?0.3:1});
             panel.Children.Add(ClaudeText(window?.Countdown(now)??L10n.T("claude.noReset")));
         }
         var estimate=ClaudeCapacityAt(now);
+        if(overview)
+        {
+            var summary=new Grid{ColumnSpacing=8};summary.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});summary.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
+            AutomationProperties.SetAutomationId(summary,"claude-overview-capacity");
+            var estimateText=estimate.Ready?L10n.F("claude.capacity.tokens",estimate.ProjectedTokens):L10n.T("claude.capacity.overviewUnavailable");
+            summary.Children.Add(ClaudeText(L10n.T("claude.capacity.title")+" · "+estimateText));
+            var info=new TextBlock{Text="\uE946",FontFamily=new Microsoft.UI.Xaml.Media.FontFamily("Segoe Fluent Icons"),FontSize=12,VerticalAlignment=VerticalAlignment.Center};
+            AutomationProperties.SetName(info,L10n.T("claude.capacity.title"));
+            ToolTipService.SetToolTip(info,(estimate.Ready?L10n.T("claude.capacity.note"):L10n.T("claude.capacity.status."+estimate.Status))+"\n"+
+                L10n.F("claude.capacity.progress",estimate.PercentagePoints,estimate.Intervals)+"\n"+L10n.T("claude.capacity.scope"));
+            Grid.SetColumn(info,1);summary.Children.Add(info);panel.Children.Add(summary);
+            panel.Children.Add(ClaudeText(snapshot.TimestampText));
+            return;
+        }
         var estimatePanel=new StackPanel{Spacing=3};
         AutomationProperties.SetAutomationId(estimatePanel,"claude-weekly-capacity");
         estimatePanel.Children.Add(ClaudeText(L10n.T("claude.capacity.title"),14));
@@ -78,7 +92,7 @@ internal sealed partial class Dashboard
         if(IsStatisticsPage&&statisticsProvider=="claude"&&ClaudeHistoryViewChanged())
         {renderedFilter=null;RenderStats();}
         UpdateStatisticsActions();
-        if(claudeOverview is not null)FillClaudeCard(claudeOverview);
+        if(claudeOverview is not null)FillClaudeCard(claudeOverview,true);
         if(claudeDetails is not null)FillClaudeCard(claudeDetails);
         if(claudeSettingsStatus is not null)claudeSettingsStatus.Text=app.ClaudeQuota.Describe(DateTimeOffset.Now)+"\n"+app.ClaudeQuota.TimestampText+"\n"+L10n.T("claude.identityNotice");
         var scopes=app.ClaudeQuota.Scopes??[];var signature=string.Join("|",scopes)+"|"+app.Config.ClaudeScope;

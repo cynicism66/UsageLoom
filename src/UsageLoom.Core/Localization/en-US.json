@@ -44,6 +44,7 @@
   "settings.claude.notifications": "Claude quota notifications are not yet supported; there is no active notification setting.",
   "settings.claude.capacity": "Consecutive weekly quota snapshots can be paired with local Claude Code logs for an experimental same-workload weekly comparison. Chat, Cowork, cloud sessions and other devices are not covered; this is not a fixed official Pro Token allowance or bill. See the quota card.",
   "claude.capacity.title": "Weekly quota comparison (experimental)",
+  "claude.capacity.overviewUnavailable": "Not yet estimable",
   "claude.capacity.tokens": "About {0:N0} local Code Tokens / week",
   "claude.capacity.api": "Same-workload API equivalent about ${0:N2} / week · price coverage {1:0.#}%",
   "claude.capacity.note": "Account not verified; local Code comparison only, not an official plan limit. Other surfaces are not covered.",

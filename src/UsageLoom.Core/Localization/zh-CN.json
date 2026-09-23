@@ -44,6 +44,7 @@
   "settings.claude.notifications": "Claude 额度通知尚未接入；当前没有可启用的通知选项。",
   "settings.claude.capacity": "可将连续的每周额度快照与本机 Claude Code 日志配对，给出同工作负载的实验性周容量参考。Chat、Cowork、云端和其他设备未覆盖；不能当作 Pro 官方固定 Token 容量或账单。详见额度卡片。",
   "claude.capacity.title": "每周额度参考估算（实验）",
+  "claude.capacity.overviewUnavailable": "暂不可估算",
   "claude.capacity.tokens": "约 {0:N0} 本机 Code Token／周",
   "claude.capacity.api": "同工作负载 API 等价约 ${0:N2}／周 · 定价覆盖 {1:0.#}%",
   "claude.capacity.note": "账号未核验；仅本机 Code 对照，非官方套餐额度；其他渠道用量未计入。",

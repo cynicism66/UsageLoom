@@ -30,7 +30,7 @@ internal sealed partial class Dashboard
         {
             var cards=new List<UIElement>();
             if(app.Config.CodexEnabled)cards.Add(overviewQuotaCard);
-            if(app.Config.ClaudeEnabled){claudeOverview=new(){Spacing=8};FillClaudeCard(claudeOverview);cards.Add(Card(claudeOverview));}
+            if(app.Config.ClaudeEnabled){claudeOverview=new(){Spacing=10};FillClaudeCard(claudeOverview,true);cards.Add(Card(claudeOverview));}
             if(cards.Count>0)statsPanel.Children.Add(ResponsiveCards(cards,2,300));
         }
         if(selectedPage!="sessions")

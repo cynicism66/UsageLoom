@@ -39,7 +39,6 @@ internal sealed partial class Dashboard
             var info=CapacityInfoButton();Grid.SetColumn(info,1);summary.Children.Add(info);overviewQuota.Children.Add(summary);
         }
         overviewQuota.Children.Add(ClaudeText(quota.FetchedAt is {} at?L10n.F("s6843540FA5C7",at.ToLocalTime()):L10n.T("s0D4EDA666026")));
-        overviewQuota.Children.Add(Button(L10n.T("s14B8852CD2D1"),()=>{Navigate("quota");return Task.CompletedTask;}));
     }
     private void VerifyOverviewPlanHeader()
     {
@@ -47,6 +46,16 @@ internal sealed partial class Dashboard
         ((FrameworkElement)Content).UpdateLayout();
         if(overviewQuota.Children.FirstOrDefault() is not Grid header||header.Children.Count!=2||header.Children[0] is not TextBlock title||title.Text!="Codex")
             throw new InvalidOperationException("Overview quota title and plan are not grouped");
+        if(overviewQuota.Children.OfType<Button>().Any()||overviewQuota.Children.OfType<ProgressBar>().Any(bar=>bar.Height!=5))
+            throw new InvalidOperationException("Codex overview has an extra action or mismatched progress bar");
+        if(claudeOverview is not null)
+        {
+            if(claudeOverview.Spacing!=overviewQuota.Spacing||
+                claudeOverview.Children.OfType<ProgressBar>().Any(bar=>bar.Height!=5)||
+                !claudeOverview.Children.OfType<Grid>().Any(grid=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(grid)=="claude-overview-capacity")||
+                claudeOverview.Children.OfType<StackPanel>().Any(stack=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(stack)=="claude-weekly-capacity"))
+                throw new InvalidOperationException("Claude overview does not match the compact Codex card layout");
+        }
         foreach(FrameworkElement child in header.Children)
         {
             var rect=child.TransformToVisual(header).TransformBounds(new(0,0,child.ActualWidth,child.ActualHeight));
