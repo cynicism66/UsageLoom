@@ -504,6 +504,8 @@ internal sealed partial class Dashboard : Window
             card.Children.Add(new ProgressBar{Minimum=0,Maximum=100,Value=window.Remaining,Foreground=accent,Height=6});
             var reset=window.ResetsAt is {} at?L10n.F("sE035EFC6DE6D", at.ToLocalTime(), window.ResetCountdown(DateTimeOffset.Now)):L10n.T("sFB4EF6852264");
             card.Children.Add(new TextBlock{Text=reset,TextWrapping=TextWrapping.Wrap,Opacity=.7});
+            if(PaceRow(QuotaPace.ForCodex(quota,window,app.Config.CodexEnabled,DateTimeOffset.Now),"codex",window.Key,window.Label) is {} pace)
+                card.Children.Add(pace);
             quotaCards.Add(card);
         }
         if(app.Config.CodexEnabled&&quota.HasQuotaDisplay&&quota.Windows.Any(window=>window.IsSpark))

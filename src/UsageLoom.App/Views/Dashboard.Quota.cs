@@ -8,6 +8,21 @@ namespace UsageLoom.App;
 
 internal sealed partial class Dashboard
 {
+    private static string PaceLabel(QuotaPaceKind kind)=>kind switch
+    {
+        QuotaPaceKind.Normal=>L10n.T("quota.pace.normal"),
+        QuotaPaceKind.Fast=>L10n.T("quota.pace.fast"),
+        QuotaPaceKind.Exhausted=>L10n.T("quota.pace.exhausted"),
+        _=>""
+    };
+    private static TextBlock? PaceRow(QuotaPaceKind kind,string provider,string windowKey,string windowLabel)
+    {
+        if(kind==QuotaPaceKind.Unavailable)return null;
+        var row=new TextBlock{Text=PaceLabel(kind),FontSize=12,TextWrapping=TextWrapping.Wrap,Opacity=.8};
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(row,$"quota-pace-{provider}-{windowKey}");
+        ToolTipService.SetToolTip(row,L10n.F("quota.pace.hint",windowLabel));
+        return row;
+    }
     private Border? codexDetailsCard;
     private Grid? codexDetailsHeader;
     private void FillOverviewQuota()
@@ -30,6 +45,8 @@ internal sealed partial class Dashboard
             overviewQuota.Children.Add(new TextBlock{Text=L10n.F("s6D65FE80C728",window.Label,window.RemainingText),TextWrapping=TextWrapping.Wrap});
             overviewQuota.Children.Add(new ProgressBar{Minimum=0,Maximum=100,Value=window.Remaining,Height=5,Foreground=accent});
             overviewQuota.Children.Add(ClaudeText(window.ResetCountdown(DateTimeOffset.Now)));
+            if(PaceRow(QuotaPace.ForCodex(quota,window,app.Config.CodexEnabled,DateTimeOffset.Now),"codex",window.Key,window.Label) is {} pace)
+                overviewQuota.Children.Add(pace);
         }
         var estimate=quota.Fresh&&app.Config.CapacityEnabled?app.WeeklyCapacity.FirstOrDefault(e=>e.ObservedPercent>=5&&e.Samples>=2):null;
         if(estimate is not null)
@@ -48,8 +65,14 @@ internal sealed partial class Dashboard
             throw new InvalidOperationException("Overview quota title and plan are not grouped");
         if(overviewQuota.Children.OfType<Button>().Any()||overviewQuota.Children.OfType<ProgressBar>().Any(bar=>bar.Height!=5))
             throw new InvalidOperationException("Codex overview has an extra action or mismatched progress bar");
+        VerifyPacePresentation(overviewQuota,"codex",app.Quota.PrimaryWindows.Select(window=>(window.Key,window.Label,QuotaPace.ForCodex(app.Quota,window,app.Config.CodexEnabled,DateTimeOffset.Now))));
         if(claudeOverview is not null)
         {
+            VerifyPacePresentation(claudeOverview,"claude",new[]{"five_hour","seven_day"}.Select(key=>
+            {
+                var window=app.ClaudeQuota.Windows.FirstOrDefault(item=>item.Key==key);
+                return (key,L10n.T("claude."+key),window is null?QuotaPaceKind.Unavailable:QuotaPace.ForClaude(app.ClaudeQuota,window,app.Config.ClaudeEnabled,DateTimeOffset.Now));
+            }));
             var capacity=claudeOverview.Children.OfType<Grid>().FirstOrDefault(grid=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(grid)=="claude-overview-capacity");
             if(claudeOverview.Spacing!=overviewQuota.Spacing||
                 claudeOverview.Children.OfType<ProgressBar>().Any(bar=>bar.Height!=5)||
@@ -67,6 +90,23 @@ internal sealed partial class Dashboard
             if(header.ActualWidth>0&&(rect.Left<-.5||rect.Right>header.ActualWidth+.5))throw new InvalidOperationException("Overview quota header overflow");
         }
         Program.Log.Write("INFO","NavigationTest","Overview quota plan contained in header passed");
+    }
+    private static void VerifyPacePresentation(StackPanel panel,string provider,IEnumerable<(string Key,string Label,QuotaPaceKind Kind)> windows)
+    {
+        foreach(var (key,label,kind) in windows)
+        {
+            var id=$"quota-pace-{provider}-{key}";
+            var row=panel.Children.OfType<TextBlock>().FirstOrDefault(item=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(item)==id);
+            if(kind==QuotaPaceKind.Unavailable)
+            {
+                if(row is not null)throw new InvalidOperationException("Unavailable pace was shown as normal");
+                continue;
+            }
+            if(row is null||row.Text!=PaceLabel(kind)||ToolTipService.GetToolTip(row) is not string hint||!hint.Contains(label,StringComparison.Ordinal)||
+                !hint.Contains(L10n.T("quota.pace.disclaimer"),StringComparison.Ordinal))
+                throw new InvalidOperationException($"Quota pace row or window-specific hover explanation missing: {provider}/{key}, kind={kind}, row={row is not null}, textMatch={row?.Text==PaceLabel(kind)}, labelMatch={(ToolTipService.GetToolTip(row) as string)?.Contains(label,StringComparison.Ordinal)}, disclaimerMatch={(ToolTipService.GetToolTip(row) as string)?.Contains(L10n.T("quota.pace.disclaimer"),StringComparison.Ordinal)}");
+        }
+        Program.Log.Write("INFO","NavigationTest","Quota pace rows and unavailable-state boundaries passed");
     }
     private Border CodexDetailsCard(QuotaState quota,IReadOnlyList<UIElement> windows)
     {

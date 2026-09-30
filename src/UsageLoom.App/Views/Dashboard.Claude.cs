@@ -62,6 +62,8 @@ internal sealed partial class Dashboard
             panel.Children.Add(ClaudeText(L10n.T("claude."+key)+" · "+L10n.F("claude.remaining",window?.RemainingText(now)??"—"),14));
             panel.Children.Add(new ProgressBar{Minimum=0,Maximum=100,Value=window is not null&&!window.Expired(now)?100-window.Used:0,Height=5,Foreground=accent,Opacity=(window is null||window.Expired(now))?0.3:1});
             panel.Children.Add(ClaudeText(window?.Countdown(now)??L10n.T("claude.noReset")));
+            if(window is not null&&PaceRow(QuotaPace.ForClaude(snapshot,window,app.Config.ClaudeEnabled,now),"claude",key,L10n.T("claude."+key)) is {} pace)
+                panel.Children.Add(pace);
         }
         var estimate=ClaudeCapacityAt(now);
         if(overview)

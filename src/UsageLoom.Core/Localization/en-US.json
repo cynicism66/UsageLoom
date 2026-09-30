@@ -1,4 +1,9 @@
 {
+  "quota.pace.normal": "On pace",
+  "quota.pace.fast": "Using faster than time",
+  "quota.pace.exhausted": "Exhausted",
+  "quota.pace.hint": "{0}: Compares quota used in a local snapshot with elapsed time only. Unofficial data, not a forecast.",
+  "quota.pace.disclaimer": "Unofficial data",
   "claude.code.enable": "Read local Claude Code Token logs (off by default)",
   "claude.code.path": "Claude Code Home (blank: CLAUDE_CONFIG_DIR or ~/.claude)",
   "claude.code.privacy": "Scans projects JSONL only. Transcripts contain private content; parsing skips conversation/code/tool content and keeps only time, model, project, anonymous session IDs and usage in memory. No transcript copies, uploads or credentials. Disabling the Claude source stops this reader too.",

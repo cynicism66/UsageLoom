@@ -2221,6 +2221,7 @@ Test("小窗分辨率、DPI、多屏与工作区边界",()=>
     Check(CompactWindowLayout.Fit(new(0,0,1920,1040),1,320,inside,false)==inside);
 });
 CapacityReliabilityTests.Run(Test);
+QuotaPaceTests.Run(Test);
 ClaudeQuotaTests.Run(Test,fixtureRoot);
 ClaudeHistoryTests.Run(Test,fixtureRoot);
 ClaudeCodeTests.Run(Test,fixtureRoot);

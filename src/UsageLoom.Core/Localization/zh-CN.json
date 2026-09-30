@@ -1,4 +1,9 @@
 {
+  "quota.pace.normal": "节奏正常",
+  "quota.pace.fast": "消耗偏快",
+  "quota.pace.exhausted": "已用尽",
+  "quota.pace.hint": "{0}：只比较本地快照的已用额度与已过时间；非官方数据，不是预测。",
+  "quota.pace.disclaimer": "非官方数据",
   "claude.code.enable": "读取本机 Claude Code Token 日志（默认关闭）",
   "claude.code.path": "Claude Code Home（留空使用 CLAUDE_CONFIG_DIR 或 ~/.claude）",
   "claude.code.privacy": "仅扫描所选 Home 下 projects 中的 JSONL。文件包含正文，读取时跳过正文、代码和工具内容，仅在内存保留时间、模型、项目、匿名会话标识和 usage；不保存日志副本、不上传、不读取凭据。关闭 Claude 数据源也会停止此读取。",

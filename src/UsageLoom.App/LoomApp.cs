@@ -373,7 +373,7 @@ public sealed partial class LoomApp : Application
             if(!ClaudeSettingsCheck)ConfigureClaudePreview();
             Config.LowNotify = false;
             Config.ResetNotify = false;
-            Quota = new([new("codex:primary", L10n.T("sFDC11436C31D"), 42, 300, DateTimeOffset.Now.AddHours(2)), new("codex:weekly", L10n.T("sCE5334E5C266"), 18, 10080, DateTimeOffset.Now.AddDays(3))], 2, DateTimeOffset.Now, L10n.T("s060C4C3C9C70"), true);
+            Quota = new([new("codex:primary", L10n.T("sFDC11436C31D"), 42, 300, DateTimeOffset.Now.AddHours(2)), new("codex:weekly", L10n.T("sCE5334E5C266"), 18, 10080, DateTimeOffset.Now.AddDays(3))], 2, DateTimeOffset.Now, L10n.T("s060C4C3C9C70"), true,"demo");
             Events = Enumerable.Range(0, 7).Select(day => {
                 var at=DateTimeOffset.Now.AddDays(-day); var input=new long[]{48200,36100,62800,24500,56300,41000,18700}[day];
                 return new UsageEvent("demo-"+day,L10n.T("s718E2B63A78A")+(day+1),day%2==0?L10n.T("s9722F7C17917"):L10n.T("sAD316B8625B7"),day%2==0?"gpt-5.4-mini":"gpt-5.4",L10n.T("s95CB8B370EBC"),at,at.ToString("yyyy-MM-dd"),new(input,input/3,0,input/5,input/20));

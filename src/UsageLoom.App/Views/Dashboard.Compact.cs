@@ -115,6 +115,8 @@ internal sealed partial class Dashboard
         view.Disabled.Visibility=!app.Config.CodexEnabled&&!app.Config.ClaudeEnabled?Visibility.Visible:Visibility.Collapsed;
         if(!app.Config.CodexEnabled)capacityInfoFlyout?.Hide();
         var windows=quota.HasQuotaDisplay?quota.PrimaryWindows.ToArray():[];
+        var now=DateTimeOffset.Now;
+        var paceCandidates=new List<(double Remaining,QuotaPaceKind Kind,TextBlock Target,string Window)>();
         for(var index=0;index<windows.Length;index++)
         {
             if(index==view.Windows.Count)
@@ -125,8 +127,10 @@ internal sealed partial class Dashboard
             var row=view.Windows[index];var window=windows[index];row.Root.Visibility=Visibility.Visible;
             row.Name.Text=window.Label+L10n.T("sD6822B04178D");row.Value.Text=window.RemainingText;
             row.Progress.Value=window.Remaining;
-            row.Reset.Text=window.ResetCountdown(DateTimeOffset.Now)+(quota.Fresh?"":L10n.T("s6749C5BF4AEA"));
+            row.Reset.Text=window.ResetCountdown(now)+(quota.Fresh?"":L10n.T("s6749C5BF4AEA"));
             ToolTipService.SetToolTip(row.Reset,row.Reset.Text);
+            var pace=QuotaPace.ForCodex(quota,window,app.Config.CodexEnabled,now);
+            if(pace!=QuotaPaceKind.Unavailable)paceCandidates.Add((window.Remaining,pace,row.Reset,window.Label));
         }
         for(var index=windows.Length;index<view.Windows.Count;index++)view.Windows[index].Root.Visibility=Visibility.Collapsed;
         // Offline/unavailable states retain the quota slot; ordinary values never
@@ -157,5 +161,20 @@ internal sealed partial class Dashboard
         var updated=quota.FetchedAt is {} at?L10n.F("s6843540FA5C7",at.ToLocalTime()):L10n.T("s0D4EDA666026");
         var resets=quota.HasQuotaDisplay&&quota.ResetCount is {} count?L10n.F("s26ABA9EC2EFB",count):L10n.T("s382254F4153B");
         view.Footer.Text=app.Config.CodexEnabled?$"{resets}   ·   {updated}":"";ToolTipService.SetToolTip(view.Footer,view.Footer.Text);
+        if(app.Config.ClaudeEnabled)
+            for(var index=0;index<2;index++)
+            {
+                var key=index==0?"five_hour":"seven_day";
+                var window=app.ClaudeQuota.Windows.FirstOrDefault(item=>item.Key==key);
+                if(window is null)continue;
+                var pace=QuotaPace.ForClaude(app.ClaudeQuota,window,true,now);
+                if(pace!=QuotaPaceKind.Unavailable)
+                    paceCandidates.Add((100-window.Used,pace,view.ClaudeResets[index],L10n.T("claude."+key)));
+            }
+        if(paceCandidates.OrderBy(item=>item.Remaining).FirstOrDefault() is {Target: {} target} mostTense)
+        {
+            target.Text+=" · "+PaceLabel(mostTense.Kind);
+            ToolTipService.SetToolTip(target,target.Text+"\n"+L10n.F("quota.pace.hint",mostTense.Window));
+        }
     }
 }
