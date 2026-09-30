@@ -16,6 +16,8 @@ UsageLoom 是独立实现，不是上述任一项目的 fork、源码合并、�
 
 Windows 桌面发行包包含 Microsoft .NET 10、Windows App SDK、Microsoft.Data.Sqlite 及 SQLitePCLRaw/SQLite 运行组件；这些组件不受 UsageLoom 的 MIT 许可证替代。随包提供的 THIRD-PARTY-LICENSES 目录保留依赖包提供的许可与声明。WiX 6 仅用于构建安装包。应用图标由本项目的 build-icon.ps1 绘制，不使用上述参考项目的品牌素材。
 
+- .NET 10.0.11 的 `dotnet-LICENSE.txt` 与 `dotnet-NOTICES.txt` 原样取自 Microsoft.NETCore.App.Runtime.win-x64 10.0.11 包。将文本保存在源码中，是为了在构建机预装运行时包、NuGet 缓存不含许可文件时，发行包仍能保留完整声明；升级运行时包时须同步核对这两份文本。
+
 - Microsoft.Data.Sqlite 10.0.11：MIT，Copyright Microsoft Corporation。
 - ZstdSharp.Port 0.8.8：MIT，Copyright 2021 Oleg Stepanischev；用于本地 Claude 额度缓存的有界 zstd 解压。其上游 Zstandard 采用 BSD 许可证；两份许可随包保留。
 - Claude 本地缓存适配器依据 Chromium 官方 [Blockfile 格式说明](https://chromium.googlesource.com/chromium/src/+/main/net/disk_cache/blockfile/disk_format.h)独立实现。只解析额度相关字段，不捆绑 Chromium 源码；该格式不是 Anthropic 的稳定公开接口承诺。

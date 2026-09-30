@@ -12,7 +12,9 @@ try {
         $arguments=@('--smoke-test','--claude-settings-check','--preview-page=settings')
         if($phase -eq 'restart'){$arguments+='--claude-settings-restart-check'}
         $process=Start-Process -FilePath (Join-Path $PublishDirectory 'UsageLoom.App.exe') -ArgumentList $arguments -WindowStyle Hidden -PassThru
-        if(!$process.WaitForExit(25000)){throw 'Isolated Claude settings UI check timed out; no process was killed'}
+        # The app deliberately remains open for an 18-second smoke interval;
+        # leave room for WinUI startup and graceful shutdown on slower hosts.
+        if(!$process.WaitForExit(45000)){throw 'Isolated Claude settings UI check timed out; no process was killed'}
         $lines=@(Get-Content -LiteralPath $log -Encoding UTF8 | Select-Object -Skip $before)
         $expected=if($phase -eq 'restart'){'Claude settings process restart passed'}else{'Claude global/section save, navigation, source draft, validation and write rollback passed'}
         if($process.ExitCode -ne 0 -or $lines -match '\[ERROR\]' -or !($lines -match [regex]::Escape($expected))){$lines | Write-Output;throw "Claude settings UI failed: $phase"}

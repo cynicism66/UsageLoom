@@ -27,8 +27,12 @@ internal sealed partial class Dashboard
                 foreach(var key in new[]{"s16685D3221B9","sA28590E6B1D8","sD9EBFF4C171F","sD39DC68172D7","s5AB943671D29"})
                 {
                     var section=((StackPanel)scrollContent.Content).Children.OfType<Expander>().SingleOrDefault(e=>Equals(e.Header,L10n.T(key)));
-                    if(section?.Content is not StackPanel collection||collection.Children.Count!=2||
-                        collection.Children[0] is not Border first||collection.Children[1] is not Border second||
+                    // Refresh-on-open and tray display are global controls;
+                    // the two following cards still belong to separate AIs.
+                    var providerOffset=key=="s16685D3221B9"?1:0;
+                    if(section?.Content is not StackPanel collection||collection.Children.Count!=providerOffset+2||
+                        (providerOffset==1&&(collection.Children[0] is not Border global||global.Child is not StackPanel))||
+                        collection.Children[providerOffset] is not Border first||collection.Children[providerOffset+1] is not Border second||
                         first.Child is not StackPanel codex||second.Child is not StackPanel claude||
                         codex.Children.FirstOrDefault() is not TextBlock codexTitle||codexTitle.Text!="Codex"||
                         claude.Children.FirstOrDefault() is not TextBlock claudeTitle||claudeTitle.Text!=L10n.T("claude.desktop")||
