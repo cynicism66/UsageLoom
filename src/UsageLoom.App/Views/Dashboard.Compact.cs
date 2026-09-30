@@ -156,9 +156,9 @@ internal sealed partial class Dashboard
         }
         // Keep freshness outside the badge so a transient stale snapshot neither
         // rebuilds the badge nor inserts another line below it.
-        view.ProviderTitle.Text="Codex"+(!quota.Fresh&&!quota.IsLocalAccount?" · "+L10n.T("s4F6E26963CA2"):"");
+        view.ProviderTitle.Text="Codex"+(app.CodexOpenRefreshing?" · "+L10n.T("quota.openRefresh.working"):!quota.Fresh&&!quota.IsLocalAccount?" · "+L10n.T("s4F6E26963CA2"):"");
         AutomationProperties.SetName(view.PlanRow,quota.PlanDisplay);
-        var updated=quota.FetchedAt is {} at?L10n.F("s6843540FA5C7",at.ToLocalTime()):L10n.T("s0D4EDA666026");
+        var updated=SnapshotAge(quota.FetchedAt,DateTimeOffset.Now);
         var resets=quota.HasQuotaDisplay&&quota.ResetCount is {} count?L10n.F("s26ABA9EC2EFB",count):L10n.T("s382254F4153B");
         view.Footer.Text=app.Config.CodexEnabled?$"{resets}   ·   {updated}":"";ToolTipService.SetToolTip(view.Footer,view.Footer.Text);
         if(app.Config.ClaudeEnabled)

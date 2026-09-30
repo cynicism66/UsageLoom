@@ -28,13 +28,14 @@ public sealed partial class LoomApp
     private CancellationTokenSource? claudeCancellation;
     private DateTimeOffset claudeLastRead=DateTimeOffset.MinValue;
     private int claudeGeneration;
-    internal Task RefreshClaudeAsync(bool manual=false)
+    internal Task RefreshClaudeAsync(bool manual=false,bool onOpen=false)
     {
         if(quitting||IsDemo||!Config.ClaudeEnabled)return Task.CompletedTask;
         if(claudeTask is {IsCompleted:false})return claudeTask;
         var visible=flyout?.IsPanelVisible==true||dashboard?.IsPanelVisible==true;
         var now=DateTimeOffset.UtcNow;
-        if(!manual&&(!Config.AutoRefresh||now>=claudeLastRead&&now-claudeLastRead<TimeSpan.FromSeconds(visible?30:300)))return Task.CompletedTask;
+        if(!manual&&!onOpen&&(!Config.AutoRefresh||now>=claudeLastRead&&now-claudeLastRead<TimeSpan.FromSeconds(visible?30:300)))return Task.CompletedTask;
+        if(onOpen&&now-claudeLastRead<TimeSpan.FromSeconds(30))return Task.CompletedTask;
         claudeLastRead=DateTimeOffset.UtcNow;
         claudeCancellation?.Dispose();claudeCancellation=CancellationTokenSource.CreateLinkedTokenSource(lifetime.Token);
         claudeCancellation.CancelAfter(TimeSpan.FromSeconds(30));

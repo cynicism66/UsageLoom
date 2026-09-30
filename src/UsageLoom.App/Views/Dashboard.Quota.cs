@@ -15,6 +15,28 @@ internal sealed partial class Dashboard
         QuotaPaceKind.Exhausted=>L10n.T("quota.pace.exhausted"),
         _=>""
     };
+    private static string SnapshotAge(DateTimeOffset? observedAt,DateTimeOffset now)
+    {
+        if(observedAt is not {} at||at>now)return L10n.T("quota.age.unknown");
+        var age=now-at;
+        if(age<TimeSpan.FromMinutes(1))return L10n.T("quota.age.justNow");
+        if(age<TimeSpan.FromHours(1))return L10n.F("quota.age.minutes",(int)age.TotalMinutes);
+        if(age<TimeSpan.FromDays(1))return L10n.F("quota.age.hours",(int)age.TotalHours);
+        return L10n.F("quota.age.days",(int)age.TotalDays);
+    }
+    private static TextBlock SnapshotAgeRow(string provider,DateTimeOffset? observedAt,DateTimeOffset now)
+    {
+        var row=ClaudeText(SnapshotAge(observedAt,now));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(row,$"snapshot-age-{provider}");
+        ToolTipService.SetToolTip(row,L10n.T("quota.age.hint"));
+        return row;
+    }
+    private static TextBlock RefreshingRow(string provider)
+    {
+        var row=ClaudeText(L10n.T("quota.openRefresh.working"));
+        Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(row,$"snapshot-refreshing-{provider}");
+        return row;
+    }
     private static TextBlock? PaceRow(QuotaPaceKind kind,string provider,string windowKey,string windowLabel)
     {
         if(kind==QuotaPaceKind.Unavailable)return null;
@@ -39,7 +61,8 @@ internal sealed partial class Dashboard
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(header,"overview-quota-header");
         overviewQuota.Children.Add(header);
         overviewQuota.Children.Add(ClaudeText(quota.SourceLabel));
-        if(!quota.HasQuotaDisplay){overviewQuota.Children.Add(ClaudeText(quota.Status));return;}
+        if(app.CodexOpenRefreshing)overviewQuota.Children.Add(RefreshingRow("codex"));
+        if(!quota.HasQuotaDisplay){overviewQuota.Children.Add(ClaudeText(quota.Status));overviewQuota.Children.Add(SnapshotAgeRow("codex",quota.FetchedAt,DateTimeOffset.Now));return;}
         foreach(var window in quota.PrimaryWindows)
         {
             overviewQuota.Children.Add(new TextBlock{Text=L10n.F("s6D65FE80C728",window.Label,window.RemainingText),TextWrapping=TextWrapping.Wrap});
@@ -55,7 +78,7 @@ internal sealed partial class Dashboard
             summary.Children.Add(ClaudeText((estimate.HistoricalAt is not null?L10n.T("capacity.previous")+": ":"")+estimate.DollarDisplay));
             var info=CapacityInfoButton();Grid.SetColumn(info,1);summary.Children.Add(info);overviewQuota.Children.Add(summary);
         }
-        overviewQuota.Children.Add(ClaudeText(quota.FetchedAt is {} at?L10n.F("s6843540FA5C7",at.ToLocalTime()):L10n.T("s0D4EDA666026")));
+        overviewQuota.Children.Add(SnapshotAgeRow("codex",quota.FetchedAt,DateTimeOffset.Now));
     }
     private void VerifyOverviewPlanHeader()
     {
@@ -65,9 +88,13 @@ internal sealed partial class Dashboard
             throw new InvalidOperationException("Overview quota title and plan are not grouped");
         if(overviewQuota.Children.OfType<Button>().Any()||overviewQuota.Children.OfType<ProgressBar>().Any(bar=>bar.Height!=5))
             throw new InvalidOperationException("Codex overview has an extra action or mismatched progress bar");
+        if(!overviewQuota.Children.OfType<TextBlock>().Any(row=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(row)=="snapshot-age-codex"))
+            throw new InvalidOperationException("Codex quota snapshot age missing");
         VerifyPacePresentation(overviewQuota,"codex",app.Quota.PrimaryWindows.Select(window=>(window.Key,window.Label,QuotaPace.ForCodex(app.Quota,window,app.Config.CodexEnabled,DateTimeOffset.Now))));
         if(claudeOverview is not null)
         {
+            if(!claudeOverview.Children.OfType<TextBlock>().Any(row=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(row)=="snapshot-age-claude"))
+                throw new InvalidOperationException("Claude quota snapshot age missing");
             VerifyPacePresentation(claudeOverview,"claude",new[]{"five_hour","seven_day"}.Select(key=>
             {
                 var window=app.ClaudeQuota.Windows.FirstOrDefault(item=>item.Key==key);
@@ -119,12 +146,13 @@ internal sealed partial class Dashboard
         Grid.SetColumn(badge,1);header.Children.Add(badge);
         body.Children.Add(header);
         body.Children.Add(new TextBlock{Text=app.IsDemo?L10n.T("s9EE75C455D70"):quota.SourceLabel,FontSize=12,TextWrapping=TextWrapping.Wrap});
+        if(app.CodexOpenRefreshing)body.Children.Add(RefreshingRow("codex"));
         var content=new StackPanel{Spacing=16,Margin=new Thickness(0,8,0,0)};
         foreach(var window in windows)content.Children.Add(window);
         if(windows.Count==0)content.Children.Add(new TextBlock{Text=quota.HasQuotaDisplay?L10n.T("s3073BC52B5B6"):L10n.T("s540071E2CE7C")+quota.Status,FontSize=14,TextWrapping=TextWrapping.Wrap,Opacity=.7});
         body.Children.Add(content);
         if(quota.HasQuotaDisplay)body.Children.Add(ClaudeText(L10n.T("s9672B36B01C7")+(quota.ResetCount is {} n?n+L10n.T("sF81526EFCE19"):L10n.T("sF36CAC96220B"))));
-        body.Children.Add(ClaudeText(quota.FetchedAt is {} at?L10n.F("s6843540FA5C7",at.ToLocalTime()):L10n.T("s0D4EDA666026")));
+        body.Children.Add(SnapshotAgeRow("codex",quota.FetchedAt,DateTimeOffset.Now));
         body.Children.Add(StableExpander.Configure(new Expander{Header="Codex · "+L10n.T("sAD63795746F7"),Content=ClaudeText(quota.Status+L10n.T("s75B413F02FD0")),HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch}));
         codexDetailsHeader=header;codexDetailsCard=Card(body);
         Microsoft.UI.Xaml.Automation.AutomationProperties.SetAutomationId(codexDetailsCard,"codex-provider-card");

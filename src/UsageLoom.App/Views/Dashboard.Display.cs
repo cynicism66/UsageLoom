@@ -8,6 +8,7 @@ internal sealed partial class Dashboard
     private Microsoft.UI.Dispatching.DispatcherQueueTimer? displayTimer;
     private (nint Monitor,Native.Rect Work,uint Dpi,double Raster)? displayState;
     private bool fittingDisplay;
+    private long lastContentMinute=-1;
 
     private void StartDisplayTracking()
     {
@@ -18,6 +19,8 @@ internal sealed partial class Dashboard
         displayTimer.Tick+=(_,_)=>
         {
             if(released||!IsPanelVisible||fittingDisplay)return;
+            var minute=DateTimeOffset.Now.ToUnixTimeSeconds()/60;
+            if(minute!=lastContentMinute){lastContentMinute=minute;if(compactContent is not null)UpdateCompactContent();}
             var hwnd=WinRT.Interop.WindowNative.GetWindowHandle(this);
             var monitor=Native.MonitorFromWindow(hwnd,2);
             var info=new Native.MonitorInfo{size=(uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.MonitorInfo>()};

@@ -382,6 +382,7 @@ internal sealed partial class Dashboard : Window
             }
         }
         IsPanelVisible=true;Activate();AppWindow.Show();Native.SetForegroundWindow(WinRT.Interop.WindowNative.GetWindowHandle(this));Render();
+        if(compact)app.RefreshOnOpenIfNeeded();
     }
     public void Hide(){if(released)return;capacityInfoFlyout?.Hide();IsPanelVisible=false;AppWindow.Hide();}
     private void Navigate(string tag)=>navigation.SelectedItem=navigation.MenuItems.Concat(navigation.FooterMenuItems).OfType<NavigationViewItem>().First(i=>(string)i.Tag==tag);

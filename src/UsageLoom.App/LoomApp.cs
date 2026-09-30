@@ -436,7 +436,10 @@ public sealed partial class LoomApp : Application
         if (!this.args.Contains("--background") || this.args.Contains("--show") || smoke || this.args.Contains("--demo")) ShowDetails();
         if (smoke)
         {
+            var beforeOpen=Quota;
             ToggleFlyout();
+            if(!ReferenceEquals(Quota,beforeOpen))throw new InvalidOperationException("Opening the compact panel replaced its existing quota snapshot");
+            Program.Log.Write("INFO","Smoke","Compact panel opened without clearing the existing snapshot");
             Program.Log.Write("INFO", "Smoke", "Dashboard 与额度弹窗已创建，使用独立模拟数据目录");
         }
         if (this.args.Contains("--smoke-test"))

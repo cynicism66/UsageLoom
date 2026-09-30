@@ -56,6 +56,7 @@ internal sealed partial class Dashboard
         AutomationProperties.SetAutomationId(plan,"claude-plan-label");ToolTipService.SetToolTip(plan,L10n.T("claude.planNotice"));
         Grid.SetColumn(plan,1);header.Children.Add(plan);panel.Children.Add(header);
         panel.Children.Add(ClaudeText(snapshot.Describe(now)));
+        if(app.ClaudeOpenRefreshing)panel.Children.Add(RefreshingRow("claude"));
         foreach(var key in new[]{"five_hour","seven_day"})
         {
             var window=snapshot.Windows.FirstOrDefault(w=>w.Key==key);
@@ -76,7 +77,7 @@ internal sealed partial class Dashboard
                 L10n.F("claude.capacity.progress",estimate.PercentagePoints,estimate.Intervals)+"\n"+L10n.T("claude.capacity.scope");
             var info=ClaudeCapacityInfoButton(detail);
             Grid.SetColumn(info,1);summary.Children.Add(info);panel.Children.Add(summary);
-            panel.Children.Add(ClaudeText(snapshot.TimestampText));
+            panel.Children.Add(SnapshotAgeRow("claude",snapshot.ObservedAt,now));
             return;
         }
         var estimatePanel=new StackPanel{Spacing=3};
@@ -93,7 +94,7 @@ internal sealed partial class Dashboard
         estimatePanel.Children.Add(ClaudeText(L10n.F("claude.capacity.progress",estimate.PercentagePoints,estimate.Intervals)));
         ToolTipService.SetToolTip(estimatePanel,L10n.T("claude.capacity.scope"));
         panel.Children.Add(estimatePanel);
-        panel.Children.Add(ClaudeText(snapshot.TimestampText));
+        panel.Children.Add(SnapshotAgeRow("claude",snapshot.ObservedAt,now));
     }
     private UIElement ClaudeDetailsCard()
     {
@@ -167,7 +168,7 @@ internal sealed partial class Dashboard
         var snapshot=app.ClaudeQuota;var now=DateTimeOffset.Now;
         view.ClaudePlan.Text=ClaudePlanLabel.Badge(app.Config.ClaudeManualPlan);
         ToolTipService.SetToolTip(view.ClaudePlan,L10n.T("claude.planNotice"));
-        view.ClaudeTitle.Text="Claude · "+L10n.T(snapshot.Status=="snapshot"&&snapshot.ObservedAt>=now.AddMinutes(-15)&&snapshot.ObservedAt<=now?"claude.compactFresh":"claude.compactStale");
+        view.ClaudeTitle.Text="Claude · "+SnapshotAge(snapshot.ObservedAt,now)+(app.ClaudeOpenRefreshing?" · "+L10n.T("quota.openRefresh.working"):"");
         for(var i=0;i<2;i++)
         {
             var key=i==0?"five_hour":"seven_day";var window=snapshot.Windows.FirstOrDefault(w=>w.Key==key);
