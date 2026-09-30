@@ -153,10 +153,13 @@ internal sealed partial class Dashboard
                 var day=DateOnly.FromDateTime(from);
                 var through=hourly?day:DateOnly.FromDayNumber(Math.Min(range.Through!.Value.DayNumber,day.DayNumber+daysPerBucket-1));
                 var values=grouped.GetValueOrDefault(i);
-                buckets.Add(new(day,through,hourly?$"{i:00}:00":from.ToString("MM-dd"),values.Tokens,values.Requests,values.Cost));
+                buckets.Add(new HistoryTrendBucket(day,through,hourly?$"{i:00}:00":from.ToString("MM-dd"),values.Tokens,values.Requests,values.Cost){Hour=hourly?i:null});
             }
         }
-        var trend=UsageCharts.Trend(buckets,(_,_)=>{},range.IsSingleDay,tokenOnly:true);
+        var quotaWindow=range.IsSingleDay?"five_hour":"seven_day";
+        var quotaTrend=QuotaConsumption.Claude(app.ClaudeQuota.History,app.ClaudeQuota.Scope,quotaWindow,buckets);
+        var trend=UsageCharts.Trend(buckets,(_,_)=>{},range.IsSingleDay,tokenOnly:true,quotaUsage:quotaTrend,
+            quotaWindow:L10n.T(range.IsSingleDay?"quota.chart.fiveHour":"quota.chart.weekly"));
         panel.Children.Add(Card(trend));
 
         var models=new StackPanel{Spacing=12};

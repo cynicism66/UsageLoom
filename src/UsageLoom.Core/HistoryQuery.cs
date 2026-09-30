@@ -7,7 +7,10 @@ public sealed record HistoryDateRange(DateOnly? From,DateOnly? Through,string La
     public bool IsBounded=>From is not null&&Through is not null;
     public bool IsSingleDay=>IsBounded&&From==Through;
 }
-public sealed record HistoryTrendBucket(DateOnly From,DateOnly Through,string Label,long Tokens,int Requests,decimal EstimatedCost);
+public sealed record HistoryTrendBucket(DateOnly From,DateOnly Through,string Label,long Tokens,int Requests,decimal EstimatedCost)
+{
+    public int? Hour {get;init;}
+}
 public sealed record SessionSummary(string Session,string Name,string Project,long Tokens,DateTimeOffset? LastActivity,IReadOnlyList<UsageEvent> Events)
 {
     public string ShortId=>Session.Length<=12?Session:Session[..8]+"…";
@@ -36,7 +39,7 @@ public static class HistoryQuery
         foreach(var hour in Enumerable.Range(0,24).Concat(grouped.ContainsKey(-1)?new[]{-1}:Array.Empty<int>()))
         {
             var items=grouped.GetValueOrDefault(hour)??[];
-            buckets.Add(new(day,day,hour<0?L10n.T("s664939A1FA2E"):$"{hour:00}:00",items.Sum(item=>item.Tokens.Total),items.Count,Pricing.Summarize(items).Cost));
+            buckets.Add(new HistoryTrendBucket(day,day,hour<0?L10n.T("s664939A1FA2E"):$"{hour:00}:00",items.Sum(item=>item.Tokens.Total),items.Count,Pricing.Summarize(items).Cost){Hour=hour});
         }
         return buckets;
     }

@@ -4,7 +4,7 @@ namespace UsageLoom.Core;
 public static class CapacityObservations
 {
     public static bool Soft(QuotaObservation o)=>o.Barrier&&o.BarrierReason is "query-failure" or "snapshot-unavailable";
-    public static QuotaObservation[] Prepare(IEnumerable<QuotaObservation> input)
+    public static QuotaObservation[] Prepare(IEnumerable<QuotaObservation> input,int windowMinutes=10080)
     {
         var rows=input.OrderBy(o=>o.At).GroupBy(o=>o.At).Select(g=>
         {
@@ -19,11 +19,11 @@ public static class CapacityObservations
         {
             var o=rows[i];
             if(o.Barrier){if(!Soft(o))previous=null;continue;}
-            var weekly=o.Windows.Where(w=>w.IsPrimary&&w.Minutes==10080).ToArray();
-            var invalid=weekly.Length==0||weekly.Any(w=>!double.IsFinite(w.Used)||w.Used<0||w.Used>100||w.ResetsAt is null||w.ResetsAt<=o.At);
+            var windows=o.Windows.Where(w=>w.IsPrimary&&w.Minutes==windowMinutes).ToArray();
+            var invalid=windows.Length==0||windows.Any(w=>!double.IsFinite(w.Used)||w.Used<0||w.Used>100||w.ResetsAt is null||w.ResetsAt<=o.At);
             // Isolate a transient regression only if a later same-identity response
             // returns to the old, still-live cycle. The gap itself is not bridged.
-            var regression=previous is not null&&SameIdentity(previous,o)&&weekly.Any(w=>previous.Windows.Any(p=>
+            var regression=previous is not null&&SameIdentity(previous,o)&&windows.Any(w=>previous.Windows.Any(p=>
                 p.Key==w.Key&&SameCycle(p,w)&&w.Used<p.Used));
             var recovers=false;var confirmedLower=false;
             if(regression)
@@ -33,7 +33,7 @@ public static class CapacityObservations
                     if(next.Barrier){if(Soft(next))continue;break;}
                     if(!SameIdentity(o,next))break;
                     if(previous!.Windows.All(p=>p.ResetsAt>next.At&&next.Windows.Any(w=>w.Key==p.Key&&SameCycle(p,w)&&w.Used>=p.Used&&w.Used<=100))){recovers=true;break;}
-                    if(next.At>=o.At.AddMinutes(2)&&weekly.All(p=>p.ResetsAt>next.At&&next.Windows.Any(w=>w.Key==p.Key&&SameCycle(p,w)&&double.IsFinite(w.Used)&&w.Used>=p.Used&&w.Used<=100)))confirmedLower=true;
+                    if(next.At>=o.At.AddMinutes(2)&&windows.All(p=>p.ResetsAt>next.At&&next.Windows.Any(w=>w.Key==p.Key&&SameCycle(p,w)&&double.IsFinite(w.Used)&&w.Used>=p.Used&&w.Used<=100)))confirmedLower=true;
                 }
             if(invalid||regression&&(!confirmedLower||recovers))rows[i]=o with{Barrier=true,BarrierReason="snapshot-unavailable",Windows=[]};
             else previous=o;

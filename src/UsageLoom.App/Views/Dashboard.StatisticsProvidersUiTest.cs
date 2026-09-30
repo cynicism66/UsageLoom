@@ -11,6 +11,12 @@ internal sealed partial class Dashboard
 {
     private void VerifyStatisticsProviders()
     {
+        var consumptionHint=UsageCharts.QuotaTooltip(new QuotaConsumptionBucket(80,QuotaConsumptionMissing.ResetTail),L10n.T("quota.chart.fiveHour"));
+        var missingHint=UsageCharts.QuotaTooltip(null,L10n.T("quota.chart.weekly"));
+        if(!consumptionHint.Contains(L10n.T("quota.chart.fiveHour"),StringComparison.Ordinal)||
+            !consumptionHint.Contains("80",StringComparison.Ordinal)||!consumptionHint.Contains(L10n.T("quota.chart.partial"),StringComparison.Ordinal)||
+            !missingHint.Contains("--",StringComparison.Ordinal)||!missingHint.Contains(L10n.T("quota.chart.weekly"),StringComparison.Ordinal))
+            throw new InvalidOperationException("Token chart quota hover lacks window, percentage points or missing-value explanation");
         var savedPage=selectedPage;var savedProvider=statisticsProvider;
         var codexEnabled=app.Config.CodexEnabled;var claudeEnabled=app.Config.ClaudeEnabled;
         var range=historyRangeIndex;var from=historyFrom.Date;var through=historyThrough.Date;

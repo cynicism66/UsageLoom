@@ -11,7 +11,7 @@ internal sealed partial class Dashboard
     private void RenderStats()
     {
         var selectedRange=SelectedHistoryRange();
-        var filter=$"{selectedPage}|{statisticsProvider}|{historyRangeIndex}|{selectedRange.From}|{selectedRange.Through}|{historySearch.Text}|{sessionOrder.SelectedIndex}|{sessionPage}|{breakdownKind.SelectedIndex}|{DateTime.Today:yyyy-MM-dd}|{app.Config.ClaudeEnabled}|{app.Config.CodexEnabled}|{claudeCodeRangeIndex}|{claudeCodeFrom}|{claudeCodeThrough}";
+        var filter=$"{selectedPage}|{statisticsProvider}|{historyRangeIndex}|{selectedRange.From}|{selectedRange.Through}|{historySearch.Text}|{sessionOrder.SelectedIndex}|{sessionPage}|{breakdownKind.SelectedIndex}|{DateTime.Today:yyyy-MM-dd}|{app.Config.ClaudeEnabled}|{app.Config.CodexEnabled}|{claudeCodeRangeIndex}|{claudeCodeFrom}|{claudeCodeThrough}|{app.QuotaTrendVersion}";
         if(ReferenceEquals(renderedEvents,app.Events)&&ReferenceEquals(renderedSessionNames,app.SessionNames)&&renderedFilter==filter)return;
         renderedEvents=app.Events;renderedSessionNames=app.SessionNames;renderedFilter=filter;
         renderedClaudeStatistics=app.ClaudeQuota;
@@ -99,7 +99,11 @@ internal sealed partial class Dashboard
         if(selectedPage=="overview")
         {
             var hourly=selectedRange.IsSingleDay;
-            var trend = UsageCharts.Trend(hourly?HistoryQuery.HourlyTrend(rows,selectedRange.From!.Value):HistoryQuery.Trend(rows,selectedRange),DrillIntoRange,hourly);
+            var trendBuckets=hourly?HistoryQuery.HourlyTrend(rows,selectedRange.From!.Value):HistoryQuery.Trend(rows,selectedRange);
+            var quotaMinutes=hourly?300:10080;
+            var quotaTrend=QuotaConsumption.Codex(app.QuotaTrendHistory,app.Quota.AccountKey,quotaMinutes,trendBuckets);
+            var trend = UsageCharts.Trend(trendBuckets,DrillIntoRange,hourly,quotaUsage:quotaTrend,
+                quotaWindow:L10n.T(hourly?"quota.chart.fiveHour":"quota.chart.weekly"));
             var modelPanel=new StackPanel{Spacing=12};modelPanel.Children.Add(new TextBlock{Text=L10n.T("s39F1A54A74FF"),FontSize=19,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold});
             modelPanel.Children.Add(UsageCharts.Models(rows));
             statisticsBody.Children.Add(Card(trend));

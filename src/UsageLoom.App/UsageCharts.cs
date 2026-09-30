@@ -12,7 +12,24 @@ internal static class UsageCharts
 {
     private enum TrendMetric { Tokens, Requests, Cost }
     internal static readonly Windows.UI.Color[] Colorset=[ColorHelper.FromArgb(255,163,138,245),ColorHelper.FromArgb(255,199,181,255),ColorHelper.FromArgb(255,116,134,215),ColorHelper.FromArgb(255,101,179,184),ColorHelper.FromArgb(255,184,151,201),ColorHelper.FromArgb(255,130,139,157)];
-    internal static FrameworkElement Trend(IReadOnlyList<HistoryTrendBucket> buckets,Action<DateOnly,DateOnly> select,bool hourly=false,bool tokenOnly=false)
+    internal static string QuotaTooltip(QuotaConsumptionBucket? consumption,string window)
+    {
+        var value=consumption?.Points is {} points?L10n.F("quota.chart.points",window,points):L10n.F("quota.chart.empty",window);
+        if(consumption is {Partial:true})
+        {
+            value+=" *";
+            var reasons=new List<string>();
+            foreach(var (flag,key) in new[]{
+                (QuotaConsumptionMissing.Barrier,"barrier"),(QuotaConsumptionMissing.Gap,"gap"),
+                (QuotaConsumptionMissing.ResetTail,"resetTail"),(QuotaConsumptionMissing.ResetUnknown,"resetUnknown"),
+                (QuotaConsumptionMissing.Regression,"regression")})
+                if(consumption.Missing.HasFlag(flag))reasons.Add(L10n.T("quota.chart.reason."+key));
+            value+="\n"+L10n.T("quota.chart.partial")+" · "+string.Join(" / ",reasons);
+        }
+        return value+"\n"+L10n.T("quota.chart.source");
+    }
+    internal static FrameworkElement Trend(IReadOnlyList<HistoryTrendBucket> buckets,Action<DateOnly,DateOnly> select,bool hourly=false,bool tokenOnly=false,
+        IReadOnlyList<QuotaConsumptionBucket>? quotaUsage=null,string? quotaWindow=null)
     {
         const double height=286,left=36,right=18,top=34,bottom=58;
         var root=new StackPanel{Spacing=12};var header=new Grid{ColumnSpacing=16,RowSpacing=8};
@@ -82,12 +99,12 @@ internal static class UsageCharts
             var visibleAxisLabels=Math.Clamp((int)Math.Floor(width/105),2,7);var axisStep=Math.Max(1,(int)Math.Ceiling(buckets.Count/(double)visibleAxisLabels));
             for(var i=0;i<buckets.Count;i++)
             {
-                if(values[i]>0){var point=new Ellipse{Width=9,Height=9,Fill=new SolidColorBrush(ColorHelper.FromArgb(255,42,45,54)),Stroke=accent,StrokeThickness=2};Canvas.SetLeft(point,points[i].X-4.5);Canvas.SetTop(point,points[i].Y-4.5);canvas.Children.Add(point);ToolTipService.SetToolTip(point,$"{buckets[i].Label} · {Exact(buckets[i])}");}
+                if(values[i]>0){var point=new Ellipse{Width=9,Height=9,Fill=new SolidColorBrush(ColorHelper.FromArgb(255,42,45,54)),Stroke=accent,StrokeThickness=2};Canvas.SetLeft(point,points[i].X-4.5);Canvas.SetTop(point,points[i].Y-4.5);canvas.Children.Add(point);ToolTipService.SetToolTip(point,$"{buckets[i].Label} · {Exact(buckets[i])}"+(quotaWindow is null?"":"\n"+QuotaTooltip(quotaUsage is not null&&i<quotaUsage.Count?quotaUsage[i]:null,quotaWindow)));}
                 if(i%axisStep!=0&&i!=buckets.Count-1)continue;
                 var label=new TextBlock{Text=buckets[i].Label+"\n"+Format(values[i]),Width=100,FontSize=10.5,TextAlignment=TextAlignment.Center,TextWrapping=TextWrapping.NoWrap};Canvas.SetLeft(label,Math.Clamp(points[i].X-50,0,width-100));Canvas.SetTop(label,height-bottom+18);canvas.Children.Add(label);
             }
             indicator=new Line{Y1=top,Y2=top+plotHeight,Stroke=accent,StrokeThickness=1,StrokeDashArray=new DoubleCollection{3,4},Visibility=Visibility.Collapsed};canvas.Children.Add(indicator);
-            tooltipText=new TextBlock{FontSize=11,TextWrapping=TextWrapping.Wrap,Foreground=new SolidColorBrush(Colors.White)};tooltip=new Border{Width=204,Padding=new Thickness(12,9,12,9),CornerRadius=new CornerRadius(10),Background=new SolidColorBrush(ColorHelper.FromArgb(245,36,39,48)),BorderBrush=new SolidColorBrush(ColorHelper.FromArgb(110,163,138,245)),BorderThickness=new Thickness(1),Child=tooltipText,Visibility=Visibility.Collapsed};canvas.Children.Add(tooltip);
+            tooltipText=new TextBlock{FontSize=11,TextWrapping=TextWrapping.Wrap,Foreground=new SolidColorBrush(Colors.White)};tooltip=new Border{Width=250,Padding=new Thickness(12,9,12,9),CornerRadius=new CornerRadius(10),Background=new SolidColorBrush(ColorHelper.FromArgb(245,36,39,48)),BorderBrush=new SolidColorBrush(ColorHelper.FromArgb(110,163,138,245)),BorderThickness=new Thickness(1),Child=tooltipText,Visibility=Visibility.Collapsed};canvas.Children.Add(tooltip);
             totalText.Text=metricValue switch{TrendMetric.Requests=>$"{buckets.Sum(bucket=>bucket.Requests):N0}",TrendMetric.Cost=>FormatCost((double)buckets.Sum(bucket=>bucket.EstimatedCost)),_=>FormatNumber(buckets.Sum(bucket=>bucket.Tokens))};
             foreach(var pair in buttons)
             {
@@ -103,8 +120,9 @@ internal static class UsageCharts
         {
             if(currentPoints.Length==0||indicator is null||tooltip is null||tooltipText is null)return;
             var index=Nearest(e.GetCurrentPoint(canvas).Position.X);indicator.X1=indicator.X2=currentPoints[index].X;indicator.Visibility=Visibility.Visible;
-            tooltipText.Text=tokenOnly?$"{buckets[index].Label} · {buckets[index].Tokens:N0} Token":$"{buckets[index].From:yyyy-MM-dd}"+(hourly?$" · {buckets[index].Label}":buckets[index].From==buckets[index].Through?"":L10n.F("sBB1DCF021E6A", buckets[index].Through))+L10n.F("s0B429D8FF175", buckets[index].Tokens, buckets[index].Requests, buckets[index].EstimatedCost);
-            Canvas.SetLeft(tooltip,Math.Clamp(currentPoints[index].X-102,8,currentWidth-212));Canvas.SetTop(tooltip,8);tooltip.Visibility=Visibility.Visible;
+            tooltipText.Text=(tokenOnly?$"{buckets[index].Label} · {buckets[index].Tokens:N0} Token":$"{buckets[index].From:yyyy-MM-dd}"+(hourly?$" · {buckets[index].Label}":buckets[index].From==buckets[index].Through?"":L10n.F("sBB1DCF021E6A", buckets[index].Through))+L10n.F("s0B429D8FF175", buckets[index].Tokens, buckets[index].Requests, buckets[index].EstimatedCost))+
+                (quotaWindow is null?"":"\n"+QuotaTooltip(quotaUsage is not null&&index<quotaUsage.Count?quotaUsage[index]:null,quotaWindow));
+            Canvas.SetLeft(tooltip,Math.Clamp(currentPoints[index].X-125,8,currentWidth-258));Canvas.SetTop(tooltip,8);tooltip.Visibility=Visibility.Visible;
         };
         canvas.PointerExited+=(_,_)=>{if(indicator is not null)indicator.Visibility=Visibility.Collapsed;if(tooltip is not null)tooltip.Visibility=Visibility.Collapsed;};
         canvas.PointerPressed+=(_,e)=>{if(tokenOnly||hourly||currentPoints.Length==0)return;var index=Nearest(e.GetCurrentPoint(canvas).Position.X);select(buckets[index].From,buckets[index].Through);};

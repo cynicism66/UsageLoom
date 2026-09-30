@@ -21,6 +21,31 @@ public sealed partial class LoomApp : Application
     private CancellationTokenSource quotaCancellation = new();
     private readonly CodexClient client = new(Program.Log,new LocalAccountFingerprint(Path.Combine(Program.DataPath,"account-fingerprint.key")));
     private readonly HistoryStore store = new(Program.DataPath);
+    internal IReadOnlyList<QuotaObservation> QuotaTrendHistory {get;private set;}=[];
+    internal int QuotaTrendVersion {get;private set;}
+    private Task? quotaTrendReadTask;
+    private bool quotaTrendReadAgain;
+    private void ScheduleQuotaTrendRead()
+    {
+        if(IsDemo||quitting)return;
+        if(quotaTrendReadTask is {IsCompleted:false}){quotaTrendReadAgain=true;return;}
+        quotaTrendReadTask=ReadQuotaTrendAsync();
+    }
+    private async Task ReadQuotaTrendAsync()
+    {
+        do
+        {
+            quotaTrendReadAgain=false;
+            try
+            {
+                var rows=await Task.Run(store.ReadQuotaObservations,lifetime.Token);
+                if(quitting)return;
+                QuotaTrendHistory=rows;QuotaTrendVersion++;Changed?.Invoke();
+            }
+            catch(OperationCanceledException){return;}
+            catch(Exception ex){Program.Log.Write("WARN","QuotaTrend",ex.Message);return;}
+        }while(quotaTrendReadAgain&&!quitting);
+    }
     private readonly HistoryScanner scanner = new();
     private IncrementalHistory? incremental;
     private readonly DateTimeOffset openedAt=DateTimeOffset.UtcNow;
@@ -88,8 +113,9 @@ public sealed partial class LoomApp : Application
             var retainIdentity=queryFailure&&Config.CapacityEnabled&&quota.AccountKey is not null;
             if(!valid&&!queryFailure)capacityInterruptions=[];
             store.SaveQuotaObservation(new(valid?quota.FetchedAt??DateTimeOffset.UtcNow:DateTimeOffset.UtcNow,valid||retainIdentity?quota.AccountKey:null,valid||retainIdentity?quota.Plan?.Trim().ToLowerInvariant():null,
-                Pricing.CatalogVersion,valid?quota.PrimaryWindows.Where(w=>w.Minutes==10080).ToList():[],!valid)
+                Pricing.CatalogVersion,valid?quota.PrimaryWindows.Where(w=>w.Minutes is 300 or 10080).ToList():[],!valid)
                 {BarrierReason=valid?null:queryFailure?"query-failure":"explicit-boundary"});
+            ScheduleQuotaTrendRead();
             capacityBatch.MarkDirty();
             if(valid)Program.Log.Write("INFO","CapacityPrecision",quota.PrimaryWindows.Any(w=>w.Used!=Math.Truncate(w.Used))?"Fractional percentage observed":"This response contains integer percentages");
         }
@@ -101,6 +127,7 @@ public sealed partial class LoomApp : Application
         if(!CodexActive||!Config.CapacityEnabled)return [];
         if(!IsDemo)
         {
+            ScheduleQuotaTrendRead();
             if(!ReferenceEquals(batchEvents,Events)){if(batchEvents is null||!batchEvents.SequenceEqual(Events))capacityBatch.MarkDirty();batchEvents=Events;}
             if(quota.Fresh)
             {
