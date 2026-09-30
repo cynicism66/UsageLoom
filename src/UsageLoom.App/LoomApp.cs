@@ -367,6 +367,7 @@ public sealed partial class LoomApp : Application
         }
         notifications.Restore(Config.NotificationWindows, DateTimeOffset.Now);
         tray = new TrayIcon(ToggleFlyout, ShowDetails, ShowSettings, () => _ = RefreshQuotaAsync(true), () => _ = QuitAsync());
+        UpdateTrayQuota();
         client.AccountInvalidated += hard => queue.TryEnqueue(() =>
         {
             if (quitting||!CodexActive) return;
@@ -381,6 +382,7 @@ public sealed partial class LoomApp : Application
             }
             RecordCapacityObservation(Quota,true,!hard);
             Quota = new([], null, null, L10n.T("s62896AA1C5E5"), false);
+            UpdateTrayQuota();
             Changed?.Invoke();
         });
         // 事件目前只用于触发经完整身份校验的读取，防止缺失身份/字段的事件直接污染当前快照。
@@ -420,6 +422,11 @@ public sealed partial class LoomApp : Application
             if(this.args.Contains("--preview-weekly"))WeeklyCapacity=[new("codex:weekly",L10n.T("s475811D50FA9"),12800000,1280000,10,3,0,L10n.T("sDFBAD24E7F4A"),DateTimeOffset.Now.AddDays(3))];
             if(CapacityUiCheck)ConfigureCapacityUiPreview();
             Message = L10n.T("sEFF3B8AB8B40");
+            UpdateTrayQuota();
+            var trayTip=TrayIcon.Tooltip(TrayQuotaSelection.Select(Config.TrayQuotaSource,Config.CodexEnabled,Config.ClaudeEnabled,Quota,ClaudeQuota,DateTimeOffset.Now));
+            if(trayTip.Length>127||!trayTip.Contains(L10n.T("tray.snapshotNote"),StringComparison.Ordinal)||
+                !trayTip.Contains(L10n.T("tray.fiveHour"),StringComparison.Ordinal)||!trayTip.Contains(L10n.T("tray.weekly"),StringComparison.Ordinal))
+                throw new InvalidOperationException("Dynamic tray tooltip omitted source, quota window or snapshot caveat");
         }
         else
         {
@@ -451,6 +458,7 @@ public sealed partial class LoomApp : Application
     }
     private void Tick()
     {
+        UpdateTrayQuota();
         if(!IsDemo&&CodexActive&&DateTimeOffset.UtcNow>=nextCapacityCleanupCheck)
         {
             nextCapacityCleanupCheck=DateTimeOffset.UtcNow.AddHours(1);
@@ -575,6 +583,7 @@ public sealed partial class LoomApp : Application
         {
             refreshing = false;
             if (!Config.AutoRefresh) await client.StopAsync();
+            UpdateTrayQuota();
             if (!quitting) Changed?.Invoke();
         }
     }
@@ -673,6 +682,7 @@ public sealed partial class LoomApp : Application
         Config.Language=language;
         if(!IsDemo)Config.Save();
         Message=L10n.T("s1D102BCFB482");
+        UpdateTrayQuota();
         Changed?.Invoke();
     }
     internal async Task SaveSettingsAsync(ClaudeSettingsInput? claudeSettings=null,bool? codexEnabled=null)
@@ -680,7 +690,7 @@ public sealed partial class LoomApp : Application
         if(sourceSettingsBusy)throw new InvalidOperationException(L10n.T("maintenance.busy"));
         sourceSettingsBusy=true;
         try{await SaveSettingsCoreAsync(claudeSettings,codexEnabled);}
-        finally{sourceSettingsBusy=false;Changed?.Invoke();}
+        finally{sourceSettingsBusy=false;UpdateTrayQuota();Changed?.Invoke();}
     }
     private async Task SaveSettingsCoreAsync(ClaudeSettingsInput? claudeSettings,bool? codexEnabled)
     {
@@ -691,6 +701,7 @@ public sealed partial class LoomApp : Application
         var wasEnabled=Config.CodexEnabled;var wasPending=Config.CodexBoundaryPending;
         var enabledChanged=codexEnabled is {} requested&&requested!=wasEnabled;
         if(codexEnabled is {} enabled)Config.CodexEnabled=enabled;
+        UpdateTrayQuota();
         if(enabledChanged||sourceChanged)Config.CodexBoundaryPending=true;
         bool claudeChanged;
         try{claudeChanged=PersistClaudeSettings(claudeSettings);}
@@ -701,6 +712,7 @@ public sealed partial class LoomApp : Application
             Config.AuthorizedAccount=appliedCapacitySource.Authorized;Config.ReuseBackend=appliedCapacitySource.ReuseBackend;
             throw;
         }
+        UpdateTrayQuota();
         if(!sourceChanged&&!enabledChanged&&!Config.CodexBoundaryPending)
         {
             // Ordinary settings must not clear account context or cancel a valid

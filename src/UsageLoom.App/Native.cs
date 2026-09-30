@@ -22,6 +22,16 @@ internal static class Native
     [StructLayout(LayoutKind.Sequential)] public struct Point { public int x, y; }
     [StructLayout(LayoutKind.Sequential)] public struct Rect { public int left, top, right, bottom; }
     [StructLayout(LayoutKind.Sequential)] public struct MonitorInfo { public uint size; public Rect monitor, work; public uint flags; }
+    [StructLayout(LayoutKind.Sequential)] public struct BitmapInfo
+    {
+        public uint size; public int width,height; public ushort planes,bits; public uint compression,imageSize;
+        public int xPixelsPerMeter,yPixelsPerMeter; public uint colorsUsed,importantColors;
+    }
+    [StructLayout(LayoutKind.Sequential)] public struct IconInfo
+    {
+        [MarshalAs(UnmanagedType.Bool)] public bool isIcon;
+        public uint xHotspot,yHotspot; public nint mask,color;
+    }
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern ushort RegisterClassEx(ref WindowClass value);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern nint CreateWindowEx(uint ex, string cls, string name, uint style, int x, int y, int w, int h, nint parent, nint menu, nint instance, nint param);
     [DllImport("user32.dll")] public static extern nint DefWindowProc(nint hwnd, uint message, nuint wParam, nint lParam);
@@ -30,6 +40,10 @@ internal static class Native
     [DllImport("shell32.dll", CharSet = CharSet.Unicode)] [return: MarshalAs(UnmanagedType.Bool)] public static extern bool Shell_NotifyIcon(uint action, ref NotifyData data);
     [DllImport("user32.dll")] public static extern nint CreateIcon(nint instance, int width, int height, byte planes, byte bits, byte[] andBits, byte[] xorBits);
     [DllImport("user32.dll")] public static extern bool DestroyIcon(nint icon);
+    [DllImport("user32.dll")] public static extern nint CreateIconIndirect(ref IconInfo info);
+    [DllImport("gdi32.dll")] public static extern nint CreateDIBSection(nint dc,ref BitmapInfo info,uint usage,out nint bits,nint section,uint offset);
+    [DllImport("gdi32.dll")] public static extern nint CreateBitmap(int width,int height,uint planes,uint bits,byte[] data);
+    [DllImport("gdi32.dll")] public static extern bool DeleteObject(nint value);
     [DllImport("user32.dll", CharSet=CharSet.Unicode)] public static extern nint LoadImage(nint instance,string name,uint type,int width,int height,uint flags);
     [DllImport("user32.dll")] public static extern bool DestroyWindow(nint hwnd);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern bool UnregisterClass(string name, nint instance);

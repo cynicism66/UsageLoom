@@ -2224,6 +2224,7 @@ CapacityReliabilityTests.Run(Test);
 QuotaPaceTests.Run(Test);
 QuotaConsumptionTests.Run(Test);
 OpenRefreshPolicyTests.Run(Test);
+TrayIconTests.Run(Test);
 ClaudeQuotaTests.Run(Test,fixtureRoot);
 ClaudeHistoryTests.Run(Test,fixtureRoot);
 ClaudeCodeTests.Run(Test,fixtureRoot);

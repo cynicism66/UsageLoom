@@ -13,6 +13,8 @@ internal sealed class Settings
     public string CodexHome { get; set; } = Environment.GetEnvironmentVariable("CODEX_HOME")??Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),".codex");
     public bool AutoRefresh { get; set; }=true;
     public bool RefreshOnOpen { get; set; }=true;
+    public string TrayQuotaSource { get; set; }="auto";
+    public bool UseFixedTrayIcon { get; set; }
     public bool ClaudeEnabled { get; set; }
     public bool CodexEnabled { get; set; }=true;
     public bool CodexBoundaryPending { get; set; }
@@ -46,6 +48,7 @@ internal sealed class Settings
             settings.BackgroundSeconds=Math.Clamp(settings.BackgroundSeconds,30,3600);
             settings.UpdateCheckHours=UpdateSchedule.NormalizeHours(settings.UpdateCheckHours);
             settings.ClaudeManualPlan=ClaudePlanLabel.Normalize(settings.ClaudeManualPlan);
+            settings.TrayQuotaSource=TrayQuotaSelection.Normalize(settings.TrayQuotaSource);
             settings.ForegroundSeconds=Math.Clamp(settings.ForegroundSeconds,15,3600);
             settings.LowPercent=Math.Clamp(settings.LowPercent,1,99);
             settings.ResetMinutes=Math.Clamp(settings.ResetMinutes,1,120);

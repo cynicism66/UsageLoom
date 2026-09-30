@@ -59,7 +59,7 @@ public sealed partial class LoomApp
                 {historyError=L10n.T("claude.historySaveFailed");return snapshot;}
             },token);
             if(quitting||generation!=claudeGeneration||!Config.ClaudeEnabled)return;
-            ClaudeQuota=result;quotaRead=true;ClaudeHistoryError=historyError;ClaudeChanged?.Invoke();
+            ClaudeQuota=result;quotaRead=true;ClaudeHistoryError=historyError;UpdateTrayQuota();ClaudeChanged?.Invoke();
             if(codeEnabled)
             {
                 var code=await Task.Run(()=>{if(fullRead)claudeCodeReader.Clear();return claudeCodeReader.Read(codeHome,token);},token);
@@ -73,6 +73,7 @@ public sealed partial class LoomApp
             if(!quitting&&generation==claudeGeneration)
             {
                 if(!quotaRead){ClaudeQuota=ClaudeQuotaSnapshot.Empty("readFailed");ClaudeHistoryError=null;}
+                UpdateTrayQuota();
                 if(Config.ClaudeCodeEnabled)ClaudeCode=ClaudeCodeSnapshot.Empty("readFailed");ClaudeChanged?.Invoke();
             }
         }
@@ -91,7 +92,7 @@ public sealed partial class LoomApp
     {
         if(!changed){ClaudeChanged?.Invoke();if(forceRead)await RefreshClaudeAsync(true);return;}
         claudeGeneration++;claudeCancellation?.Cancel();
-        ClaudeQuota=ClaudeQuotaSnapshot.Empty(Config.ClaudeEnabled?"waiting":"disabled");ClaudeHistoryError=null;ClaudeChanged?.Invoke();Changed?.Invoke();
+        ClaudeQuota=ClaudeQuotaSnapshot.Empty(Config.ClaudeEnabled?"waiting":"disabled");ClaudeHistoryError=null;UpdateTrayQuota();ClaudeChanged?.Invoke();Changed?.Invoke();
         if(claudeTask is {} pending)await pending;
         claudeCodeReader.Clear();ClaudeCode=ClaudeCodeSnapshot.Empty(Config.ClaudeEnabled&&Config.ClaudeCodeEnabled?"waiting":"disabled");ClaudeChanged?.Invoke();
         await RefreshClaudeAsync(true);
