@@ -6,6 +6,7 @@ internal static class Native
 {
     public const uint ActivateMessage = 0x8002;
     public delegate nint WindowProc(nint hwnd, uint message, nuint wParam, nint lParam);
+    public delegate bool EnumWindowProc(nint hwnd,nint parameter);
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     public struct WindowClass { public uint size, style; public WindowProc procedure; public int classExtra, windowExtra; public nint instance, icon, cursor, background; public string? menu; public string className; public nint smallIcon; }
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -31,6 +32,15 @@ internal static class Native
     {
         [MarshalAs(UnmanagedType.Bool)] public bool isIcon;
         public uint xHotspot,yHotspot; public nint mask,color;
+    }
+    [StructLayout(LayoutKind.Sequential)] public struct AppBarData
+    {
+        public uint size; public nint window; public uint callback,edge; public Rect bounds; public nint parameter;
+    }
+    [StructLayout(LayoutKind.Sequential)] public struct PaintData
+    {
+        public nint dc; public int erase; public Rect paint; public int restore,update;
+        [MarshalAs(UnmanagedType.ByValArray,SizeConst=32)] public byte[] reserved;
     }
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern ushort RegisterClassEx(ref WindowClass value);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern nint CreateWindowEx(uint ex, string cls, string name, uint style, int x, int y, int w, int h, nint parent, nint menu, nint instance, nint param);
@@ -60,5 +70,29 @@ internal static class Native
     [DllImport("user32.dll")] public static extern uint TrackPopupMenu(nint menu, uint flags, int x, int y, int reserved, nint hwnd, nint rect);
     [DllImport("user32.dll")] public static extern bool DestroyMenu(nint menu);
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern nint FindWindow(string cls, string name);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern nint FindWindowEx(nint parent,nint after,string? cls,string? name);
+    [DllImport("user32.dll")] public static extern bool EnumChildWindows(nint parent,EnumWindowProc callback,nint parameter);
+    [DllImport("user32.dll")] public static extern bool GetWindowRect(nint hwnd,out Rect bounds);
+    [DllImport("user32.dll")] public static extern bool GetClientRect(nint hwnd,out Rect bounds);
+    [DllImport("user32.dll")] public static extern bool ShowWindow(nint hwnd,int command);
+    [DllImport("user32.dll")] public static extern bool SetWindowPos(nint hwnd,nint after,int x,int y,int width,int height,uint flags);
+    [DllImport("user32.dll")] public static extern bool InvalidateRect(nint hwnd,nint rect,bool erase);
+    [DllImport("user32.dll")] public static extern nint BeginPaint(nint hwnd,out PaintData data);
+    [DllImport("user32.dll")] public static extern bool EndPaint(nint hwnd,ref PaintData data);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(nint hwnd);
+    [DllImport("user32.dll")] public static extern bool IsWindow(nint hwnd);
+    [DllImport("shell32.dll")] public static extern nuint SHAppBarMessage(uint message,ref AppBarData data);
+    [DllImport("gdi32.dll")] public static extern nint CreateSolidBrush(uint color);
+    [DllImport("user32.dll")] public static extern int FillRect(nint dc,ref Rect rect,nint brush);
+    [DllImport("gdi32.dll")] public static extern nint CreatePen(int style,int width,uint color);
+    [DllImport("gdi32.dll")] public static extern nint SelectObject(nint dc,nint value);
+    [DllImport("gdi32.dll")] public static extern nint GetStockObject(int index);
+    [DllImport("gdi32.dll")] public static extern bool Ellipse(nint dc,int left,int top,int right,int bottom);
+    [DllImport("gdi32.dll")] public static extern bool AngleArc(nint dc,int x,int y,uint radius,float start,float sweep);
+    [DllImport("gdi32.dll")] public static extern bool MoveToEx(nint dc,int x,int y,nint previous);
+    [DllImport("gdi32.dll",CharSet=CharSet.Unicode)] public static extern nint CreateFont(int height,int width,int escapement,int orientation,int weight,uint italic,uint underline,uint strikeout,uint charset,uint outputPrecision,uint clipPrecision,uint quality,uint pitchAndFamily,string face);
+    [DllImport("gdi32.dll")] public static extern int SetBkMode(nint dc,int mode);
+    [DllImport("gdi32.dll")] public static extern uint SetTextColor(nint dc,uint color);
+    [DllImport("user32.dll",CharSet=CharSet.Unicode)] public static extern int DrawText(nint dc,string text,int length,ref Rect rect,uint format);
     [DllImport("user32.dll")] public static extern bool PostMessage(nint hwnd, uint message, nuint wParam, nint lParam);
 }

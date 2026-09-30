@@ -3,6 +3,8 @@
   "tray.tightest": "Most constrained source",
   "tray.sourceNote": "Defaults to Codex when enabled, otherwise Claude. Uses only fresh, identified unofficial local snapshots from the selected source; unavailable data shows a gray ring.",
   "tray.fixedSetting": "Use fixed Logo icon",
+  "taskbar.strip.setting": "Taskbar quota strip (experimental, off by default)",
+  "taskbar.strip.note": "Unofficial local snapshot only. Shows only when a free gap is confirmed on the primary bottom taskbar; hides on left, right or top taskbars, auto-hide, secondary taskbars, fullscreen apps, or uncertain space.",
   "tray.fixedNote": "On restores the fixed Logo; off shows the local quota ring. Hover text still reflects the current local snapshot.",
   "tray.noSource": "No available source",
   "tray.snapshotNote": "Unofficial local snapshot",

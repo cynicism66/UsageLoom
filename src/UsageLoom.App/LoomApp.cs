@@ -398,6 +398,7 @@ public sealed partial class LoomApp : Application
         {
             if(this.args.Contains("--preview-light"))Config.Theme="Light";
             if(this.args.Contains("--preview-dark"))Config.Theme="Dark";
+            if(this.args.Contains("--preview-taskbar-strip"))Config.TaskbarStripEnabled=true;
             Config.AutoRefresh = false;
             if(!ClaudeSettingsCheck)ConfigureClaudePreview();
             Config.LowNotify = false;
@@ -446,14 +447,28 @@ public sealed partial class LoomApp : Application
             var beforeOpen=Quota;
             ToggleFlyout();
             if(!ReferenceEquals(Quota,beforeOpen))throw new InvalidOperationException("Opening the compact panel replaced its existing quota snapshot");
+            if(this.args.Contains("--preview-taskbar-strip"))
+            {
+                OpenPanelFromTaskbarStrip();
+                if(!ReferenceEquals(Quota,beforeOpen))throw new InvalidOperationException("Taskbar strip panel entry replaced its existing quota snapshot");
+                Program.Log.Write("INFO","Smoke","Taskbar strip click path retained the existing quota snapshot");
+            }
             Program.Log.Write("INFO","Smoke","Compact panel opened without clearing the existing snapshot");
             Program.Log.Write("INFO", "Smoke", "Dashboard 与额度弹窗已创建，使用独立模拟数据目录");
         }
         if (this.args.Contains("--smoke-test"))
         {
             smokeTimer = DispatcherQueue.GetForCurrentThread().CreateTimer();
-            smokeTimer.Interval = TimeSpan.FromSeconds(ClaudeSettingsCheck?18:CapacityUiCheck||PersonalizationCheck?15:8); smokeTimer.IsRepeating = false;
-            smokeTimer.Tick += async (_, _) => { Program.Log.Write("INFO", "Smoke", "原生窗口和托盘启动检查完成"); await QuitAsync(); }; smokeTimer.Start();
+            smokeTimer.Interval = TimeSpan.FromSeconds(this.args.Contains("--preview-idle-30")?35:ClaudeSettingsCheck?18:CapacityUiCheck||PersonalizationCheck?15:8); smokeTimer.IsRepeating = false;
+            smokeTimer.Tick += async (_, _) =>
+            {
+                if(this.args.Contains("--preview-taskbar-strip"))
+                {
+                    if(taskbarStrip is null||taskbarStrip.Faulted)throw new InvalidOperationException("Opt-in taskbar strip failed during startup smoke");
+                    Program.Log.Write("INFO","Smoke",$"Opt-in taskbar strip stayed healthy; placement={taskbarStrip.HiddenReason}");
+                }
+                Program.Log.Write("INFO", "Smoke", "原生窗口和托盘启动检查完成"); await QuitAsync();
+            }; smokeTimer.Start();
         }
     }
     private void Tick()
@@ -799,6 +814,7 @@ public sealed partial class LoomApp : Application
             catch(Exception ex){Program.Log.Write("WARN","Attribution",ex.Message);}
         }
         await client.DisposeAsync();
+        taskbarStrip?.Dispose();taskbarStrip=null;
         tray?.Dispose(); tray = null;
         Program.Log.Write("INFO", "App", "正常退出，托盘已清理");
         Exit();

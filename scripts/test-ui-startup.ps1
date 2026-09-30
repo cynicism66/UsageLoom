@@ -1,5 +1,5 @@
 [CmdletBinding()]
-param([switch]$AllPages,[switch]$English,[switch]$Personalization,[switch]$CapacityDetails,[switch]$Claude,[string]$PublishDirectory)
+param([switch]$AllPages,[switch]$English,[switch]$Personalization,[switch]$CapacityDetails,[switch]$Claude,[switch]$TaskbarStrip,[string]$PublishDirectory)
 $ErrorActionPreference='Stop'
 if($CapacityDetails -and $Personalization){throw 'CapacityDetails and Personalization must run separately; both navigate the settings page'}
 $workspace=(Resolve-Path (Join-Path $PSScriptRoot '..')).Path
@@ -13,10 +13,12 @@ $log=Join-Path $env:USAGELOOM_TEST_DATA 'logs/runtime.log'
 $scenarios=@('populated','empty')
 if($AllPages){$scenarios+=@('quota','breakdown','sessions','single-day','narrow-overview','wide-overview','settings','about')}
 if($CapacityDetails){$scenarios=@('capacity-details')}
+if($TaskbarStrip){$scenarios=@('populated')}
 foreach($scenario in $scenarios){
     $before=if(Test-Path -LiteralPath $log){@(Get-Content -LiteralPath $log -Encoding UTF8).Count}else{0}
     $arguments=@('--smoke-test')
     if($Claude){$arguments+='--preview-claude'}
+    if($TaskbarStrip){$arguments+='--preview-taskbar-strip'}
     if(!$CapacityDetails){$arguments+='--navigation-check'}
     if($English){$arguments+='--preview-english'}
     if($Personalization){$arguments+='--personalization-check'}
@@ -53,5 +55,7 @@ foreach($scenario in $scenarios){
     if($CapacityDetails -and !($lines -match 'Compact plan moved into quota header without standalone row passed')){throw 'Compact plan placement check did not complete'}
     if($CapacityDetails -and !($lines -match 'Compact display recovery passed')){throw 'Compact display recovery check did not complete'}
     if($CapacityDetails -and !($lines -match 'Compact popover has no buttons; main details entry and footer settings gear retained')){throw 'Compact/main detail entry separation check did not complete'}
+    if($TaskbarStrip -and !($lines -match 'Opt-in taskbar strip stayed healthy')){throw 'Opt-in taskbar strip startup check did not complete'}
+    if($TaskbarStrip -and !($lines -match 'Taskbar strip click path retained the existing quota snapshot')){throw 'Taskbar strip panel entry check did not complete'}
     Write-Output "PASS UI startup: $scenario"
 }

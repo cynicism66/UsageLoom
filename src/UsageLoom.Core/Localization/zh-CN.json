@@ -3,6 +3,8 @@
   "tray.tightest": "最紧张的来源",
   "tray.sourceNote": "默认优先 Codex，未启用 Codex 时显示 Claude。仅使用当前来源的新鲜、已识别的非官方本地快照；不可用时显示灰环。",
   "tray.fixedSetting": "使用固定 Logo 图标",
+  "taskbar.strip.setting": "任务栏数字条（实验功能，默认关闭）",
+  "taskbar.strip.note": "仅基于本地快照，非官方数据。只在主显示器底部任务栏有可确认空位时显示；左侧、右侧或顶部任务栏、自动隐藏、副任务栏、全屏应用和无法确认空位时自动隐藏。",
   "tray.fixedNote": "开启后恢复固定 Logo；关闭后使用本地额度圆环。悬停说明仍来自当前本地快照。",
   "tray.noSource": "无可用来源",
   "tray.snapshotNote": "非官方本地快照",

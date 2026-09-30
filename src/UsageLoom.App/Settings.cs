@@ -15,6 +15,7 @@ internal sealed class Settings
     public bool RefreshOnOpen { get; set; }=true;
     public string TrayQuotaSource { get; set; }="auto";
     public bool UseFixedTrayIcon { get; set; }
+    public bool TaskbarStripEnabled { get; set; }
     public bool ClaudeEnabled { get; set; }
     public bool CodexEnabled { get; set; }=true;
     public bool CodexBoundaryPending { get; set; }
