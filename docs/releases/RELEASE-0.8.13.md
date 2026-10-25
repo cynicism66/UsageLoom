@@ -13,7 +13,7 @@
 - Claude 是本地快照，不是实时联网额度查询。刷新按钮只重读缓存；缓存更新由 Claude 桌面版控制。
 - 默认关闭；支持已验证的 Chromium Blockfile v3 与百分比历史 v2。多个来源需要在设置中核验。缓存不能证明当前登录身份。
 - Token、请求、Session、费用与容量估值仍仅统计 Codex。无需清除历史或重新采样，本版不修改已有计数、归属与采样数据。
-- 详见 [Claude 接入说明](https://github.com/cynicism66/UsageLoom/blob/main/docs/CLAUDE.md)。
+- 详见 [Claude 接入说明](https://github.com/cynicism66/UsageLoom/blob/main/docs/claude-desktop-quota.md)。
 
 ## 验证说明
 

@@ -8,7 +8,7 @@ Windows 客户端在本机展示结果，保留的 JavaScript/MCP 原型通过�
 
 Claude 集成默认关闭。启用后只读其本机 `plan-usage-history.json` 和 Chromium 缓存索引；扫描索引定位额度 URL，只解压匹配的组织额度响应，提取百分比、重置时间与响应时间。原始组织 ID 仅在内存用于生成来源指纹，设置只保存选定的本机目录、开关与来源指纹。额度快照仅存内存，不写入 Codex 用量库。
 
-不读取 Cookie、登录凭据或聊天响应正文，不注入 Claude 进程，不调用其网络接口；UsageLoom 不使用也不转发 Claude 登录态。来源指纹不能证明当前登录身份。手动或自动刷新只重读缓存，不能迫使 Claude 更新数据。详见 [Claude 接入说明](CLAUDE.md)。
+不读取 Cookie、登录凭据或聊天响应正文，不注入 Claude 进程，不调用其网络接口；UsageLoom 不使用也不转发 Claude 登录态。来源指纹不能证明当前登录身份。手动或自动刷新只重读缓存，不能迫使 Claude 更新数据。详见 [Claude 接入说明](claude-desktop-quota.md)。
 
 ## Codex Adapter 可能读取的数据
 

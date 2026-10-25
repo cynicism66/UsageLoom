@@ -14,11 +14,11 @@ Claude 每周参考估算无法给出数字时，概览卡片直接显示具体�
 
 Claude 与 Codex 概览日期筛选按钮使用相同的间距，卡片排列保持一致。[发布说明](docs/releases/RELEASE-0.8.34.md)
 
-Claude 额度卡片新增实验性的每周容量参考估算：将同一周期的连续额度快照与本机 Claude Code Token 日志配对；样本不足或来源不明确时直接说明原因，不把本机用量冒充全账号额度。[使用边界](docs/CLAUDE.md) · [发布说明](docs/releases/RELEASE-0.8.33.md)
+Claude 额度卡片新增实验性的每周容量参考估算：将同一周期的连续额度快照与本机 Claude Code Token 日志配对；样本不足或来源不明确时直接说明原因，不把本机用量冒充全账号额度。[使用边界](docs/claude-desktop-quota.md) · [发布说明](docs/releases/RELEASE-0.8.33.md)
 
 Claude 与 Codex 的“自定义”日期筛选现在使用相同的“开始／结束”标签、`yyyy-MM-dd` 显示和窄窗口布局。[发布说明](docs/releases/RELEASE-0.8.32.md)
 
-设置页的刷新、通知、估算和登录相关选项按 Codex／Claude 分框显示。Claude 概览现在与 Codex 共用日期筛选和统计卡布局，并可按公开 Claude API 价格估算本机 Claude Code 用量的等价金额；这不是 Pro 账单，也不推算套餐总额度。[使用与隐私边界](docs/CLAUDE.md) · [发布说明](docs/releases/RELEASE-0.8.31.md)
+设置页的刷新、通知、估算和登录相关选项按 Codex／Claude 分框显示。Claude 概览现在与 Codex 共用日期筛选和统计卡布局，并可按公开 Claude API 价格估算本机 Claude Code 用量的等价金额；这不是 Pro 账单，也不推算套餐总额度。[使用与隐私边界](docs/claude-desktop-quota.md) · [发布说明](docs/releases/RELEASE-0.8.31.md)
 
 “数据来源”中的 Codex 和 Claude 统一为独立的“启用数据源”开关：可单独使用任一来源，也可同时启用。停用停止该来源采集并隐藏内容，保留设置和历史。Codex 恢复时重新建立采样边界，不跨停用区间估算。[发布说明](docs/releases/RELEASE-0.8.20.md)
 
@@ -32,7 +32,7 @@ Claude 桌面版配置移入“设置 → 数据来源”，与 Codex 路径集�
 
 修复覆盖安装时权限不足导致大量回滚文件安全设置报错的问题；安装前校验实际提权状态，保留当前用户安装和事务回滚。从旧版升级请将同版本 MSI 和 `UsageLoom-install.cmd` 下载到同一文件夹，双击安装入口并确认 UAC。[发布说明](docs/releases/RELEASE-0.8.14.md)
 
-在“设置 → 数据来源 → Claude 桌面版”启用后，可在概览、当前额度和托盘小窗同时查看 Codex 与 Claude。Claude 的 5 小时／每周剩余额度和重置时间来自只读本地缓存，不需要额外登录；不是主动联网查询，缓存更新时间由 Claude 控制。[接入说明与限制](docs/CLAUDE.md) · [发布说明](docs/releases/RELEASE-0.8.13.md)
+在“设置 → 数据来源 → Claude 桌面版”启用后，可在概览、当前额度和托盘小窗同时查看 Codex 与 Claude。Claude 的 5 小时／每周剩余额度和重置时间来自只读本地缓存，不需要额外登录；不是主动联网查询，缓存更新时间由 Claude 控制。[接入说明与限制](docs/claude-desktop-quota.md) · [发布说明](docs/releases/RELEASE-0.8.13.md)
 
 0.8.7：中断提示只对应当前周周期；区分累计百分点、等待快照和等待日志，历史估算明确标为参考。[发布说明](docs/releases/RELEASE-0.8.7.md)
 
