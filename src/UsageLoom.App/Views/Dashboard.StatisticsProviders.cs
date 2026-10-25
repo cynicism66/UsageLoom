@@ -50,6 +50,22 @@ internal sealed partial class Dashboard
             tab.Content=(provider=="codex"?"Codex":"Claude")+(enabled?"":" · "+L10n.T("stats.disabled"));
             tab.IsChecked=statisticsProvider==provider;
         }
+        FitHeadingText();
+    }
+
+    // The title column is Auto-sized, so a long subtitle would otherwise take the
+    // selector's star column. Cap the title block so the subtitle wraps instead.
+    private void FitHeadingText()
+    {
+        if(compact||double.IsNaN(heading.Width)||Grid.GetRow(statisticsTabs)!=0){headingText.MaxWidth=double.PositiveInfinity;return;}
+        double Natural(FrameworkElement element)
+        {
+            if(element.Visibility!=Visibility.Visible)return 0;
+            element.Measure(new Windows.Foundation.Size(double.PositiveInfinity,double.PositiveInfinity));
+            return element.DesiredSize.Width;
+        }
+        var available=heading.Width-heading.ColumnSpacing*2-Natural(statisticsTabs)-Natural(actions);
+        headingText.MaxWidth=Math.Max(Natural(pageTitle),available);
     }
 
     private UIElement StatisticsUnavailable()
@@ -70,7 +86,7 @@ internal sealed partial class Dashboard
     {
         UpdateStatisticsTabs();
         if(!IsStatisticsPage)return;
-        actions.Visibility=CodexStatisticsActive?Visibility.Visible:Visibility.Collapsed;
+        actions.Visibility=CodexStatisticsActive?Visibility.Visible:Visibility.Collapsed;FitHeadingText();
         status.Text=statisticsProvider=="claude"?(app.Config.ClaudeEnabled?"Claude · "+app.ClaudeQuota.Describe(DateTimeOffset.Now):L10n.F("stats.sourceDisabled","Claude")):
             app.Config.CodexEnabled?"Codex · "+app.HistoryStatus:L10n.F("stats.sourceDisabled","Codex");
         ToolTipService.SetToolTip(status,status.Text);

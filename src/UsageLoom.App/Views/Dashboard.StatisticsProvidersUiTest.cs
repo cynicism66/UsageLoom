@@ -44,6 +44,26 @@ internal sealed partial class Dashboard
                 CapacityTestDescendants(workspace).Any(e=>ReferenceEquals(e,filterBar))||actions.Visibility!=Visibility.Collapsed)
                 throw new InvalidOperationException("Unavailable provider leaked Codex statistics, filters or scan action");
         }
+        void CheckHeadingFits()
+        {
+            // Only the wide layout keeps the selector beside the subtitle and actions.
+            root.UpdateLayout();
+            var saved=heading.Width;
+            if(double.IsNaN(saved)||Grid.GetRow(statisticsTabs)!=0||pageSubtitle.Visibility!=Visibility.Visible)return;
+            try
+            {
+                foreach(var width in new[]{712d,760,820,900})
+                {
+                    if(width>saved)continue;
+                    heading.Width=width;FitHeadingText();root.UpdateLayout();
+                    var tabs=statisticsTabs.Children.OfType<FrameworkElement>().ToArray();
+                    var needed=tabs.Sum(t=>t.DesiredSize.Width)+statisticsTabs.Spacing*(tabs.Length-1);
+                    if(heading.ColumnDefinitions[1].ActualWidth+.5<needed)
+                        throw new InvalidOperationException($"Provider selector clipped on {selectedPage} at {width} DIP heading width: {heading.ColumnDefinitions[1].ActualWidth:0}/{needed:0}");
+                }
+            }
+            finally{heading.Width=saved;FitHeadingText();root.UpdateLayout();}
+        }
         try
         {
             historySearch.Text="provider-filter-fixture";sessionOrder.SelectedIndex=1;breakdownKind.SelectedIndex=1;
@@ -52,7 +72,7 @@ internal sealed partial class Dashboard
                 ShowPage(pageName);Switch("claude");CheckUnavailable();
                 if(app.Config.CodexEnabled!=codexEnabled||app.Config.ClaudeEnabled!=claudeEnabled||!ReferenceEquals(events,app.Events)||!ReferenceEquals(snapshot,app.ClaudeQuota))
                     throw new InvalidOperationException("View selection changed collection or source data");
-                Render();CheckUnavailable();Switch("codex");VerifyHistoryFilterAttached();
+                Render();CheckUnavailable();Switch("codex");VerifyHistoryFilterAttached();CheckHeadingFits();
                 if(historyRangeIndex!=range||historyFrom.Date!=from||historyThrough.Date!=through||historySearch.Text!="provider-filter-fixture"||sessionOrder.SelectedIndex!=1||breakdownKind.SelectedIndex!=1)
                     throw new InvalidOperationException("Provider switch lost Codex filters");
             }
@@ -112,7 +132,7 @@ internal sealed partial class Dashboard
             var date=new DateOnly(2026,9,8);DrillIntoRange(date,date);root.UpdateLayout();
             if(statisticsProvider!="codex"||selectedPage!="sessions"||!SelectedHistoryRange().IsSingleDay)
                 throw new InvalidOperationException("Trend drilldown lost provider or date range");
-            app.Config.CodexEnabled=false;renderedFilter=null;Render();CheckUnavailable();
+            app.Config.CodexEnabled=false;renderedFilter=null;Render();CheckUnavailable();CheckHeadingFits();
             Switch("claude");app.Config.ClaudeEnabled=false;renderedFilter=null;Render();CheckUnavailable();
             app.Config.ClaudeEnabled=true;renderedFilter=null;Render();CheckUnavailable();
             if(!CapacityTestDescendants(sessionWorkspace).OfType<FrameworkElement>().Any(t=>ToolTipService.GetToolTip(t) as string==L10n.T("claude.code.scope")))

@@ -46,6 +46,8 @@ internal sealed partial class Dashboard : Window
     private readonly StackPanel actions = new() { Orientation = Orientation.Horizontal, Spacing = 10 };
     private readonly TextBlock pageTitle = new() { FontSize = 30, FontWeight = Microsoft.UI.Text.FontWeights.SemiBold };
     private readonly TextBlock pageSubtitle = new() { FontSize = 13, Opacity = .65, TextWrapping = TextWrapping.Wrap };
+    private readonly StackPanel headingText = new() { Spacing = 4 };
+    private readonly Grid heading = new() { ColumnSpacing = 16, RowSpacing = 10, MaxWidth = 1600 };
     private readonly TextBlock paneFooter = new() { Opacity = .55, HorizontalAlignment = HorizontalAlignment.Stretch };
     private readonly List<WeakReference<Border>> surfaces = [];
     private readonly SolidColorBrush accent = new(ColorHelper.FromArgb(255, 163, 138, 245));
@@ -135,9 +137,8 @@ internal sealed partial class Dashboard : Window
         body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         body.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         body.RowDefinitions.Add(new RowDefinition { Height = new GridLength(1, GridUnitType.Star) });
-        var headingText = new StackPanel { Spacing = 4 };
         headingText.Children.Add(pageTitle);headingText.Children.Add(pageSubtitle);
-        var heading = new Grid{ColumnSpacing=16,RowSpacing=10,Margin=new Thickness(compact?0:32,0,compact?0:32,20),MaxWidth=1600,HorizontalAlignment=compact?HorizontalAlignment.Stretch:HorizontalAlignment.Left};
+        heading.Margin=new Thickness(compact?0:32,0,compact?0:32,20);heading.HorizontalAlignment=compact?HorizontalAlignment.Stretch:HorizontalAlignment.Left;
         heading.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
         heading.ColumnDefinitions.Add(new ColumnDefinition{Width=new GridLength(1,GridUnitType.Star)});
         heading.ColumnDefinitions.Add(new ColumnDefinition{Width=GridLength.Auto});
@@ -167,6 +168,7 @@ internal sealed partial class Dashboard : Window
             Grid.SetColumn(actions,2);Grid.SetRow(actions,!compact&&narrow?1:0);
             Grid.SetColumnSpan(headingText,!compact&&narrow?3:1);
             actions.HorizontalAlignment=narrow?HorizontalAlignment.Left:HorizontalAlignment.Right;
+            FitHeadingText();
         };
         actions.Children.Add(Button(compact?L10n.T("sAEE887434131"):L10n.T("s637A0D380AEC"),async()=>await app.RefreshQuotaAsync(true)));
         if(compact)
@@ -422,6 +424,7 @@ internal sealed partial class Dashboard : Window
         }
         actions.Visibility=actions.Children.Count==0?Visibility.Collapsed:Visibility.Visible;
         foreach(var button in actions.Children.OfType<Button>()){button.Background=accent;button.Foreground=new SolidColorBrush(ColorHelper.FromArgb(255,24,20,36));}
+        FitHeadingText();
         pageScroll.ChangeView(null, 0, null);
         Render();
         RevealCapacitySettings();
