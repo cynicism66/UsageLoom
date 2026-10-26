@@ -91,7 +91,7 @@ internal sealed partial class Dashboard
             claude.Children.Add(view.ClaudeValues[i]);claude.Children.Add(view.ClaudeProgress[i]);claude.Children.Add(view.ClaudeResets[i]);
         }
         view.ClaudeCard=CompactCard(claude,"compact-claude-card");view.ClaudeCard.Height=136;
-        view.ClaudeCard.Visibility=app.Config.ClaudeEnabled?Visibility.Visible:Visibility.Collapsed;quotaPanel.Children.Add(view.ClaudeCard);
+        view.ClaudeCard.Visibility=app.ClaudeShown?Visibility.Visible:Visibility.Collapsed;quotaPanel.Children.Add(view.ClaudeCard);
         view.Disabled.Text=L10n.T("source.none");quotaPanel.Children.Add(view.Disabled);
         view.Capacity.Opacity=.75;view.CapacityRow.Height=40;view.CapacityRow.Margin=new Thickness(0,8,0,0);
         view.CapacityRow.Children.Add(view.Capacity);
@@ -110,10 +110,10 @@ internal sealed partial class Dashboard
     {
         UpdateCompactClaude();
         var view=compactContent!;var quota=app.Quota;
-        var codexVisibility=app.Config.CodexEnabled?Visibility.Visible:Visibility.Collapsed;
+        var codexVisibility=app.CodexShown?Visibility.Visible:Visibility.Collapsed;
         view.QuotaCard.Visibility=codexVisibility;
-        view.Disabled.Visibility=!app.Config.CodexEnabled&&!app.Config.ClaudeEnabled?Visibility.Visible:Visibility.Collapsed;
-        if(!app.Config.CodexEnabled)capacityInfoFlyout?.Hide();
+        view.Disabled.Visibility=!app.CodexShown&&!app.ClaudeShown?Visibility.Visible:Visibility.Collapsed;
+        if(!app.CodexShown)capacityInfoFlyout?.Hide();
         var windows=quota.HasQuotaDisplay?quota.PrimaryWindows.ToArray():[];
         var now=DateTimeOffset.Now;
         var paceCandidates=new List<(double Remaining,QuotaPaceKind Kind,TextBlock Target,string Window)>();
@@ -136,7 +136,7 @@ internal sealed partial class Dashboard
         // Offline/unavailable states retain the quota slot; ordinary values never
         // change row heights or cause the whole Viewbox to rescale.
         var slots=Math.Max(1,view.Windows.Count);
-        var showCapacity=app.Config.CodexEnabled&&app.Config.CapacityEnabled;
+        var showCapacity=app.CodexShown&&app.Config.CapacityEnabled;
         view.QuotaCard.Height=58+slots*70+(slots-1)*12+(showCapacity?48:0);
         view.Limits.Visibility=windows.Length>0?Visibility.Visible:Visibility.Collapsed;
         view.Unavailable.Visibility=windows.Length>0?Visibility.Collapsed:Visibility.Visible;
@@ -160,8 +160,8 @@ internal sealed partial class Dashboard
         AutomationProperties.SetName(view.PlanRow,quota.PlanDisplay);
         var updated=SnapshotAge(quota.FetchedAt,DateTimeOffset.Now);
         var resets=quota.HasQuotaDisplay&&quota.ResetCount is {} count?L10n.F("s26ABA9EC2EFB",count):L10n.T("s382254F4153B");
-        view.Footer.Text=app.Config.CodexEnabled?$"{resets}   ·   {updated}":"";ToolTipService.SetToolTip(view.Footer,view.Footer.Text);
-        if(app.Config.ClaudeEnabled)
+        view.Footer.Text=app.CodexShown?$"{resets}   ·   {updated}":"";ToolTipService.SetToolTip(view.Footer,view.Footer.Text);
+        if(app.ClaudeShown)
             for(var index=0;index<2;index++)
             {
                 var key=index==0?"five_hour":"seven_day";

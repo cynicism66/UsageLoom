@@ -50,8 +50,8 @@ internal sealed partial class Dashboard
     private void FillOverviewQuota()
     {
         var quota=app.Quota;
-        overviewQuota.Children.Clear();overviewQuotaCard.Visibility=app.Config.CodexEnabled?Visibility.Visible:Visibility.Collapsed;
-        if(!app.Config.CodexEnabled)return;
+        overviewQuota.Children.Clear();overviewQuotaCard.Visibility=app.CodexShown?Visibility.Visible:Visibility.Collapsed;
+        if(!app.CodexShown)return;
         var header=new Grid{ColumnSpacing=12};
         header.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});
         header.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
@@ -167,7 +167,7 @@ internal sealed partial class Dashboard
             throw new InvalidOperationException("Codex provider header or plan badge is missing");
         if(codexDetailsCard.Parent is not Grid providers||providers.Children[0]!=codexDetailsCard||quotaPanel.Children[0]!=providers)
             throw new InvalidOperationException("Detached provider title exists above the cards");
-        if(app.Config.ClaudeEnabled)
+        if(app.ClaudeShown)
         {
             if(claudeDetails?.Parent is not Border claudeCard||providers.Children.Count<2||providers.Children[1]!=claudeCard||claudeDetails.Children[0] is not Grid claudeHeader||claudeHeader.Children[0] is not TextBlock claudeTitle||claudeTitle.FontSize!=title.FontSize||claudeHeader.Children[1] is not TextBlock claudePlan||claudePlan.Text!=ClaudePlanLabel.Badge(app.Config.ClaudeManualPlan))
                 throw new InvalidOperationException("Codex and Claude card hierarchy differs");

@@ -11,7 +11,7 @@ internal sealed partial class Dashboard
     private void RenderStats()
     {
         var selectedRange=SelectedHistoryRange();
-        var filter=$"{selectedPage}|{statisticsProvider}|{historyRangeIndex}|{selectedRange.From}|{selectedRange.Through}|{historySearch.Text}|{sessionOrder.SelectedIndex}|{sessionPage}|{breakdownKind.SelectedIndex}|{DateTime.Today:yyyy-MM-dd}|{app.Config.ClaudeEnabled}|{app.Config.CodexEnabled}|{claudeCodeRangeIndex}|{claudeCodeFrom}|{claudeCodeThrough}|{app.QuotaTrendVersion}";
+        var filter=$"{selectedPage}|{statisticsProvider}|{historyRangeIndex}|{selectedRange.From}|{selectedRange.Through}|{historySearch.Text}|{sessionOrder.SelectedIndex}|{sessionPage}|{breakdownKind.SelectedIndex}|{DateTime.Today:yyyy-MM-dd}|{app.Config.ClaudeEnabled}|{app.Config.CodexEnabled}|{app.Config.ClaudeVisible}|{app.Config.CodexVisible}|{claudeCodeRangeIndex}|{claudeCodeFrom}|{claudeCodeThrough}|{app.QuotaTrendVersion}";
         if(ReferenceEquals(renderedEvents,app.Events)&&ReferenceEquals(renderedSessionNames,app.SessionNames)&&renderedFilter==filter)return;
         renderedEvents=app.Events;renderedSessionNames=app.SessionNames;renderedFilter=filter;
         renderedClaudeStatistics=app.ClaudeQuota;
@@ -29,8 +29,8 @@ internal sealed partial class Dashboard
         if(selectedPage=="overview")
         {
             var cards=new List<UIElement>();
-            if(app.Config.CodexEnabled)cards.Add(overviewQuotaCard);
-            if(app.Config.ClaudeEnabled){claudeOverview=new(){Spacing=10};FillClaudeCard(claudeOverview,true);cards.Add(Card(claudeOverview));}
+            if(app.CodexShown)cards.Add(overviewQuotaCard);
+            if(app.ClaudeShown){claudeOverview=new(){Spacing=10};FillClaudeCard(claudeOverview,true);cards.Add(Card(claudeOverview));}
             if(cards.Count>0)statsPanel.Children.Add(ResponsiveCards(cards,2,300));
         }
         if(selectedPage!="sessions")

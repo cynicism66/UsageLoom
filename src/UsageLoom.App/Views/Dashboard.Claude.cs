@@ -132,7 +132,7 @@ internal sealed partial class Dashboard
         var scopeChoice=claudeScopeChoice;
         directory.TextChanged+=(_,_)=>{if(!string.Equals(directory.Text.Trim(),app.Config.ClaudeDataDirectory??"",StringComparison.OrdinalIgnoreCase))scopeChoice.SelectedIndex=0;};
         claudeSettingsStatus=ClaudeText("");
-        var panel=SourceSettingsGroup(L10n.T("claude.title"),enabled,directory,claudeScopeChoice);
+        var panel=SourceSettingsGroup(L10n.T("claude.title"),enabled,claudeVisibleChoice=SourceVisibleChoice("claude"),directory,claudeScopeChoice);
         claudePlanChoice=new ComboBox{Header=L10n.T("claude.planChoice"),HorizontalAlignment=HorizontalAlignment.Stretch};
         claudePlanChoice.Items.Add(new ComboBoxItem{Content=L10n.T("claude.planUnset"),Tag=""});
         foreach(var key in ClaudePlanLabel.Choices)claudePlanChoice.Items.Add(new ComboBoxItem{Content=ClaudePlanLabel.Display(key),Tag=key});
@@ -162,9 +162,9 @@ internal sealed partial class Dashboard
     }
     private void UpdateCompactClaude()
     {
-        var view=compactContent!;var visibility=app.Config.ClaudeEnabled?Visibility.Visible:Visibility.Collapsed;
+        var view=compactContent!;var visibility=app.ClaudeShown?Visibility.Visible:Visibility.Collapsed;
         if(view.ClaudeCard.Visibility!=visibility){view.ClaudeCard.Visibility=visibility;displayState=null;}
-        if(!app.Config.ClaudeEnabled)return;
+        if(!app.ClaudeShown)return;
         var snapshot=app.ClaudeQuota;var now=DateTimeOffset.Now;
         view.ClaudePlan.Text=ClaudePlanLabel.Badge(app.Config.ClaudeManualPlan);
         ToolTipService.SetToolTip(view.ClaudePlan,L10n.T("claude.planNotice"));

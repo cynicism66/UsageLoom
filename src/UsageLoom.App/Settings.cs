@@ -18,6 +18,9 @@ internal sealed class Settings
     public bool ClaudeEnabled { get; set; }
     public bool CodexEnabled { get; set; }=true;
     public bool CodexBoundaryPending { get; set; }
+    // Display only: a hidden source keeps collecting while it is enabled.
+    public bool CodexVisible { get; set; }=true;
+    public bool ClaudeVisible { get; set; }=true;
     public string? ClaudeDataDirectory { get; set; }
     public string? ClaudeScope { get; set; }
     public string? ClaudeManualPlan { get; set; }

@@ -423,7 +423,7 @@ public sealed partial class LoomApp : Application
             if(CapacityUiCheck)ConfigureCapacityUiPreview();
             Message = L10n.T("sEFF3B8AB8B40");
             UpdateTrayQuota();
-            var trayTip=TrayIcon.Tooltip(TrayQuotaSelection.Select(Config.TrayQuotaSource,Config.CodexEnabled,Config.ClaudeEnabled,Quota,ClaudeQuota,DateTimeOffset.Now));
+            var trayTip=TrayIcon.Tooltip(TrayQuotaSelection.Select(Config.TrayQuotaSource,CodexShown,ClaudeShown,Quota,ClaudeQuota,DateTimeOffset.Now));
             if(trayTip.Length>127||!trayTip.Contains(L10n.T("tray.snapshotNote"),StringComparison.Ordinal)||
                 !trayTip.Contains(L10n.T("tray.fiveHour"),StringComparison.Ordinal)||!trayTip.Contains(L10n.T("tray.weekly"),StringComparison.Ordinal))
                 throw new InvalidOperationException("Dynamic tray tooltip omitted source, quota window or snapshot caveat");
@@ -763,7 +763,8 @@ public sealed partial class LoomApp : Application
     }
     private void EvaluateNotifications()
     {
-        if (IsDemo || quitting || !CodexActive || Config.ReuseBackend || Config.AuthorizedAccount) return;
+        // A hidden source still collects, but must not surface through notifications.
+        if (IsDemo || quitting || !CodexActive || !Config.CodexVisible || Config.ReuseBackend || Config.AuthorizedAccount) return;
         var pending = notifications.Evaluate(Quota, new(Config.LowNotify, Config.ResetNotify, Config.LowPercent, Config.ResetMinutes), DateTimeOffset.Now, TimeSpan.FromMinutes(10));
         if (pending.Count == 0) return;
         Config.NotificationWindows = notifications.Export().ToList();

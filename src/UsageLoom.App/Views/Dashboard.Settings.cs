@@ -22,7 +22,7 @@ internal sealed partial class Dashboard
         if(app.IsDemo&&System.Text.Json.JsonSerializer.Deserialize<Settings>("{\"AutoRefresh\":false}")?.RefreshOnOpen!=true)
             throw new InvalidOperationException("Older settings did not migrate the refresh-on-open default");
         var traySource=new ComboBox{Header=L10n.T("tray.sourceSetting"),ItemsSource=new[]{"Codex","Claude",L10n.T("tray.tightest")},
-            SelectedIndex=app.Config.TrayQuotaSource switch{"claude"=>1,"tightest"=>2,"codex"=>0,_=>app.Config.CodexEnabled?0:1}};
+            SelectedIndex=app.Config.TrayQuotaSource switch{"claude"=>1,"tightest"=>2,"codex"=>0,_=>app.CodexShown?0:1}};
         var fixedTray=new ToggleSwitch{Header=L10n.T("tray.fixedSetting"),IsOn=app.Config.UseFixedTrayIcon,
             OnContent=L10n.Language=="en-US"?"On":"开",OffContent=L10n.Language=="en-US"?"Off":"关"};
         ToolTipService.SetToolTip(traySource,L10n.T("tray.sourceNote"));

@@ -14,7 +14,7 @@ internal sealed partial class Dashboard
     private readonly Dictionary<string,ToggleButton> statisticsTabButtons=[];
     private Border? statisticsFrame;
     private bool IsStatisticsPage=>selectedPage is "overview" or "breakdown" or "sessions";
-    private bool CodexStatisticsActive=>statisticsProvider=="codex"&&app.Config.CodexEnabled;
+    private bool CodexStatisticsActive=>statisticsProvider=="codex"&&app.CodexShown;
 
     private void SelectStatisticsProvider(string provider)
     {
@@ -43,13 +43,16 @@ internal sealed partial class Dashboard
 
     private void UpdateStatisticsTabs()
     {
-        statisticsTabs.Visibility=!compact&&IsStatisticsPage?Visibility.Visible:Visibility.Collapsed;
-        foreach(var (provider,tab) in statisticsTabButtons)
+        // The selector exists only to choose between two shown sources; a single
+        // shown source is selected directly, and hidden or disabled ones get no tab.
+        var codexShown=app.CodexShown;var claudeShown=app.ClaudeShown;
+        if(statisticsProvider=="codex"?!codexShown&&claudeShown:!claudeShown&&codexShown)
         {
-            var enabled=provider=="codex"?app.Config.CodexEnabled:app.Config.ClaudeEnabled;
-            tab.Content=(provider=="codex"?"Codex":"Claude")+(enabled?"":" · "+L10n.T("stats.disabled"));
-            tab.IsChecked=statisticsProvider==provider;
+            statisticsProvider=statisticsProvider=="codex"?"claude":"codex";
+            renderedFilter=null;capacityInfoFlyout?.Hide();
         }
+        statisticsTabs.Visibility=!compact&&IsStatisticsPage&&codexShown&&claudeShown?Visibility.Visible:Visibility.Collapsed;
+        foreach(var (provider,tab) in statisticsTabButtons)tab.IsChecked=statisticsProvider==provider;
         FitHeadingText();
     }
 
@@ -70,14 +73,11 @@ internal sealed partial class Dashboard
 
     private UIElement StatisticsUnavailable()
     {
-        var provider=statisticsProvider=="codex"?"Codex":"Claude";
-        var enabled=statisticsProvider=="codex"?app.Config.CodexEnabled:app.Config.ClaudeEnabled;
-        if(statisticsProvider=="claude"&&enabled)return ClaudeCodePanel();
+        if(statisticsProvider=="claude"&&app.ClaudeShown)return ClaudeCodePanel();
+        // UpdateStatisticsTabs selects any shown source, so only "none shown" remains.
         var panel=new StackPanel{Spacing=12};
-        panel.Children.Add(ClaudeText(enabled?L10n.T("stats.claudeUnavailable"):L10n.F("stats.sourceDisabled",provider),18));
-        panel.Children.Add(ClaudeText(enabled?L10n.T("stats.claudeNotice"):L10n.T("stats.enableNotice"),14));
-        if(statisticsProvider=="claude"&&enabled)
-            panel.Children.Add(Button(L10n.T("claude.viewHistory"),()=>{Navigate("overview");return Task.CompletedTask;}));
+        panel.Children.Add(ClaudeText(L10n.T("stats.noneShown"),18));
+        panel.Children.Add(ClaudeText(L10n.T("source.none"),14));
         panel.Children.Add(Button(L10n.T("sDF3D58C7D84B"),()=>{Navigate("settings");return Task.CompletedTask;}));
         var card=Card(panel);AutomationProperties.SetAutomationId(card,"stats-unavailable");return card;
     }
@@ -87,8 +87,8 @@ internal sealed partial class Dashboard
         UpdateStatisticsTabs();
         if(!IsStatisticsPage)return;
         actions.Visibility=CodexStatisticsActive?Visibility.Visible:Visibility.Collapsed;FitHeadingText();
-        status.Text=statisticsProvider=="claude"?(app.Config.ClaudeEnabled?"Claude · "+app.ClaudeQuota.Describe(DateTimeOffset.Now):L10n.F("stats.sourceDisabled","Claude")):
-            app.Config.CodexEnabled?"Codex · "+app.HistoryStatus:L10n.F("stats.sourceDisabled","Codex");
+        status.Text=statisticsProvider=="claude"?(app.ClaudeShown?"Claude · "+app.ClaudeQuota.Describe(DateTimeOffset.Now):L10n.T("source.none")):
+            app.CodexShown?"Codex · "+app.HistoryStatus:L10n.T("source.none");
         ToolTipService.SetToolTip(status,status.Text);
     }
 }

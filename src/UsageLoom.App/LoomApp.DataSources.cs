@@ -7,6 +7,20 @@ public sealed partial class LoomApp
     private bool sourceSettingsBusy;
     private DateTimeOffset nextSourceBoundaryRetry;
     internal bool CodexActive=>Config.CodexEnabled&&!Config.CodexBoundaryPending;
+    internal bool CodexShown=>Config.CodexEnabled&&Config.CodexVisible;
+    internal bool ClaudeShown=>Config.ClaudeEnabled&&Config.ClaudeVisible;
+    internal void SetSourceVisible(string provider,bool visible)
+    {
+        if(provider is not ("codex" or "claude"))throw new ArgumentException("Unknown data source");
+        var codex=provider=="codex";
+        var before=codex?Config.CodexVisible:Config.ClaudeVisible;
+        if(before==visible)return;
+        // Visibility never touches collection, sampling boundaries or history.
+        if(codex)Config.CodexVisible=visible;else Config.ClaudeVisible=visible;
+        try{if(!IsDemo||ClaudeSettingsCheck)Config.Save();}
+        catch{if(codex)Config.CodexVisible=before;else Config.ClaudeVisible=before;throw;}
+        UpdateTrayQuota();Changed?.Invoke();
+    }
     internal void RequireSourceSettingsIdle()
     {
         if(sourceSettingsBusy)throw new InvalidOperationException(L10n.T("maintenance.busy"));

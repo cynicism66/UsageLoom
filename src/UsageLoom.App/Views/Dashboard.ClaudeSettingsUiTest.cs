@@ -11,13 +11,14 @@ internal sealed partial class Dashboard
         try
         {
             await CapacityTestDispatcherSettled(this);
-            if(System.Text.Json.JsonSerializer.Deserialize<Settings>("{\"ClaudeEnabled\":true}")?.CodexEnabled!=true)
-                throw new InvalidOperationException("Legacy settings disabled Codex during migration");
+            if(System.Text.Json.JsonSerializer.Deserialize<Settings>("{\"ClaudeEnabled\":true}") is not {CodexEnabled:true,CodexVisible:true,ClaudeVisible:true})
+                throw new InvalidOperationException("Legacy settings disabled or hid a source during migration");
             void CheckGrouping()
             {
                 if(dataSourcesSettings?.Content is not StackPanel sources||claudeSettingsPanel is null||sources.Children.OfType<Border>().SingleOrDefault(card=>card.Child==claudeSettingsPanel) is not {} claudeCard)
                     throw new InvalidOperationException("Claude settings are not inside Data sources");
-                if(codexSettingsPanel is null||sources.Children.OfType<Border>().SingleOrDefault(card=>card.Child==codexSettingsPanel) is not {} codexCard||codexSettingsPanel.Children[1]!=codexEnabledChoice||claudeSettingsPanel.Children[1]!=claudeEnabledChoice||!Equals(codexEnabledChoice!.Header,claudeEnabledChoice!.Header))
+                if(codexSettingsPanel is null||sources.Children.OfType<Border>().SingleOrDefault(card=>card.Child==codexSettingsPanel) is not {} codexCard||codexSettingsPanel.Children[1]!=codexEnabledChoice||claudeSettingsPanel.Children[1]!=claudeEnabledChoice||!Equals(codexEnabledChoice!.Header,claudeEnabledChoice!.Header)||
+                    codexSettingsPanel.Children[2]!=codexVisibleChoice||claudeSettingsPanel.Children[2]!=claudeVisibleChoice||!Equals(codexVisibleChoice!.Header,claudeVisibleChoice!.Header))
                     throw new InvalidOperationException("Provider settings formats or enable controls differ");
                 if(ReferenceEquals(codexCard,claudeCard)||sources.Spacing<12||sources.Children.IndexOf(codexCard)>=sources.Children.IndexOf(claudeCard))
                     throw new InvalidOperationException("Provider setting cards are not independently separated");
@@ -108,6 +109,23 @@ internal sealed partial class Dashboard
             finally{Directory.Delete(temporary);}
             if(app.Events.Count!=eventCount||app.Config.CodexHome!=source)throw new InvalidOperationException("Claude save changed Codex history or source");
             var retainedEvents=app.Events;
+            // Hiding is display-only: it persists at once and keeps Codex collecting.
+            var codexActive=app.CodexActive;
+            codexVisibleChoice!.IsOn=false;
+            await CapacityTestDispatcherSettled(this);
+            if(Settings.Load().CodexVisible||!app.Config.CodexEnabled||app.CodexActive!=codexActive||!ReferenceEquals(retainedEvents,app.Events))
+                throw new InvalidOperationException("Hiding Codex did not persist or changed collection");
+            Navigate("overview");
+            if(overviewQuotaCard.Visibility!=Visibility.Collapsed||claudeOverview is null||statisticsTabs.Visibility!=Visibility.Collapsed||statisticsProvider!="claude")
+                throw new InvalidOperationException("Hidden Codex is still shown on the overview");
+            var hidden=app.DataSourceTestFlyout!.compactContent!;
+            if(hidden.QuotaCard.Visibility!=Visibility.Collapsed||hidden.ClaudeCard.Visibility!=Visibility.Visible)
+                throw new InvalidOperationException("Hidden Codex is still shown in the compact view");
+            Navigate("settings");CheckGrouping();
+            if(codexVisibleChoice!.IsOn)throw new InvalidOperationException("Codex visibility reverted after navigation");
+            codexVisibleChoice.IsOn=true;
+            await CapacityTestDispatcherSettled(this);
+            if(!Settings.Load().CodexVisible||!app.CodexShown)throw new InvalidOperationException("Showing Codex again did not persist");
             codexEnabledChoice!.IsOn=false;
             CapacityTestInvoke(settingsSaveButton!);
             await CapacityTestWait(()=>!app.Config.CodexEnabled&&settingsSaveButton!.IsEnabled,"Global save did not disable Codex");

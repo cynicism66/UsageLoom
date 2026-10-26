@@ -72,7 +72,7 @@ internal sealed partial class Dashboard : Window
     {
         Program.Log.Write("INFO", "UI", "构建界面开始 compact="+compact);
         this.app=app;this.compact=compact;Title=compact?L10n.T("s6777E778B75E"):L10n.T("sACBDF819A42B");
-        statisticsProvider=!app.Config.CodexEnabled&&app.Config.ClaudeEnabled?"claude":"codex";
+        statisticsProvider=!app.CodexShown&&app.ClaudeShown?"claude":"codex";
         if(app.PreviewHourly)historyRangeIndex=0;
         overviewQuotaCard=Card(overviewQuota);
         historyFrom.Date=DateTimeOffset.Now.Date.AddDays(-6);historyThrough.Date=DateTimeOffset.Now.Date;
@@ -476,8 +476,8 @@ internal sealed partial class Dashboard : Window
         if(compact){RenderCompact();return;}
         UpdateCapacitySettingsDetails();
         status.Text=compact||selectedPage=="quota"?"Codex · "+app.Quota.Status:selectedPage is "overview" or "breakdown" or "sessions"?app.HistoryStatus:app.Message;
-        if(!app.Config.CodexEnabled&&selectedPage is "overview" or "quota" or "breakdown" or "sessions")
-            status.Text=app.Config.ClaudeEnabled?app.ClaudeQuota.Describe(DateTimeOffset.Now):L10n.T("source.none");
+        if(!app.CodexShown&&selectedPage is "overview" or "quota" or "breakdown" or "sessions")
+            status.Text=app.ClaudeShown?app.ClaudeQuota.Describe(DateTimeOffset.Now):L10n.T("source.none");
         ToolTipService.SetToolTip(status,status.Text);
         UpdateStatisticsActions();
         quotaPanel.Children.Clear();var quota=app.Quota;
@@ -512,7 +512,7 @@ internal sealed partial class Dashboard : Window
                 card.Children.Add(pace);
             quotaCards.Add(card);
         }
-        if(app.Config.CodexEnabled&&quota.HasQuotaDisplay&&quota.Windows.Any(window=>window.IsSpark))
+        if(app.CodexShown&&quota.HasQuotaDisplay&&quota.Windows.Any(window=>window.IsSpark))
         {
             var spark=new StackPanel{Spacing=12};
             spark.Children.Add(new TextBlock{Text=L10n.T("s5DBFC3E540A5"),FontSize=18,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,TextWrapping=TextWrapping.Wrap});
@@ -528,11 +528,11 @@ internal sealed partial class Dashboard : Window
             quotaCards.Add(spark);
         }
         var quotaGroups=new List<UIElement>();
-        if(app.Config.CodexEnabled)quotaGroups.Add(CodexDetailsCard(quota,quotaCards));
+        if(app.CodexShown)quotaGroups.Add(CodexDetailsCard(quota,quotaCards));
         claudeDetails=null;
-        if(app.Config.ClaudeEnabled)quotaGroups.Add(ClaudeDetailsCard());
+        if(app.ClaudeShown)quotaGroups.Add(ClaudeDetailsCard());
         if(quotaGroups.Count>0)quotaPanel.Children.Add(ResponsiveCards(quotaGroups,2,360));
-        if(!app.Config.CodexEnabled)
+        if(!app.CodexShown)
         {
             if(quotaGroups.Count==0)quotaPanel.Children.Add(DisabledSourcesMessage());
             if(selectedPage is "overview" or "breakdown" or "sessions")RenderStats();
