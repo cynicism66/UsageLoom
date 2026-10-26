@@ -56,10 +56,33 @@ UsageLoom 的刷新只重读本地文件，不会替 Claude 发起网络请求�
 
 格式依据：[Claude 官方本地目录说明](https://code.claude.com/docs/en/claude-directory)、[官方缓存 Token 口径](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)。参考核对了 [ccusage 的 Claude Code 数据来源说明](https://ccusage.com/guide/claude/)，不依赖安装或运行 ccusage。
 
+## Claude Code 状态栏额度
+
+Claude Code 会把当前账号的 5 小时和每周额度（已用百分比与重置时间）交给 `settings.json` 中 `statusLine` 指定的命令，但不会保存到磁盘，所以 UsageLoom 无法直接读取。安装目录附带的 `usageloom-statusline.js` 负责保存一份快照，适用于任何装有 Node.js 的电脑：
+
+1. 打开“设置 → 数据来源 → Claude”，点击“Claude Code 状态栏额度”下的“复制设置”，得到类似下面的一行（路径为实际安装位置）：
+
+   ```json
+   "statusLine": {"type": "command", "command": "node \"C:/Program Files/UsageLoom/usageloom-statusline.js\""}
+   ```
+
+2. 放进 Claude Code 的 `settings.json`（默认在用户目录 `.claude` 下；设置了 `CLAUDE_CONFIG_DIR` 时在该目录）。
+3. 已经有自己的状态栏时，不要替换，而是在脚本路径后加 `--pass |` 再接原命令，例如 `node "…/usageloom-statusline.js" --pass | node "C:/Users/me/.claude/my-statusline.js"`。脚本原样转发 Claude Code 的输入，原状态栏照常显示。
+4. 在 Claude Code 里发一条消息让状态栏刷新，然后回 UsageLoom 刷新。设置页会显示最近状态栏快照的时间。
+
+脚本只取两个窗口的百分比与重置时间，连同写入时间写入 Claude Code 配置目录下的 `usageloom-rate-limits.json`；同样的数值 30 秒内不重复写。它自身不输出任何内容，不联网、不读凭据，也不记录会话、目录、模型或费用。写入失败时静默跳过，不影响状态栏。UsageLoom 不会改动 Claude Code 的设置；移动或卸载 UsageLoom 后，请同步修改或删掉这一行。
+
+UsageLoom 读取时使用“本机 Claude Code Token”的 Home 设置（留空同样取 `CLAUDE_CONFIG_DIR` 或用户目录下的 `.claude`），只要 Claude 数据源启用就会读取，不需要另开 Token 日志开关。快照文件超过 16 KiB、格式不符、时间在未来或数值越界时整份忽略；超过 31 天的旧文件不再作为当前来源。
+
+- 与桌面版缓存同时存在时，每次刷新整份采用时间较新的一份，卡片说明会标明“Claude Code 状态栏快照”。两个来源的窗口不会拼接，额度历史按来源分别保存。
+- 只有 Claude Code 正在使用、状态栏刷新时才会更新；超过 15 分钟标为较旧，过了重置时间显示“等待更新”，不假定恢复满额。
+- 这份数据只在用 Pro／Max 订阅登录 Claude Code 时提供，也不带账号身份；同一配置目录切换账号后，快照会跟着变成新账号的数值。
+- 同来源的连续快照与本机 Claude Code Token 日志配对后，可用于上面的实验性每周参考估算。
+
 ## 尚未接入的能力
 
 - 不提供 Claude 全账号的 Token 账本、账单或官方每周总容量；实验性本机 Code 对照不是 Pro 实际费用，本机回复数也不等于用户消息数。
 - 不合并两个服务商的百分比，不修改 Codex 的账号归属、数据库和采样历史。
-- 不提供 Claude 额度通知、主动联网查询、OAuth 登录或跨设备用量明细。
+- 不提供 Claude 额度通知、主动联网查询、OAuth 登录或跨设备用量明细；状态栏快照来自 Claude Code 自己交给状态栏的数据，UsageLoom 不代为请求。
 
 首次验证使用 Windows Claude 桌面版 2.2553.1.0（Pro）。其他安装／缓存格式可能需要适配，不应把“未发现”解释为未安装或无用量。

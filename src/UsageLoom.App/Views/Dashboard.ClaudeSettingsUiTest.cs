@@ -46,6 +46,14 @@ internal sealed partial class Dashboard
                 if(!StableExpander.HasVisibleContent(dataSourcesSettings))throw new InvalidOperationException("Data sources did not reveal Claude settings");
             }
             CheckGrouping();
+            // The pasteable setting must be valid JSON and name the relay shipped beside this executable.
+            if(claudeSettingsPanel!.Children.OfType<StackPanel>().SingleOrDefault(p=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(p)=="claude-statusline") is not {} statusLineGroup||
+                statusLineGroup.Children.OfType<TextBox>().SingleOrDefault() is not {IsReadOnly:true} statusLineCommand||statusLineCommand.Text!=StatusLineSetting||
+                !File.Exists(StatusLineScript)||claudeStatusLineStatus?.Text!=StatusLineStatusText())
+                throw new InvalidOperationException("Claude Code status line setup is missing or points to an absent relay script");
+            using(var setting=System.Text.Json.JsonDocument.Parse("{"+StatusLineSetting+"}"))
+                if(setting.RootElement.GetProperty("statusLine").GetProperty("command").GetString()!="node \""+StatusLineScript.Replace('\\','/')+"\"")
+                    throw new InvalidOperationException("Claude Code status line setting does not run the bundled relay");
             Program.Log.Write("INFO","ClaudeSettingsTest","Claude settings contained in Data sources without nested expander passed");
             var fixtureDirectory=Path.Combine(Program.DataPath,"Claude fixture");
             void CheckSaved(bool enabled,string? directory,string? scope)

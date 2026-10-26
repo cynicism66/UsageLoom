@@ -33,12 +33,16 @@ public sealed record ClaudeQuotaSnapshot(string Status,IReadOnlyList<ClaudeQuota
     string? Scope=null,IReadOnlyList<string>? Scopes=null,bool HistoryOnly=false)
 {
     public IReadOnlyList<ClaudeQuotaObservation> History {get;init;}=[];
+    // "desktop" (Claude desktop cache) or "statusline" (Claude Code status line relay).
+    public string Source {get;init;}="desktop";
     public static ClaudeQuotaSnapshot Empty(string status)=>new(status,[]);
     public string Describe(DateTimeOffset now)
     {
         if(Status!="snapshot")return L10n.T("claude."+Status);
         var age=ObservedAt is {} at?now-at:TimeSpan.MaxValue;
-        return L10n.T(HistoryOnly?"claude.history":age>TimeSpan.FromMinutes(15)||age<TimeSpan.Zero?"claude.stale":"claude.snapshot");
+        var stale=age>TimeSpan.FromMinutes(15)||age<TimeSpan.Zero;
+        if(Source=="statusline")return L10n.T(stale?"claude.statusLine.stale":"claude.statusLine.snapshot");
+        return L10n.T(HistoryOnly?"claude.history":stale?"claude.stale":"claude.snapshot");
     }
     public string TimestampText=>ObservedAt is {} at?L10n.F("claude.observed",at.ToLocalTime()):L10n.T("claude.noSnapshot");
 }

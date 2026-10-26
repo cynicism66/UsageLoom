@@ -19,6 +19,9 @@ jobs:
       - name: Publish self-contained desktop
         shell: pwsh
         run: ./scripts/build-windows.ps1 -Publish
+      - name: Claude Code status line snapshot relay
+        shell: pwsh
+        run: node scripts/test-claude-statusline.mjs artifacts/win-x64/usageloom-statusline.js
       - name: Isolated updater replacement and rollback tests
         shell: powershell
         run: |

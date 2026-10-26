@@ -20,6 +20,8 @@ public sealed partial class LoomApp
 {
     internal ClaudeQuotaSnapshot ClaudeQuota {get;private set;}=ClaudeQuotaSnapshot.Empty("disabled");
     internal string? ClaudeHistoryError {get;private set;}
+    // The status line relay snapshot on its own, for settings; ClaudeQuota is the newer source.
+    internal ClaudeQuotaSnapshot ClaudeStatusLine {get;private set;}=ClaudeQuotaSnapshot.Empty("statusLine.missing");
     internal ClaudeCodeSnapshot ClaudeCode {get;private set;}=ClaudeCodeSnapshot.Empty("disabled");
     private readonly ClaudeCodeReader claudeCodeReader=new();
     private readonly ClaudeHistoryStore claudeHistoryStore=new(Program.DataPath);
@@ -48,18 +50,24 @@ public sealed partial class LoomApp
         {
             var codeEnabled=Config.ClaudeCodeEnabled;var codeHome=Config.ClaudeCodeHome;
             string? historyError=null;
-            var result=await Task.Run(()=>
+            var (result,statusLine)=await Task.Run(()=>
             {
                 var now=DateTimeOffset.UtcNow;
-                var snapshot=ClaudeDesktopReader.Read(directory,scope,now,token);
-                if(snapshot.Status!="snapshot")return snapshot;
-                try{return snapshot with{History=claudeHistoryStore.Merge(snapshot,now,token)};}
-                catch(OperationCanceledException){throw;}
-                catch(Exception ex)when(ex is not OutOfMemoryException)
-                {historyError=L10n.T("claude.historySaveFailed");return snapshot;}
+                ClaudeQuotaSnapshot WithHistory(ClaudeQuotaSnapshot snapshot)
+                {
+                    if(snapshot.Status!="snapshot")return snapshot;
+                    try{return snapshot with{History=claudeHistoryStore.Merge(snapshot,now,token)};}
+                    catch(OperationCanceledException){throw;}
+                    catch(Exception ex)when(ex is not OutOfMemoryException)
+                    {historyError=L10n.T("claude.historySaveFailed");return snapshot;}
+                }
+                // Both sources keep their own history scope even when the other one is newer.
+                var desktop=WithHistory(ClaudeDesktopReader.Read(directory,scope,now,token));
+                var line=WithHistory(ClaudeStatusLineReader.Read(codeHome,now));
+                return (ClaudeStatusLineReader.Choose(desktop,line),line);
             },token);
             if(quitting||generation!=claudeGeneration||!Config.ClaudeEnabled)return;
-            ClaudeQuota=result;quotaRead=true;ClaudeHistoryError=historyError;UpdateTrayQuota();ClaudeChanged?.Invoke();
+            ClaudeQuota=result;ClaudeStatusLine=statusLine;quotaRead=true;ClaudeHistoryError=historyError;UpdateTrayQuota();ClaudeChanged?.Invoke();
             if(codeEnabled)
             {
                 var code=await Task.Run(()=>{if(fullRead)claudeCodeReader.Clear();return claudeCodeReader.Read(codeHome,token);},token);
@@ -92,7 +100,7 @@ public sealed partial class LoomApp
     {
         if(!changed){ClaudeChanged?.Invoke();if(forceRead)await RefreshClaudeAsync(true);return;}
         claudeGeneration++;claudeCancellation?.Cancel();
-        ClaudeQuota=ClaudeQuotaSnapshot.Empty(Config.ClaudeEnabled?"waiting":"disabled");ClaudeHistoryError=null;UpdateTrayQuota();ClaudeChanged?.Invoke();Changed?.Invoke();
+        ClaudeQuota=ClaudeQuotaSnapshot.Empty(Config.ClaudeEnabled?"waiting":"disabled");ClaudeStatusLine=ClaudeQuotaSnapshot.Empty("statusLine.missing");ClaudeHistoryError=null;UpdateTrayQuota();ClaudeChanged?.Invoke();Changed?.Invoke();
         if(claudeTask is {} pending)await pending;
         claudeCodeReader.Clear();ClaudeCode=ClaudeCodeSnapshot.Empty(Config.ClaudeEnabled&&Config.ClaudeCodeEnabled?"waiting":"disabled");ClaudeChanged?.Invoke();
         await RefreshClaudeAsync(true);

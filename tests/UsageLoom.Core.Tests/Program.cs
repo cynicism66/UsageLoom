@@ -2227,6 +2227,7 @@ OpenRefreshPolicyTests.Run(Test);
 TrayIconTests.Run(Test);
 ClaudeQuotaTests.Run(Test,fixtureRoot);
 ClaudeHistoryTests.Run(Test,fixtureRoot);
+ClaudeStatusLineTests.Run(Test,fixtureRoot);
 ClaudeCodeTests.Run(Test,fixtureRoot);
 ClaudeWeeklyCapacityTests.Run(Test);
 AsyncTest("模式时间线与真实扫描链路",ModeScannerTests.Run);

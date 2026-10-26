@@ -8,7 +8,7 @@ namespace UsageLoom.App;
 internal sealed partial class Dashboard
 {
     private StackPanel? claudeOverview,claudeDetails;
-    private TextBlock? claudeSettingsStatus;
+    private TextBlock? claudeSettingsStatus,claudeStatusLineStatus;
     private ComboBox? claudeScopeChoice;
     private ComboBox? claudePlanChoice;
     private ToggleSwitch? claudeEnabledChoice;
@@ -23,6 +23,40 @@ internal sealed partial class Dashboard
     private DateTimeOffset cachedCapacityAt;
     private Flyout? claudeCapacityInfoFlyout;
     private static TextBlock ClaudeText(string text,double size=12)=>new(){Text=text,FontSize=size,TextWrapping=TextWrapping.Wrap};
+    internal static string StatusLineScript=>Path.Combine(AppContext.BaseDirectory,ClaudeStatusLineReader.ScriptName);
+    // Forward slashes work in both cmd and the Git Bash shell Claude Code may use on Windows.
+    internal static string StatusLineSetting=>"\"statusLine\": {\"type\": \"command\", \"command\": "+
+        System.Text.Json.JsonSerializer.Serialize("node \""+StatusLineScript.Replace('\\','/')+"\"",
+            new System.Text.Json.JsonSerializerOptions{Encoder=System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping})+"}";
+    private string StatusLineStatusText()
+    {
+        var line=app.ClaudeStatusLine;
+        if(line.Status!="snapshot")return L10n.T("claude."+line.Status);
+        return L10n.F("claude.statusLine.found",line.ObservedAt!.Value.ToLocalTime())+"\n"+
+            L10n.T(app.ClaudeQuota.Source=="statusline"?"claude.statusLine.inUse":"claude.statusLine.desktopNewer");
+    }
+    private UIElement ClaudeStatusLineSettings()
+    {
+        var group=new StackPanel{Spacing=6};
+        group.Children.Add(ClaudeText(L10n.T("claude.statusLine.title"),14));
+        group.Children.Add(ClaudeText(L10n.T("claude.statusLine.notice")));
+        var command=new TextBox{Header=L10n.T("claude.statusLine.command"),Text=StatusLineSetting,IsReadOnly=true,TextWrapping=TextWrapping.Wrap,
+            FontFamily=new Microsoft.UI.Xaml.Media.FontFamily("Consolas")};
+        AutomationProperties.SetAutomationId(command,"claude-statusline-command");
+        group.Children.Add(command);
+        group.Children.Add(ClaudeText(L10n.T("claude.statusLine.chain")));
+        group.Children.Add(Button(L10n.T("claude.statusLine.copy"),()=>
+        {
+            var data=new Windows.ApplicationModel.DataTransfer.DataPackage();data.SetText(StatusLineSetting);
+            Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(data);status.Text=L10n.T("claude.statusLine.copied");
+            return Task.CompletedTask;
+        }));
+        claudeStatusLineStatus=ClaudeText(StatusLineStatusText());
+        AutomationProperties.SetAutomationId(claudeStatusLineStatus,"claude-statusline-status");
+        group.Children.Add(claudeStatusLineStatus);
+        AutomationProperties.SetAutomationId(group,"claude-statusline");
+        return group;
+    }
     private Button ClaudeCapacityInfoButton(string detail)
     {
         var flyout=new Flyout{Content=new TextBlock{Text=detail,TextWrapping=TextWrapping.Wrap,MaxWidth=340,FontSize=12}};
@@ -111,6 +145,7 @@ internal sealed partial class Dashboard
         if(claudeOverview is not null)FillClaudeCard(claudeOverview,true);
         if(claudeDetails is not null)FillClaudeCard(claudeDetails);
         if(claudeSettingsStatus is not null)claudeSettingsStatus.Text=app.ClaudeQuota.Describe(DateTimeOffset.Now)+"\n"+app.ClaudeQuota.TimestampText+"\n"+L10n.T("claude.identityNotice");
+        if(claudeStatusLineStatus is not null)claudeStatusLineStatus.Text=StatusLineStatusText();
         var scopes=app.ClaudeQuota.Scopes??[];var signature=string.Join("|",scopes)+"|"+app.Config.ClaudeScope;
         if(claudeScopeChoice is not null&&signature!=claudeScopesKey)
         {
@@ -145,6 +180,7 @@ internal sealed partial class Dashboard
         var codeHome=new TextBox{Header=L10n.T("claude.code.path"),Text=app.Config.ClaudeCodeHome??"",PlaceholderText=ClaudeCodeReader.DefaultHome,IsReadOnly=app.IsDemo};
         AutomationProperties.SetAutomationId(codeEnabled,"claude-code-enabled");AutomationProperties.SetAutomationId(codeHome,"claude-code-home");
         panel.Children.Add(codeEnabled);panel.Children.Add(codeHome);panel.Children.Add(ClaudeText(L10n.T("claude.code.privacy")));
+        panel.Children.Add(ClaudeStatusLineSettings());
         ClaudeSettingsInput ReadDraft()
         {
             var scope=(scopeChoice.SelectedItem as ComboBoxItem)?.Tag as string;

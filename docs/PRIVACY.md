@@ -10,6 +10,10 @@ Claude 集成默认关闭。启用后只读其本机 `plan-usage-history.json` �
 
 不读取 Cookie、登录凭据或聊天响应正文，不注入 Claude 进程，不调用其网络接口；UsageLoom 不使用也不转发 Claude 登录态。来源指纹不能证明当前登录身份。手动或自动刷新只重读缓存，不能迫使 Claude 更新数据。详见 [Claude 接入说明](claude-desktop-quota.md)。
 
+## Claude Code 状态栏快照
+
+只有用户自己把附带的 `usageloom-statusline.js` 设为 Claude Code 状态栏命令后才会产生数据。脚本从 Claude Code 交给状态栏的输入中只取 5 小时和每周额度的已用百分比与重置时间，连同写入时间保存到 Claude Code 配置目录下的 `usageloom-rate-limits.json`；不保存会话、目录、模型、费用或其他字段，不联网、不读凭据，自身不输出任何内容。Claude 数据源启用时，UsageLoom 只读这个文件，并把其中的百分比记入本机 `claude-quota-history.db`。UsageLoom 不会修改 Claude Code 的设置；接入与移除都由用户在 `settings.json` 中完成。
+
 ## Codex Adapter 可能读取的数据
 
 Adapter 可能读取：

@@ -1,9 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <Version>0.8.41</Version>
+    <Version>0.8.42</Version>
     <!-- 0.2.0 shipped a default 1.0.0.0 file version. Keep native file versions above it. -->
-    <FileVersion>1.0.8.41</FileVersion>
+    <FileVersion>1.0.8.42</FileVersion>
     <TargetFramework>net10.0-windows10.0.26100.0</TargetFramework>
     <TargetPlatformMinVersion>10.0.22000.0</TargetPlatformMinVersion>
     <UseWinUI>true</UseWinUI>
@@ -22,6 +22,7 @@
   </PropertyGroup>
   <ItemGroup>
     <Content Include="Update-UsageLoom.ps1" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="usageloom-statusline.js" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../LICENSE" Link="LICENSE" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../LICENSE.zh-CN.md" Link="LICENSE.zh-CN.md" CopyToPublishDirectory="PreserveNewest" />
     <Content Include="../../docs/PROJECT_ORIGINS.md" Link="PROJECT_ORIGINS.md" CopyToPublishDirectory="PreserveNewest" />
