@@ -1,12 +1,19 @@
 # UsageLoom
 
-Windows 11 上的 Codex 用量与额度面板，并可同时查看 Claude 桌面版的本地额度快照。无需登录即可统计本机 Codex Token；通过官方后端查询已有缓存账号的在线额度。
+Windows 11 上的 Codex 与 Claude 用量、额度面板。两个来源可分别启用或只显示其一：
+
+- **Codex**：无需登录即可统计本机 Codex Token；通过官方后端查询已有缓存账号的在线额度，并估算每周容量。
+- **Claude**：读取本机 Claude Code 日志统计 Token；5 小时与每周额度来自 Claude Code 状态栏快照或 Claude 桌面版缓存，并给出两个窗口的实验性容量参考。
+
+托盘图标直接显示剩余额度，所有统计在本机完成，不上传、无遥测。
 
 [下载 MSI 与 ZIP](https://github.com/cynicism66/UsageLoom/releases/latest) · [安装说明](docs/INSTALLATION.md) · [问题反馈](https://github.com/cynicism66/UsageLoom/issues)
 
 UsageLoom 是独立开源项目，不隶属于 OpenAI 或 Anthropic。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.8.36
+## Windows 桌面版 0.9.0
+
+Claude 额度卡片新增实验性的 5 小时容量参考：与每周参考一样，把同一 5 小时周期内连续的额度快照与本机 Claude Code Token 配对，外推“同样工作量下 5 小时大约能用多少本机 Code Token”。5 小时额度涨得快，用一阵 Claude Code 就能出数；两个窗口分别计算，互不混用。托盘图标中间的剩余百分比数字按图标尺寸放大，125% 缩放下由 5 像素高增至 9 像素高，且不压住圆环。[使用边界](docs/claude-desktop-quota.md#额度容量参考实验) · [发布说明](docs/releases/RELEASE-0.9.0.md)
 
 只用 Claude Code、不常开 Claude 桌面版时，也能看到最新的 5 小时和每周额度：把安装包附带的快照脚本接入 Claude Code 状态栏即可，原有状态栏不受影响。脚本只保存两个百分比和重置时间，不联网、不读凭据。[接入说明](docs/claude-desktop-quota.md#claude-code-状态栏额度) · [发布说明](docs/releases/RELEASE-0.8.42.md)
 
@@ -163,6 +170,16 @@ Claude 桌面版配置移入“设置 → 数据来源”，与 Codex 路径集�
 本地 Token 统计不要求安装 CLI 或登录。在线额度需要可用的官方 Codex 后端和有效登录缓存，可在设置中选择后端程序。默认尝试本机已有缓存，不需要在 UsageLoom 重复登录；失败时本地统计仍可使用。也提供由官方后端处理的独立授权入口，见[授权说明](docs/AUTHORIZATION.md)。
 
 缓存账号不一定就是另一个桌面窗口此刻使用的账号。观察归属只是同一本机账户指纹连续确认期间的新增记录，不是官方跨设备账号总用量。失败、取消、零 Token 请求及未保留日志不一定计入完成请求数。
+
+## Claude 额度与本机用量
+
+Claude 数据源默认关闭，在“设置 → 数据来源 → Claude”启用，不需要在 UsageLoom 中登录。
+
+- **额度**：5 小时与每周额度有两个来源。一是 Claude Code 状态栏快照：安装包附带的 `usageloom-statusline.js` 接入 Claude Code 状态栏后，每次刷新保存两个百分比和重置时间，可与已有状态栏串联、显示不变。二是 Claude 桌面版的本地缓存。两者都有时整份采用较新的一份，不混合。
+- **Token 统计**：只读本机 Claude Code 的会话日志元数据，按模型、项目和 Session 汇总，并可按公开 API 价格估算等价金额；不是 Pro 账单。
+- **容量参考（实验）**：5 小时与每周额度分别与同期本机 Code Token 配对外推，样本不足、存在其他渠道用量或比例不稳时直接说明原因，不硬算。
+
+不读取 Claude 凭据、不代为联网请求，也不修改 Claude 或 Claude Code 的设置。详见 [Claude 接入说明](docs/claude-desktop-quota.md)。
 
 ## 周容量与费用估算（实验）
 

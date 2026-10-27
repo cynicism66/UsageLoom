@@ -2,40 +2,49 @@ namespace UsageLoom.Core;
 
 // A workload comparison, not a subscription token allowance. Claude's percentage includes
 // Chat, Cowork, cloud sessions and other devices; local Code transcripts do not.
-public sealed record ClaudeWeeklyCapacity(string Status,double PercentagePoints,int Intervals,decimal LocalTokens,
+// Window is "five_hour" or "seven_day"; projections are per full window.
+public sealed record ClaudeCapacity(string Window,string Status,double PercentagePoints,int Intervals,decimal LocalTokens,
     decimal ProjectedTokens,decimal LocalApiEquivalent,decimal ProjectedApiEquivalent,double PricingCoverage,
     DateTimeOffset? ResetsAt)
 {
     public bool Ready=>Status=="ready";
     public bool HasApiEquivalent=>Ready&&PricingCoverage>=95;
-    public static ClaudeWeeklyCapacity Unavailable(string status,DateTimeOffset? resetsAt=null,double points=0,int intervals=0)=>
-        new(status,points,intervals,0,0,0,0,0,resetsAt);
+    public static ClaudeCapacity Unavailable(string window,string status,DateTimeOffset? resetsAt=null,double points=0,int intervals=0)=>
+        new(window,status,points,intervals,0,0,0,0,0,resetsAt);
 }
 
-public static class ClaudeWeeklyCapacityEstimator
+public static class ClaudeCapacityEstimator
 {
+    public static readonly IReadOnlyList<string> Windows=Array.AsReadOnly(new[]{"five_hour","seven_day"});
+    public static TimeSpan Duration(string window)=>window switch
+    {
+        "five_hour"=>TimeSpan.FromHours(5),
+        "seven_day"=>TimeSpan.FromDays(7),
+        _=>throw new ArgumentOutOfRangeException(nameof(window))
+    };
     private const double MinimumPoints=5;
     private const int MinimumIntervals=2;
     private const double MinimumBucketPoints=1;
     private const double MaximumUnmatchedPoints=1;
     private const decimal MaximumRatio=3;
 
-    public static ClaudeWeeklyCapacity Estimate(ClaudeQuotaSnapshot quota,ClaudeCodeSnapshot code,DateTimeOffset now)
+    public static ClaudeCapacity Estimate(ClaudeQuotaSnapshot quota,ClaudeCodeSnapshot code,DateTimeOffset now,string window="seven_day")
     {
+        var duration=Duration(window);
         if(quota.Status!="snapshot"||quota.Scope is null||quota.ObservedAt is not {} observed||
             observed>now.AddMinutes(2)||now-observed>TimeSpan.FromMinutes(15))
-            return ClaudeWeeklyCapacity.Unavailable("quotaUnavailable");
-        var week=quota.Windows.FirstOrDefault(w=>w.Key=="seven_day");
-        if(week?.ResetsAt is not {} reset||reset<=now||reset>now.AddDays(7).AddMinutes(5))
-            return ClaudeWeeklyCapacity.Unavailable("resetUnavailable");
+            return ClaudeCapacity.Unavailable(window,"quotaUnavailable");
+        var current=quota.Windows.FirstOrDefault(w=>w.Key==window);
+        if(current?.ResetsAt is not {} reset||reset<=now||reset>now.Add(duration).AddMinutes(5))
+            return ClaudeCapacity.Unavailable(window,"resetUnavailable");
         if(code.Status is not ("ready" or "partial")||code.Rows.Count==0)
-            return ClaudeWeeklyCapacity.Unavailable("codeUnavailable",reset);
+            return ClaudeCapacity.Unavailable(window,"codeUnavailable",reset);
         if(code.Status=="partial"||code.Skipped>0)
-            return ClaudeWeeklyCapacity.Unavailable("partialLogs",reset);
+            return ClaudeCapacity.Unavailable(window,"partialLogs",reset);
 
-        var cycleStart=reset.AddDays(-7);
+        var cycleStart=reset-duration;
         var points=ClaudeQuotaHistory.Normalize(ClaudeQuotaHistory.Observations(quota).Where(p=>
-            p.Scope==quota.Scope&&p.Window=="seven_day"&&p.At>=cycleStart&&p.At<=observed));
+            p.Scope==quota.Scope&&p.Window==window&&p.At>=cycleStart&&p.At<=observed));
         bool SameReset(ClaudeQuotaObservation p)=>p.ResetsAt is null||Math.Abs((p.ResetsAt.Value-reset).TotalSeconds)<1;
         var rows=code.Rows.Where(r=>r.At>cycleStart&&r.At<=observed).OrderBy(r=>r.At).ToArray();
         var selected=new List<ClaudeCodeUsage>();
@@ -77,15 +86,15 @@ public static class ClaudeWeeklyCapacityEstimator
         }
         FlushBucket();
         if(unmatchedPoints>MaximumUnmatchedPoints)
-            return ClaudeWeeklyCapacity.Unavailable("otherUsage",reset,matchedPoints,ratios.Count);
+            return ClaudeCapacity.Unavailable(window,"otherUsage",reset,matchedPoints,ratios.Count);
         if(matchedPoints<MinimumPoints||ratios.Count<MinimumIntervals)
-            return ClaudeWeeklyCapacity.Unavailable("insufficient",reset,matchedPoints,ratios.Count);
+            return ClaudeCapacity.Unavailable(window,"insufficient",reset,matchedPoints,ratios.Count);
         if(ratios.Min()<=0||ratios.Max()/ratios.Min()>MaximumRatio)
-            return ClaudeWeeklyCapacity.Unavailable("unstable",reset,matchedPoints,ratios.Count);
+            return ClaudeCapacity.Unavailable(window,"unstable",reset,matchedPoints,ratios.Count);
 
         var tokens=selected.Sum(r=>(decimal)r.Total);
         var price=ClaudeCodePricing.Summarize(selected);
-        return new("ready",matchedPoints,ratios.Count,tokens,tokens*100/(decimal)matchedPoints,
+        return new(window,"ready",matchedPoints,ratios.Count,tokens,tokens*100/(decimal)matchedPoints,
             price.Cost,price.Cost*100/(decimal)matchedPoints,price.Coverage,reset);
     }
 }

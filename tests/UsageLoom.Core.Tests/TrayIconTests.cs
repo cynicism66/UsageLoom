@@ -43,5 +43,28 @@ static class TrayIconTests
                 Check(unavailable.Bgra[center+3]==0);
             }
         });
+        test("托盘图标：数字按尺寸放大且不压住圆环",() =>
+        {
+            // Text pixels are the only opaque near-white ones; measure their bounding box.
+            (int Height,double Reach) Digits(int size,int value)
+            {
+                var icon=TrayIconRaster.Render(size,value);int top=size,bottom=-1;double reach=0;
+                for(var y=0;y<size;y++)for(var x=0;x<size;x++)
+                {
+                    var o=(y*size+x)*4;
+                    if(icon.Bgra[o+3]!=255||icon.Bgra[o]!=250||icon.Bgra[o+1]!=246||icon.Bgra[o+2]!=245)continue;
+                    top=Math.Min(top,y);bottom=Math.Max(bottom,y);
+                    reach=Math.Max(reach,Math.Sqrt(Math.Pow(x+.5-size/2d,2)+Math.Pow(y+.5-size/2d,2)));
+                }
+                return (bottom-top+1,reach);
+            }
+            foreach(var (size,twoDigits,full) in new[]{(16,7,5),(20,9,7),(24,10,7),(32,14,10)})
+            {
+                var two=Digits(size,96);var one=Digits(size,7);var hundred=Digits(size,100);
+                Check(two.Height==twoDigits&&one.Height==twoDigits&&hundred.Height==full);
+                // Every digit pixel stays inside the ring's inner edge.
+                foreach(var item in new[]{two,one,hundred})Check(item.Reach<=size*.38+.3);
+            }
+        });
     }
 }

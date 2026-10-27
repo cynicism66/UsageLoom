@@ -80,8 +80,9 @@ function main() {
     if (done) return;
     done = true;
     const raw = Buffer.concat(chunks);
-    try { save(raw, Date.now()); } catch (e) {}
+    // Forward first so a chained status line never waits for the snapshot write.
     if (pass) process.stdout.write(raw);
+    try { save(raw, Date.now()); } catch (e) {}
     process.stdin.destroy();
   };
   process.stdin.on('data', chunk => chunks.push(chunk));

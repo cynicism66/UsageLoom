@@ -6,13 +6,36 @@ public sealed record TrayIconPixels(int Size,byte[] Bgra,byte[] Mask);
 // Platform-independent bitmap parameters. The Win32 host owns and destroys HICONs.
 public static class TrayIconRaster
 {
-    private static readonly string[][] Digits=
+    private const double OuterRatio=.48,InnerRatio=.38;
+    // Pixel digit fonts, smallest first; Render picks the largest that fits inside the ring.
+    private static readonly string[][][] Fonts=
     [
-        ["111","101","101","101","111"], ["010","110","010","010","111"],
-        ["111","001","111","100","111"], ["111","001","111","001","111"],
-        ["101","101","111","001","001"], ["111","100","111","001","111"],
-        ["111","100","111","101","111"], ["111","001","001","001","001"],
-        ["111","101","111","101","111"], ["111","101","111","001","111"]
+        [
+            ["111","101","101","101","111"], ["010","110","010","010","111"],
+            ["111","001","111","100","111"], ["111","001","111","001","111"],
+            ["101","101","111","001","001"], ["111","100","111","001","111"],
+            ["111","100","111","101","111"], ["111","001","001","001","001"],
+            ["111","101","111","101","111"], ["111","101","111","001","111"]
+        ],
+        [
+            [".##.","#..#","#..#","#..#","#..#","#..#",".##."], ["..#.",".##.","..#.","..#.","..#.","..#.",".###"],
+            [".##.","#..#","...#","..#.",".#..","#...","####"], [".##.","#..#","...#",".##.","...#","#..#",".##."],
+            ["..#.",".##.","#.#.","#.#.","####","..#.","..#."], ["####","#...","###.","...#","...#","#..#",".##."],
+            [".##.","#...","#...","###.","#..#","#..#",".##."], ["####","...#","..#.","..#.",".#..",".#..",".#.."],
+            [".##.","#..#","#..#",".##.","#..#","#..#",".##."], [".##.","#..#","#..#",".###","...#","...#",".##."]
+        ],
+        [
+            [".###.","#...#","#...#","#...#","#...#","#...#","#...#","#...#",".###."],
+            ["..#..",".##..","#.#..","..#..","..#..","..#..","..#..","..#..","#####"],
+            [".###.","#...#","....#","....#","...#.","..#..",".#...","#....","#####"],
+            [".###.","#...#","....#","....#","..##.","....#","....#","#...#",".###."],
+            ["...#.","..##.",".#.#.","#..#.","#..#.","#####","...#.","...#.","...#."],
+            ["#####","#....","#....","####.","....#","....#","....#","#...#",".###."],
+            [".###.","#....","#....","####.","#...#","#...#","#...#","#...#",".###."],
+            ["#####","....#","...#.","...#.","..#..","..#..",".#...",".#...",".#..."],
+            [".###.","#...#","#...#","#...#",".###.","#...#","#...#","#...#",".###."],
+            [".###.","#...#","#...#","#...#",".####","....#","....#","....#",".###."]
+        ]
     ];
     public static int SizeForDpi(uint dpi)
     {
@@ -44,7 +67,7 @@ public static class TrayIconRaster
             var offset=(y*size+x)*4;
             pixels[offset]=b;pixels[offset+1]=g;pixels[offset+2]=r;pixels[offset+3]=alpha;
         }
-        var center=size/2d;var outer=size*.46;var inner=size*.34;
+        var center=size/2d;var outer=size*OuterRatio;var inner=size*InnerRatio;
         for(var y=0;y<size;y++)for(var x=0;x<size;x++)
         {
             var dx=x+.5-center;var dy=y+.5-center;var distance=Math.Sqrt(dx*dx+dy*dy);
@@ -58,16 +81,33 @@ public static class TrayIconRaster
         if(remaining is {} number)
         {
             var text=number.ToString(System.Globalization.CultureInfo.InvariantCulture);
-            var scale=size>=24?2:1;var width=(text.Length*3+text.Length-1)*scale;
-            var left=(size-width)/2;var top=(size-5*scale)/2;
+            // One- and two-digit values share a font so the size does not jump at 9%.
+            var (font,scale)=DigitFont(size,Math.Max(text.Length,2));
+            var glyphWidth=font[0][0].Length;var glyphHeight=font[0].Length;
+            var width=(text.Length*(glyphWidth+1)-1)*scale;
+            var left=(size-width)/2;var top=(size-glyphHeight*scale)/2;
             for(var index=0;index<text.Length;index++)
-                for(var row=0;row<5;row++)for(var col=0;col<3;col++)
-                    if(Digits[text[index]-'0'][row][col]=='1')
+                for(var row=0;row<glyphHeight;row++)for(var col=0;col<glyphWidth;col++)
+                    if(font[text[index]-'0'][row][col] is '1' or '#')
                         for(var yy=0;yy<scale;yy++)for(var xx=0;xx<scale;xx++)
-                            Pixel(left+(index*4+col)*scale+xx,top+row*scale+yy,245,246,250,255);
+                            Pixel(left+(index*(glyphWidth+1)+col)*scale+xx,top+row*scale+yy,245,246,250,255);
         }
         for(var y=0;y<size;y++)for(var x=0;x<size;x++)
             if(pixels[(y*size+x)*4+3]==0)mask[y*stride+x/8]|=(byte)(0x80>>(x%8));
         return new(size,pixels,mask);
+    }
+    // Tallest digits whose bounding box stays inside the ring's inner edge (allowing for the
+    // ring's antialiased fringe); ties prefer the larger scale for bolder strokes.
+    private static (string[][] Font,int Scale) DigitFont(int size,int digits)
+    {
+        var limit=size*InnerRatio+.3;
+        (string[][] Font,int Scale) best=(Fonts[0],1);var bestHeight=0;
+        foreach(var font in Fonts)foreach(var scale in new[]{1,2})
+        {
+            var width=(digits*(font[0][0].Length+1)-1)*scale;var height=font[0].Length*scale;
+            if(Math.Sqrt(width*width+height*height)/2>limit)continue;
+            if(height>bestHeight||height==bestHeight&&scale>best.Scale){best=(font,scale);bestHeight=height;}
+        }
+        return best;
     }
 }
