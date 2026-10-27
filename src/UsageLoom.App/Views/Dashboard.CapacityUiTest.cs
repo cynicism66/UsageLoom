@@ -230,6 +230,17 @@ internal sealed partial class Dashboard
             if(!quotaPanel.Children.SequenceEqual(expected))throw new InvalidOperationException("Compact panel retained an extra row or spacer");
         }
         CheckRemovedUsageCard();
+        // Unless the work area caps the height, the cards render at full size: a shrunk
+        // Viewbox leaves an empty strip beside them.
+        {
+            var rendered=quotaPanel.TransformToVisual(root).TransformBounds(new(0,0,quotaPanel.ActualWidth,quotaPanel.ActualHeight));
+            var info=new Native.MonitorInfo{size=(uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.MonitorInfo>()};
+            Native.GetMonitorInfo(Native.MonitorFromWindow(WinRT.Interop.WindowNative.GetWindowHandle(this),2),ref info);
+            var capped=AppWindow.Size.Height>=info.work.bottom-info.work.top-24-1;
+            if(!capped&&rendered.Width<quotaPanel.ActualWidth-.5)
+                throw new InvalidOperationException($"Compact cards are shrunk to {rendered.Width:0.#}x{rendered.Height:0.#} of {quotaPanel.ActualWidth:0.#}x{quotaPanel.ActualHeight:0.#} DIP; "+
+                    $"page {page.ActualWidth:0.#}x{page.ActualHeight:0.#}, root {root.ActualWidth:0.#}x{root.ActualHeight:0.#}, heading {heading.ActualHeight:0.#}, window {AppWindow.Size.Width}x{AppWindow.Size.Height} client {AppWindow.ClientSize.Width}x{AppWindow.ClientSize.Height}");
+        }
         var ids=new[]{"compact-quota-card","compact-capacity-row","compact-plan-row","compact-footer-row",
             "compact-quota-value-0","compact-quota-progress-0","compact-quota-reset-0"};
         if(app.Config.ClaudeEnabled)ids=[..ids,"compact-claude-card","compact-claude-plan","compact-claude-progress-0","compact-claude-progress-1"];

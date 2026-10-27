@@ -125,10 +125,19 @@ public static class ClaudeCodeParser
 }
 
 // Per-file in-memory metadata cache. No transcript copies, credentials, database or network access.
-// Changed files are reread so truncation/rewrite and incomplete trailing records recover safely.
+// A file that only grew is read from its last complete line; truncation/rewrite is reread in full,
+// and incomplete trailing records recover on the next pass.
 public sealed class ClaudeCodeReader
 {
-    private sealed record Cached(long Length,DateTime Modified,IReadOnlyList<ClaudeCodeUsage> Rows,int Skipped,DateTimeOffset? SkippedThrough);
+    // Parsed: offset just after the last complete line; Anchor: hash of the bytes right before it.
+    // Rejected/RejectedThrough cover complete lines only, so a resumed pass can extend them;
+    // Skipped/SkippedThrough add this pass's trailing partial line or row-limit stop.
+    private sealed record Cached(long Length,DateTime Modified,long Parsed,byte[] Anchor,IReadOnlyList<ClaudeCodeUsage> Rows,
+        int Rejected,DateTimeOffset? RejectedThrough,int Skipped,DateTimeOffset? SkippedThrough);
+    private const long MaxFileBytes=1L<<30,MaxPassBytes=2L<<30;
+    private const int AnchorBytes=4096;
+    // Bytes of transcript read by the last pass, for tests of append-only resumption.
+    internal long LastReadBytes {get;private set;}
     private Dictionary<string,Cached> cache=new(StringComparer.OrdinalIgnoreCase);
     public static string DefaultHome=>Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR") is {Length:>0} path?path:
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),".claude");
@@ -162,13 +171,20 @@ public sealed class ClaudeCodeReader
                     if(cache.TryGetValue(file,out var previous)&&previous.Length==info.Length&&previous.Modified==info.LastWriteTimeUtc)entry=previous;
                     else
                     {
-                        if(info.Length>128L*1024*1024||(readBytes+=info.Length)>512L*1024*1024){Skip(written);continue;}
                         var length=info.Length;var modified=info.LastWriteTimeUtc;
-                        var rows=new List<ClaudeCodeUsage>();var rejected=0;DateTimeOffset? rejectedThrough=null;
+                        // Claude Code only appends. Resume after the last complete line when the bytes just
+                        // before it are unchanged, so a long, growing session is not reread in full.
+                        var resume=previous is not null&&previous.Parsed>0&&length>=previous.Parsed&&AnchorMatches(file,previous.Parsed,previous.Anchor);
+                        var start=resume?previous!.Parsed:0;
+                        if(length-start>MaxFileBytes||(readBytes+=length-start)>MaxPassBytes){Skip(written);continue;}
+                        var rows=resume?new List<ClaudeCodeUsage>(previous!.Rows):new List<ClaudeCodeUsage>();var added=0;
+                        var rejected=resume?previous!.Rejected:0;DateTimeOffset? rejectedThrough=resume?previous!.RejectedThrough:null;
                         // A rejected record is dated by its own timestamp when readable, else by the file write time.
                         void Reject(DateTimeOffset? at){rejected++;var value=at??written;if(rejectedThrough is null||value>rejectedThrough)rejectedThrough=value;}
                         using var stream=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete,65536,FileOptions.SequentialScan);
-                        var buffer=new byte[65536];using var line=new MemoryStream();bool oversized=false;long remaining=length;
+                        stream.Seek(start,SeekOrigin.Begin);
+                        var buffer=new byte[65536];using var line=new MemoryStream();bool oversized=false,limited=false;
+                        long remaining=length-start,position=start,parsed=start;
                         while(remaining>0)
                         {
                             token.ThrowIfCancellationRequested();var count=stream.Read(buffer,0,(int)Math.Min(buffer.Length,remaining));if(count==0)break;remaining-=count;
@@ -182,22 +198,28 @@ public sealed class ClaudeCodeReader
                                         var bytes=line.GetBuffer().AsSpan(0,(int)line.Length);
                                         if(bytes.StartsWith("\uFEFF"u8))bytes=bytes[3..];
                                         var row=ClaudeCodeParser.Parse(bytes,parts[0],Path.GetFileNameWithoutExtension(file),out var usageRecord,out var recordedAt);
-                                        if(row is not null)rows.Add(row);
+                                        if(row is not null){rows.Add(row);added++;}
                                         else if(usageRecord)Reject(recordedAt);
                                         else if(!IsValidJson(bytes))Reject(null);
                                     }
-                                    line.SetLength(0);oversized=false;
+                                    line.SetLength(0);oversized=false;parsed=position+i+1;
                                 }
                                 else if(!oversized){if(line.Length>=4*1024*1024){oversized=true;line.SetLength(0);}else line.WriteByte(buffer[i]);}
                             }
-                            if(rows.Count>250000){Reject(null);break;}
+                            position+=count;
+                            // The rest stays unparsed; the next pass resumes from the last complete line.
+                            if(added>250000){limited=true;break;}
                         }
                         // No newline means a writer may still be appending, even if the JSON currently parses.
-                        if(line.Length>0||oversized)Reject(null);
-                        entry=new(length,modified,ClaudeCodeParser.Normalize(rows),rejected,rejectedThrough);
+                        var pending=(line.Length>0||oversized||limited)?1:0;
+                        var anchor=Anchor(stream,parsed);
                         info.Refresh();
-                        // Do not publish a mixture of bytes from a concurrent rewrite or truncated file.
-                        if(!info.Exists||info.Length!=length||info.LastWriteTimeUtc!=modified){Skip(info.Exists?new DateTimeOffset(info.LastWriteTimeUtc):null);continue;}
+                        // A shrink or same-length rewrite during the read would mix bytes. Growth is ordinary
+                        // appending: this pass covers exactly the first `length` bytes.
+                        if(!info.Exists||info.Length<length||info.Length==length&&info.LastWriteTimeUtc!=modified){Skip(info.Exists?new DateTimeOffset(info.LastWriteTimeUtc):null);continue;}
+                        var skippedThrough=pending>0&&(rejectedThrough is null||written>rejectedThrough)?written:rejectedThrough;
+                        // A pass stopped by the row limit must not look complete to the unchanged-file shortcut.
+                        entry=new(limited?-1:length,modified,parsed,anchor,ClaudeCodeParser.Normalize(rows),rejected,rejectedThrough,rejected+pending,skippedThrough);
                         next[file]=entry;
                     }
                     if(ReferenceEquals(entry,previous))next[file]=entry;
@@ -209,9 +231,24 @@ public sealed class ClaudeCodeReader
         }
         catch(Exception ex)when(ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
         {return new("readFailed",[],files,skipped+1){SkippedThrough=DateTimeOffset.MaxValue};}
-        token.ThrowIfCancellationRequested();cache=next;
+        token.ThrowIfCancellationRequested();cache=next;LastReadBytes=readBytes;
         var normalized=ClaudeCodeParser.Normalize(all);
         return new(skipped>0?"partial":files==0?"missing":normalized.Count==0?"empty":"ready",normalized,files,skipped,all.Count-normalized.Count){SkippedThrough=through};
+    }
+    private static byte[] Anchor(FileStream stream,long parsed)
+    {
+        var size=(int)Math.Min(AnchorBytes,parsed);var bytes=new byte[size];
+        stream.Seek(parsed-size,SeekOrigin.Begin);stream.ReadExactly(bytes);
+        return SHA256.HashData(bytes);
+    }
+    private static bool AnchorMatches(string file,long parsed,byte[] anchor)
+    {
+        try
+        {
+            using var stream=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete);
+            return stream.Length>=parsed&&Anchor(stream,parsed).AsSpan().SequenceEqual(anchor);
+        }
+        catch(Exception ex)when(ex is IOException or UnauthorizedAccessException){return false;}
     }
     private static bool IsValidJson(ReadOnlySpan<byte> bytes)
     {

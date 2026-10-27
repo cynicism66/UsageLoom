@@ -93,6 +93,35 @@ static class ClaudeCodeTests
             var undated=new ClaudeCodeReader().Read(home);
             Check(undated.Skipped==2&&undated.SkippedThrough==new DateTimeOffset(File.GetLastWriteTimeUtc(file)));
         });
+        test("Claude Code：追加只读新增部分，结果与全量读取一致；改写或截断时全量重读",()=>
+        {
+            var home=Path.Combine(root,"claude-code-append");var project=Path.Combine(home,"projects","fixture");Directory.CreateDirectory(project);
+            var file=Path.Combine(project,"session.jsonl");
+            var head=string.Concat(Enumerable.Range(0,40).Select(i=>Line(id:"msg-"+i,req:"req-"+i)+"\n"));
+            File.WriteAllText(file,head);
+            var reader=new ClaudeCodeReader();var first=reader.Read(home);
+            Check(first.Rows.Count==40&&reader.LastReadBytes==new FileInfo(file).Length);
+            // A streamed reply's later snapshot plus a half-written line.
+            var tail=Line(id:"msg-39",req:"req-39",output:9)+"\n"+Line(id:"msg-new",req:"req-new");
+            File.AppendAllText(file,tail);
+            var grown=reader.Read(home);
+            Check(reader.LastReadBytes==Encoding.UTF8.GetByteCount(tail)&&grown.Rows.Count==40&&grown.Status=="partial"&&grown.Skipped==1);
+            Check(grown.Rows.Single(r=>r.Output==9).Message==Parse(Line(id:"msg-39",req:"req-39"))!.Message);
+            // Completing the line resumes from the last complete line, not from the end of the partial one.
+            File.AppendAllText(file,"\n");
+            var completed=reader.Read(home);var fresh=new ClaudeCodeReader().Read(home);
+            Check(completed.Status=="ready"&&completed.Rows.Count==41&&completed.Rows.SequenceEqual(fresh.Rows));
+            Check(reader.LastReadBytes<Encoding.UTF8.GetByteCount(tail)+1);
+            // Unchanged: nothing is read.
+            reader.Read(home);Check(reader.LastReadBytes==0);
+            // Rewriting bytes before the resume point (same or greater length) is detected and reread in full.
+            var text=File.ReadAllText(file);File.WriteAllText(file,text.Replace("\"output_tokens\":2","\"output_tokens\":3")+Line(id:"msg-last",req:"req-last")+"\n");
+            var rewritten=reader.Read(home);
+            Check(reader.LastReadBytes==new FileInfo(file).Length&&rewritten.Rows.SequenceEqual(new ClaudeCodeReader().Read(home).Rows)&&rewritten.Rows.Count(r=>r.Output==3)>=40);
+            // Truncation is reread in full too.
+            File.WriteAllText(file,Line()+"\n");
+            var truncated=reader.Read(home);Check(truncated.Rows.Count==1&&reader.LastReadBytes==new FileInfo(file).Length);
+        });
         test("Claude Code：取消不发布半成品，超长行不影响下一条记录",()=>
         {
             var home=Path.Combine(root,"claude-code-bounds");var project=Path.Combine(home,"projects","fixture");Directory.CreateDirectory(project);

@@ -2219,6 +2219,11 @@ Test("小窗分辨率、DPI、多屏与工作区边界",()=>
     }
     var inside=new WindowBounds(150,200,380,456);
     Check(CompactWindowLayout.Fit(new(0,0,1920,1040),1,320,inside,false)==inside);
+    // Measured chrome replaces the assumed 136 DIP; scaled like the content and still capped by the work area.
+    var tall=CompactWindowLayout.Fit(new(0,0,1920,1040),1.25,320,inside,true,170);
+    Check(tall.Height==(int)Math.Ceiling((320+170)*1.25)&&tall.Width==475);
+    Check(CompactWindowLayout.Fit(new(0,0,800,560),1.25,320,inside,true,170).Height==560-24);
+    Check(CompactWindowLayout.Fit(new(0,0,1920,1040),1,320,inside,true,double.NaN).Height==456);
 });
 CapacityReliabilityTests.Run(Test);
 QuotaPaceTests.Run(Test);
