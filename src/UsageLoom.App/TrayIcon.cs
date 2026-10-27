@@ -9,7 +9,7 @@ internal sealed class TrayIcon : IDisposable
     private readonly Action show, details, settings, refresh, exit;
     private readonly nint hwnd, fixedIcon;
     private nint currentIcon;
-    private (int Size,int? Remaining)? currentVisual;
+    private (int Size,int? Remaining,bool Stale)? currentVisual;
     private TrayQuotaPresentation presentation=new("none",null,null);
     private bool useFixedIcon;
     private string currentTip="";
@@ -65,7 +65,8 @@ internal sealed class TrayIcon : IDisposable
             (window.Reset is {} at?$"{at.ToLocalTime():MM-dd HH:mm}":"--")+
             (window.Pace==QuotaPaceKind.Unavailable?"":" · "+L10n.T(window.Pace switch{QuotaPaceKind.Fast=>"tray.pace.fast",QuotaPaceKind.Exhausted=>"tray.pace.exhausted",_=>"tray.pace.normal"}));
         var source=value.Source switch{"codex"=>"Codex","claude"=>"Claude",_=>L10n.T("tray.noSource")};
-        var tip=$"{source} · {L10n.T("tray.snapshotNote")} · {L10n.T("tray.fiveHour")} {Window(value.FiveHour)} · {L10n.T("tray.weekly")} {Window(value.Weekly)}";
+        var stale=value.StaleSince is {} since?$" · {L10n.T("tray.lastUpdated")} {since.ToLocalTime():MM-dd HH:mm}":"";
+        var tip=$"{source} · {L10n.T("tray.snapshotNote")}{stale} · {L10n.T("tray.fiveHour")} {Window(value.FiveHour)} · {L10n.T("tray.weekly")} {Window(value.Weekly)}";
         return tip[..Math.Min(tip.Length,127)];
     }
     public void Update(TrayQuotaPresentation next,bool fixedMode)
@@ -73,11 +74,11 @@ internal sealed class TrayIcon : IDisposable
         if(disposed)return;
         var wasFixed=useFixedIcon;presentation=next;useFixedIcon=fixedMode;
         var size=TrayIconRaster.SizeForDpi(Native.GetDpiForWindow(hwnd));
-        var visual=(Size:size,Remaining:fixedMode?(int?)null:next.DisplayRemaining);
+        var visual=(Size:size,Remaining:fixedMode?(int?)null:next.DisplayRemaining,Stale:!fixedMode&&next.DisplayStale);
         var tip=Tooltip(next);
         if(wasFixed==fixedMode&&currentVisual==visual&&currentTip==tip)return;
         var old=currentIcon;
-        var icon=fixedMode?fixedIcon:!wasFixed&&currentVisual==visual&&currentIcon!=fixedIcon?currentIcon:CreateRenderedIcon(TrayIconRaster.Render(size,next.DisplayRemaining));
+        var icon=fixedMode?fixedIcon:!wasFixed&&currentVisual==visual&&currentIcon!=fixedIcon?currentIcon:CreateRenderedIcon(TrayIconRaster.Render(size,next.DisplayRemaining,next.DisplayStale));
         if(icon==0){Program.Log.Write("WARN","Tray","动态图标生成失败，使用固定图标");icon=fixedIcon;}
         currentIcon=icon;data.icon=icon;data.tip=tip;data.flags=7;
         if(!Native.Shell_NotifyIcon(1,ref data))Program.Log.Write("WARN","Tray","图标更新失败，等待 Explorer 恢复");

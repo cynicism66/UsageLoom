@@ -49,7 +49,8 @@ public static class TrayIconRaster
         <=20=>TrayIconTier.Orange,
         _=>TrayIconTier.Normal
     };
-    public static TrayIconPixels Render(int size,int? remaining)
+    // A stale icon keeps the tier hue but blends it toward the track color, with gray digits.
+    public static TrayIconPixels Render(int size,int? remaining,bool stale=false)
     {
         if(size is not (16 or 20 or 24 or 32))throw new ArgumentOutOfRangeException(nameof(size));
         if(remaining is <0 or >100)throw new ArgumentOutOfRangeException(nameof(remaining));
@@ -61,6 +62,8 @@ public static class TrayIconRaster
             TrayIconTier.Unavailable=>(R:(byte)132,G:(byte)137,B:(byte)147),
             _=>(R:(byte)163,G:(byte)138,B:(byte)245)
         };
+        if(stale&&remaining is not null)color=((byte)((color.R+67)/2),(byte)((color.G+72)/2),(byte)((color.B+83)/2));
+        var digit=stale?(R:(byte)168,G:(byte)172,B:(byte)180):(R:(byte)245,G:(byte)246,B:(byte)250);
         void Pixel(int x,int y,byte r,byte g,byte b,byte alpha)
         {
             if(x<0||x>=size||y<0||y>=size)return;
@@ -90,7 +93,7 @@ public static class TrayIconRaster
                 for(var row=0;row<glyphHeight;row++)for(var col=0;col<glyphWidth;col++)
                     if(font[text[index]-'0'][row][col] is '1' or '#')
                         for(var yy=0;yy<scale;yy++)for(var xx=0;xx<scale;xx++)
-                            Pixel(left+(index*(glyphWidth+1)+col)*scale+xx,top+row*scale+yy,245,246,250,255);
+                            Pixel(left+(index*(glyphWidth+1)+col)*scale+xx,top+row*scale+yy,digit.R,digit.G,digit.B,255);
         }
         for(var y=0;y<size;y++)for(var x=0;x<size;x++)
             if(pixels[(y*size+x)*4+3]==0)mask[y*stride+x/8]|=(byte)(0x80>>(x%8));

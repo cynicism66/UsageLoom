@@ -1,10 +1,12 @@
 namespace UsageLoom.Core;
 
 public sealed record TrayQuotaWindow(double Remaining,DateTimeOffset? Reset,QuotaPaceKind Pace);
-public sealed record TrayQuotaPresentation(string Source,TrayQuotaWindow? FiveHour,TrayQuotaWindow? Weekly)
+// StaleSince is the observation time of a snapshot older than the freshness limit; its values are the last known ones.
+public sealed record TrayQuotaPresentation(string Source,TrayQuotaWindow? FiveHour,TrayQuotaWindow? Weekly,DateTimeOffset? StaleSince=null)
 {
     public TrayQuotaWindow? MostConstrained=>new[]{FiveHour,Weekly}.Where(window=>window is not null).OrderBy(window=>window!.Remaining).FirstOrDefault();
     public int? DisplayRemaining=>MostConstrained is {} window?(int)Math.Clamp(Math.Round(window.Remaining,MidpointRounding.AwayFromZero),0,100):null;
+    public bool DisplayStale=>StaleSince is not null&&MostConstrained is not null;
 }
 
 public static class TrayQuotaSelection
@@ -35,16 +37,20 @@ public static class TrayQuotaSelection
         }
         return new("codex",Find(300),Find(10080));
     }
+    // Claude snapshots only refresh while Claude itself runs, so an older snapshot keeps its last values
+    // (shown dimmed) and a window whose reset time has passed counts as fully remaining.
     private static TrayQuotaPresentation Claude(ClaudeQuotaSnapshot snapshot,bool enabled,DateTimeOffset now)
     {
+        var age=snapshot.ObservedAt is {} at?now-at:(TimeSpan?)null;
+        var usable=enabled&&snapshot.Status=="snapshot"&&!snapshot.HistoryOnly&&!string.IsNullOrWhiteSpace(snapshot.Scope)&&age>=TimeSpan.Zero;
         TrayQuotaWindow? Find(string key)
         {
-            var age=snapshot.ObservedAt is {} at?now-at:TimeSpan.MaxValue;
-            if(!enabled||snapshot.Status!="snapshot"||snapshot.HistoryOnly||string.IsNullOrWhiteSpace(snapshot.Scope)||age<TimeSpan.Zero||age>QuotaPace.ClaudeFreshness)return null;
+            if(!usable)return null;
             var window=snapshot.Windows.FirstOrDefault(item=>item.Key==key);
-            if(window is null||!double.IsFinite(window.Used)||window.Used<0||window.Used>100||window.Expired(now))return null;
+            if(window is null||!double.IsFinite(window.Used)||window.Used<0||window.Used>100)return null;
+            if(window.Expired(now))return new(100,null,QuotaPaceKind.Unavailable);
             return new(Math.Clamp(100-window.Used,0,100),window.ResetsAt,QuotaPace.ForClaude(snapshot,window,enabled,now));
         }
-        return new("claude",Find("five_hour"),Find("seven_day"));
+        return new("claude",Find("five_hour"),Find("seven_day"),usable&&age>QuotaPace.ClaudeFreshness?snapshot.ObservedAt:null);
     }
 }

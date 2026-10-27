@@ -16,16 +16,37 @@ static class TrayIconTests
             Check(tight.Source=="claude"&&tight.DisplayRemaining==8&&tight.FiveHour?.Pace!=QuotaPaceKind.Unavailable);
             Check(TrayQuotaSelection.Normalize("unexpected")=="auto");
         });
-        test("托盘来源：过期、停用和身份不确定均无旧数字",() =>
+        test("托盘来源：Codex 过期、停用和身份不确定均无旧数字",() =>
         {
             Check(TrayQuotaSelection.Select("codex",true,true,codex with{Fresh=false},claude,now).DisplayRemaining is null);
             Check(TrayQuotaSelection.Select("codex",false,true,codex,claude,now).DisplayRemaining is null);
-            Check(TrayQuotaSelection.Select("claude",true,true,codex,claude with{ObservedAt=now.AddMinutes(-16)},now).DisplayRemaining is null);
             Check(TrayQuotaSelection.Select("claude",true,true,codex,claude with{Scope=null},now).DisplayRemaining is null);
+            Check(TrayQuotaSelection.Select("claude",true,true,codex,claude with{ObservedAt=null},now).DisplayRemaining is null);
+            Check(TrayQuotaSelection.Select("claude",true,true,codex,claude with{ObservedAt=now.AddMinutes(1)},now).DisplayRemaining is null);
+            Check(TrayQuotaSelection.Select("claude",true,false,codex,claude with{ObservedAt=now.AddMinutes(-16)},now).DisplayRemaining is null);
             Check(TrayQuotaSelection.Select("tightest",false,false,codex,claude,now).DisplayRemaining is null);
             var noReset=codex with{Windows=[new("codex:five","5h",81,300,null)]};
             var partial=TrayQuotaSelection.Select("codex",true,true,noReset,claude,now);
             Check(partial.DisplayRemaining==19&&partial.FiveHour?.Pace==QuotaPaceKind.Unavailable);
+        });
+        test("托盘来源：Claude 旧快照保留最后数值并标记，过了重置时间按满额",() =>
+        {
+            var fresh=TrayQuotaSelection.Select("claude",true,true,codex,claude with{ObservedAt=now.AddMinutes(-15)},now);
+            Check(fresh.DisplayRemaining==8&&!fresh.DisplayStale&&fresh.StaleSince is null);
+            var observed=now.AddMinutes(-16);
+            var stale=TrayQuotaSelection.Select("claude",true,true,codex,claude with{ObservedAt=observed},now);
+            Check(stale.DisplayRemaining==8&&stale.DisplayStale&&stale.StaleSince==observed);
+            Check(stale.FiveHour?.Pace==QuotaPaceKind.Unavailable&&stale.Weekly?.Reset==now.AddDays(3));
+            // A fresh snapshot whose 5-hour window already reset: that window is full, the weekly one decides.
+            var reset=claude with{Windows=[new("five_hour",92,now.AddMinutes(-1)),new("seven_day",30,now.AddDays(3))]};
+            var afterReset=TrayQuotaSelection.Select("claude",true,true,codex,reset,now);
+            Check(afterReset.FiveHour is {Remaining:100,Reset:null,Pace:QuotaPaceKind.Unavailable}&&afterReset.DisplayRemaining==70&&!afterReset.DisplayStale);
+            var dayOld=claude with{ObservedAt=now.AddDays(-1),Windows=[new("five_hour",92,now.AddHours(-20)),new("seven_day",30,now.AddDays(3))]};
+            var old=TrayQuotaSelection.Select("claude",true,true,codex,dayOld,now);
+            Check(old.FiveHour?.Remaining==100&&old.DisplayRemaining==70&&old.DisplayStale);
+            var allReset=TrayQuotaSelection.Select("claude",true,true,codex,dayOld with{Windows=[new("five_hour",92,now.AddHours(-20)),new("seven_day",30,now.AddHours(-1))]},now);
+            Check(allReset.DisplayRemaining==100&&allReset.DisplayStale);
+            Check(TrayQuotaSelection.Select("tightest",true,true,codex,claude with{ObservedAt=observed},now) is {Source:"claude",DisplayStale:true});
         });
         test("托盘图标：颜色阈值、DPI 尺寸与灰环无数字",() =>
         {
@@ -39,6 +60,11 @@ static class TrayIconTests
                 var unavailable=TrayIconRaster.Render(size,null);
                 Check(active.Bgra.Length==size*size*4&&active.Mask.Length==((size+15)/16)*2*size);
                 Check(!active.Bgra.SequenceEqual(unavailable.Bgra));
+                var stale=TrayIconRaster.Render(size,19,stale:true);
+                Check(!stale.Bgra.SequenceEqual(active.Bgra)&&stale.Mask.SequenceEqual(active.Mask));
+                // Dimmed: no pixel of the stale icon is brighter than the matching fresh one.
+                for(var i=0;i<stale.Bgra.Length;i+=4)Check(stale.Bgra[i]+stale.Bgra[i+1]+stale.Bgra[i+2]<=active.Bgra[i]+active.Bgra[i+1]+active.Bgra[i+2]);
+                Check(TrayIconRaster.Render(size,null,stale:true).Bgra.SequenceEqual(unavailable.Bgra));
                 var center=(size/2*size+size/2)*4;
                 Check(unavailable.Bgra[center+3]==0);
             }
