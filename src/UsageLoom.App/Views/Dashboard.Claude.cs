@@ -208,6 +208,7 @@ internal sealed partial class Dashboard
         AutomationProperties.SetAutomationId(panel,"claude-settings");UpdateClaudeViews();
         return panel;
     }
+    private string CompactClaudeFooter(DateTimeOffset now)=>app.ClaudeShown?SnapshotAge(app.ClaudeQuota.ObservedAt,now):"";
     private void UpdateCompactClaude()
     {
         var view=compactContent!;var visibility=app.ClaudeShown?Visibility.Visible:Visibility.Collapsed;
@@ -216,7 +217,9 @@ internal sealed partial class Dashboard
         var snapshot=app.ClaudeQuota;var now=DateTimeOffset.Now;
         view.ClaudePlan.Text=ClaudePlanLabel.Badge(app.Config.ClaudeManualPlan);
         ToolTipService.SetToolTip(view.ClaudePlan,L10n.T("claude.planNotice"));
-        view.ClaudeTitle.Text="Claude · "+SnapshotAge(snapshot.ObservedAt,now)+(app.ClaudeOpenRefreshing?" · "+L10n.T("quota.openRefresh.working"):"");
+        // With Codex hidden the footer row is Claude's, so the snapshot age moves there.
+        view.ClaudeTitle.Text="Claude"+(app.CodexShown?" · "+SnapshotAge(snapshot.ObservedAt,now):"")+(app.ClaudeOpenRefreshing?" · "+L10n.T("quota.openRefresh.working"):"");
+        if(!app.CodexShown){view.Footer.Text=CompactClaudeFooter(now);ToolTipService.SetToolTip(view.Footer,view.Footer.Text);}
         for(var i=0;i<2;i++)
         {
             var key=i==0?"five_hour":"seven_day";var window=snapshot.Windows.FirstOrDefault(w=>w.Key==key);
@@ -226,6 +229,17 @@ internal sealed partial class Dashboard
             view.ClaudeProgress[i].Opacity=available?1:0.3;
             AutomationProperties.SetName(view.ClaudeProgress[i],view.ClaudeValues[i].Text);
             view.ClaudeResets[i].Text=window?.Countdown(now)??snapshot.Describe(now);
+        }
+        for(var i=0;i<2;i++)
+        {
+            var estimate=ClaudeCapacityAt(now,ClaudeCapacityEstimator.Windows[i]);
+            view.ClaudeEstimates[i].Text=L10n.T(i==0?"claude.capacity.compact.fiveHour":"claude.capacity.compact.week")+" · "+(
+                estimate.Ready?L10n.F("claude.capacity.compact.tokens",UsageNumbers.Compact((double)estimate.ProjectedTokens)):
+                estimate.Status=="insufficient"?L10n.F("claude.capacity.compact.progress",estimate.PercentagePoints,estimate.Intervals):
+                L10n.T(CapacityKey(estimate.Window,"overview."+estimate.Status)));
+            ToolTipService.SetToolTip(view.ClaudeEstimates[i],L10n.T(CapacityKey(estimate.Window,"title"))+"\n"+
+                (estimate.Ready?L10n.T("claude.capacity.note"):CapacityValue(estimate,false))+"\n"+
+                L10n.F("claude.capacity.progress",estimate.PercentagePoints,estimate.Intervals));
         }
         var estimates=string.Join("\n",ClaudeCapacityEstimator.Windows.Select(key=>ClaudeCapacityAt(now,key))
             .Select(e=>L10n.T(CapacityKey(e.Window,"title"))+" · "+CapacityValue(e,false)));

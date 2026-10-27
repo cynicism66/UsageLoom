@@ -304,7 +304,15 @@ internal sealed partial class Dashboard
                         var bounds=bar.TransformToVisual(compactView.ClaudeCard).TransformBounds(new(0,0,bar.ActualWidth,bar.ActualHeight));
                         if(bounds.Top<0||bounds.Bottom>compactView.ClaudeCard.ActualHeight||bounds.Left<0||bounds.Right>compactView.ClaudeCard.ActualWidth)
                             throw new InvalidOperationException("Claude progress is outside its compact card");
+                        // Each capacity reference keeps one fixed line inside the card and names its window.
+                        var line=(TextBlock)Find($"compact-claude-estimate-{index}");
+                        var lineBounds=line.TransformToVisual(compactView.ClaudeCard).TransformBounds(new(0,0,line.ActualWidth,line.ActualHeight));
+                        if(!line.Text.StartsWith(L10n.T(index==0?"claude.capacity.compact.fiveHour":"claude.capacity.compact.week")+" · ",StringComparison.Ordinal)||
+                            lineBounds.Top<0||lineBounds.Bottom>compactView.ClaudeCard.ActualHeight-11||lineBounds.Right>compactView.ClaudeCard.ActualWidth)
+                            throw new InvalidOperationException("Claude compact capacity line is missing or outside its card");
                     }
+                    if(!app.CodexShown&&compactView.Footer.Text!=SnapshotAge(app.ClaudeQuota.ObservedAt,DateTimeOffset.Now))
+                        throw new InvalidOperationException("Claude-only compact footer does not show the snapshot age");
                 }
                 if(AppWindow.Size.Width!=size.Width||AppWindow.Size.Height!=size.Height||AppWindow.Position.X!=position.X||AppWindow.Position.Y!=position.Y)
                     failure??=phase+": compact window bounds changed";
