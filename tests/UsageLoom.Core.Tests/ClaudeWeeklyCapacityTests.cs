@@ -37,6 +37,12 @@ static class ClaudeWeeklyCapacityTests
             Check(ClaudeCapacityEstimator.Estimate(Quota(history) with{Windows=[new("seven_day",18,null)]},code,now).Status=="resetUnavailable");
             Check(ClaudeCapacityEstimator.Estimate(Quota(history) with{ObservedAt=now.AddMinutes(-20)},code,now).Status=="quotaUnavailable");
             Check(ClaudeCapacityEstimator.Estimate(Quota(history),code with{Status="partial",Skipped=1},now).Status=="partialLogs");
+            // Gaps are scoped in time: only skipped records that could fall inside the cycle block it.
+            var cycleStart=reset.AddDays(-7);
+            Check(ClaudeCapacityEstimator.Estimate(Quota(history),code with{Status="partial",Skipped=1,SkippedThrough=cycleStart.AddHours(-1)},now).Ready);
+            Check(ClaudeCapacityEstimator.Estimate(Quota(history),code with{Status="partial",Skipped=1,SkippedThrough=cycleStart.AddMinutes(-1)},now).Status=="partialLogs");
+            Check(ClaudeCapacityEstimator.Estimate(Quota(history),code with{Status="partial",Skipped=1,SkippedThrough=now.AddMinutes(-3)},now).Status=="partialLogs");
+            Check(ClaudeCapacityEstimator.Estimate(Quota(history),code with{Status="partial",Skipped=1,SkippedThrough=DateTimeOffset.MaxValue},now).Status=="partialLogs");
             Check(ClaudeCapacityEstimator.Estimate(Quota(history),ClaudeCodeSnapshot.Empty("missing"),now).Status=="codeUnavailable");
         });
         test("Claude 每周参考：其他渠道、异常比例和来源冲突不生成容量",() =>

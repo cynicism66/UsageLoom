@@ -158,7 +158,7 @@
   "source.codexDisabled": "Codex 数据源未启用，请在设置 → 数据来源中开启。",
   "source.none": "没有要显示的数据源。请在设置 → 数据来源中启用或显示；已有历史数据仍保留。",
   "source.boundaryFailed": "采样边界保存失败，Codex 采集暂未恢复，稍后自动重试。",
-"claude.title":"Claude 桌面版",
+"claude.title":"Claude",
 "claude.planChoice":"套餐类型（手动设置）",
 "claude.planUnset":"套餐未设置",
 "claude.planManual":"{0} · 手动设置",

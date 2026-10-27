@@ -15,6 +15,9 @@ public sealed record ClaudeCodeUsage(string Message,string Request,string Sessio
 }
 public sealed record ClaudeCodeSnapshot(string Status,IReadOnlyList<ClaudeCodeUsage> Rows,int Files=0,int Skipped=0,int Duplicates=0)
 {
+    // Latest time any skipped usage could belong to: the record's own timestamp, else its file's
+    // last write. MaxValue when unknown. Lets estimates ignore gaps that end before their cycle.
+    public DateTimeOffset? SkippedThrough {get;init;}
     public static ClaudeCodeSnapshot Empty(string status)=>new(status,[]);
 }
 
@@ -22,8 +25,14 @@ public static class ClaudeCodeParser
 {
     private static string Text(ref Utf8JsonReader reader)=>reader.TokenType==JsonTokenType.String&&reader.ValueSpan.Length<=1024?reader.GetString()??"":"";
     private static string Digest(string value)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
-    public static ClaudeCodeUsage? Parse(ReadOnlySpan<byte> line,string project,string fallbackSession)
+    public static ClaudeCodeUsage? Parse(ReadOnlySpan<byte> line,string project,string fallbackSession)=>
+        Parse(line,project,fallbackSession,out _,out _);
+    // usageRecord: an assistant reply that carries usage, so a null result means lost usage.
+    // Claude Code's own "<synthetic>" notices and other record types (attachments, user turns)
+    // are not usage even when their content mentions it. recordedAt is the record's timestamp.
+    public static ClaudeCodeUsage? Parse(ReadOnlySpan<byte> line,string project,string fallbackSession,out bool usageRecord,out DateTimeOffset? recordedAt)
     {
+        usageRecord=false;recordedAt=null;
         var reader=new Utf8JsonReader(line,new JsonReaderOptions{MaxDepth=64});
         string type="",id="",request="",session="",model="",timestamp="";bool sidechain=false,hasUsage=false,invalid=false;
         long? input=null,output=null;long read=0,write=0;long? write1h=null,write5m=null;
@@ -84,6 +93,8 @@ public static class ClaudeCodeParser
                 }
                 if(reader.TokenType is JsonTokenType.StartObject or JsonTokenType.StartArray)reader.Skip();
             }
+            usageRecord=type=="assistant"&&hasUsage&&!model.StartsWith('<');
+            if(DateTimeOffset.TryParse(timestamp,CultureInfo.InvariantCulture,DateTimeStyles.AssumeUniversal,out var stamp))recordedAt=stamp;
             if(reader.TokenType!=JsonTokenType.EndObject||reader.Read()||type!="assistant"||!hasUsage||invalid||input is null||output is null||
                 !DateTimeOffset.TryParse(timestamp,CultureInfo.InvariantCulture,DateTimeStyles.AssumeUniversal,out var at)||at.Year<2020||
                 string.IsNullOrWhiteSpace(model)||model.Length>128||model.StartsWith('<'))return null;
@@ -117,7 +128,7 @@ public static class ClaudeCodeParser
 // Changed files are reread so truncation/rewrite and incomplete trailing records recover safely.
 public sealed class ClaudeCodeReader
 {
-    private sealed record Cached(long Length,DateTime Modified,IReadOnlyList<ClaudeCodeUsage> Rows,int Skipped);
+    private sealed record Cached(long Length,DateTime Modified,IReadOnlyList<ClaudeCodeUsage> Rows,int Skipped,DateTimeOffset? SkippedThrough);
     private Dictionary<string,Cached> cache=new(StringComparer.OrdinalIgnoreCase);
     public static string DefaultHome=>Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR") is {Length:>0} path?path:
         Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),".claude");
@@ -126,6 +137,8 @@ public sealed class ClaudeCodeReader
     {
         token.ThrowIfCancellationRequested();
         var next=new Dictionary<string,Cached>(StringComparer.OrdinalIgnoreCase);var all=new List<ClaudeCodeUsage>();int files=0,skipped=0;long readBytes=0;
+        DateTimeOffset? through=null;
+        void Skip(DateTimeOffset? at,int count=1){skipped+=count;var value=at??DateTimeOffset.MaxValue;if(through is null||value>through)through=value;}
         try
         {
             home=string.IsNullOrWhiteSpace(home)?DefaultHome:home.Trim();
@@ -139,19 +152,21 @@ public sealed class ClaudeCodeReader
             foreach(var file in Directory.EnumerateFiles(root,"*.jsonl",options))
             {
                 token.ThrowIfCancellationRequested();
-                if(++files>20000){skipped++;break;}
+                if(++files>20000){Skip(null);break;}
                 // Only transcript files; tool-results and backup/orphan files are not usage sources.
                 var relative=Path.GetRelativePath(root,file);var parts=relative.Split(Path.DirectorySeparatorChar);
                 if(!(parts.Length==2||parts.Length==3&&parts[2]=="chat.jsonl"||parts.Length==4&&parts[2]=="subagents")||Path.GetFileName(file).Contains(".orphaned-",StringComparison.Ordinal))continue;
                 try
                 {
-                    var info=new FileInfo(file);Cached entry;
+                    var info=new FileInfo(file);Cached entry;var written=new DateTimeOffset(info.LastWriteTimeUtc);
                     if(cache.TryGetValue(file,out var previous)&&previous.Length==info.Length&&previous.Modified==info.LastWriteTimeUtc)entry=previous;
                     else
                     {
-                        if(info.Length>128L*1024*1024||(readBytes+=info.Length)>512L*1024*1024){skipped++;continue;}
+                        if(info.Length>128L*1024*1024||(readBytes+=info.Length)>512L*1024*1024){Skip(written);continue;}
                         var length=info.Length;var modified=info.LastWriteTimeUtc;
-                        var rows=new List<ClaudeCodeUsage>();var rejected=0;
+                        var rows=new List<ClaudeCodeUsage>();var rejected=0;DateTimeOffset? rejectedThrough=null;
+                        // A rejected record is dated by its own timestamp when readable, else by the file write time.
+                        void Reject(DateTimeOffset? at){rejected++;var value=at??written;if(rejectedThrough is null||value>rejectedThrough)rejectedThrough=value;}
                         using var stream=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete,65536,FileOptions.SequentialScan);
                         var buffer=new byte[65536];using var line=new MemoryStream();bool oversized=false;long remaining=length;
                         while(remaining>0)
@@ -161,41 +176,42 @@ public sealed class ClaudeCodeReader
                             {
                                 if(buffer[i]==10)
                                 {
-                                    if(oversized)rejected++;
+                                    if(oversized)Reject(null);
                                     else if(line.Length>0)
                                     {
                                         var bytes=line.GetBuffer().AsSpan(0,(int)line.Length);
                                         if(bytes.StartsWith("\uFEFF"u8))bytes=bytes[3..];
-                                        var row=ClaudeCodeParser.Parse(bytes,parts[0],Path.GetFileNameWithoutExtension(file));
+                                        var row=ClaudeCodeParser.Parse(bytes,parts[0],Path.GetFileNameWithoutExtension(file),out var usageRecord,out var recordedAt);
                                         if(row is not null)rows.Add(row);
-                                        else if(bytes.IndexOf("\"usage\""u8)>=0||!IsValidJson(bytes))rejected++;
+                                        else if(usageRecord)Reject(recordedAt);
+                                        else if(!IsValidJson(bytes))Reject(null);
                                     }
                                     line.SetLength(0);oversized=false;
                                 }
                                 else if(!oversized){if(line.Length>=4*1024*1024){oversized=true;line.SetLength(0);}else line.WriteByte(buffer[i]);}
                             }
-                            if(rows.Count>250000){rejected++;break;}
+                            if(rows.Count>250000){Reject(null);break;}
                         }
                         // No newline means a writer may still be appending, even if the JSON currently parses.
-                        if(line.Length>0||oversized)rejected++;
-                        entry=new(length,modified,ClaudeCodeParser.Normalize(rows),rejected);
+                        if(line.Length>0||oversized)Reject(null);
+                        entry=new(length,modified,ClaudeCodeParser.Normalize(rows),rejected,rejectedThrough);
                         info.Refresh();
                         // Do not publish a mixture of bytes from a concurrent rewrite or truncated file.
-                        if(!info.Exists||info.Length!=length||info.LastWriteTimeUtc!=modified){skipped++;continue;}
+                        if(!info.Exists||info.Length!=length||info.LastWriteTimeUtc!=modified){Skip(info.Exists?new DateTimeOffset(info.LastWriteTimeUtc):null);continue;}
                         next[file]=entry;
                     }
                     if(ReferenceEquals(entry,previous))next[file]=entry;
-                    all.AddRange(entry.Rows);skipped+=entry.Skipped;
-                    if(all.Count>1_000_000){skipped++;break;}
+                    all.AddRange(entry.Rows);if(entry.Skipped>0)Skip(entry.SkippedThrough,entry.Skipped);
+                    if(all.Count>1_000_000){Skip(null);break;}
                 }
-                catch(Exception ex)when(ex is IOException or UnauthorizedAccessException){skipped++;}
+                catch(Exception ex)when(ex is IOException or UnauthorizedAccessException){Skip(null);}
             }
         }
         catch(Exception ex)when(ex is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)
-        {return new("readFailed",[],files,skipped+1);}
+        {return new("readFailed",[],files,skipped+1){SkippedThrough=DateTimeOffset.MaxValue};}
         token.ThrowIfCancellationRequested();cache=next;
         var normalized=ClaudeCodeParser.Normalize(all);
-        return new(skipped>0?"partial":files==0?"missing":normalized.Count==0?"empty":"ready",normalized,files,skipped,all.Count-normalized.Count);
+        return new(skipped>0?"partial":files==0?"missing":normalized.Count==0?"empty":"ready",normalized,files,skipped,all.Count-normalized.Count){SkippedThrough=through};
     }
     private static bool IsValidJson(ReadOnlySpan<byte> bytes)
     {

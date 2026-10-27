@@ -158,7 +158,7 @@
   "source.codexDisabled": "Codex data source is disabled. Enable it in Settings → Data sources.",
   "source.none": "No data source is shown. Enable or show one in Settings → Data sources. Existing history is retained.",
   "source.boundaryFailed": "Unable to save the sampling boundary. Codex collection remains paused and will retry.",
-"claude.title":"Claude Desktop",
+"claude.title":"Claude",
 "claude.planChoice":"Plan type (manual setting)",
 "claude.planUnset":"Plan not set",
 "claude.planManual":"{0} · manual",

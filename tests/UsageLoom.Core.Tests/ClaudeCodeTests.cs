@@ -72,6 +72,27 @@ static class ClaudeCodeTests
             var ignored=Path.Combine(project,"session","tool-results");Directory.CreateDirectory(ignored);File.WriteAllText(Path.Combine(ignored,"fake.jsonl"),Line(id:"not-a-transcript")+"\n");
             Check(new ClaudeCodeReader().Read(home).Rows.Count==2);
         });
+        test("Claude Code：系统消息与附件不算缺失，真实用量缺失按自身时间标注",()=>
+        {
+            var home=Path.Combine(root,"claude-code-skips");var project=Path.Combine(home,"projects","fixture");Directory.CreateDirectory(project);
+            var file=Path.Combine(project,"session.jsonl");
+            // Claude Code's own notices carry zero usage under model "<synthetic>"; attachments may embed JSON with a usage key.
+            var synthetic=Line(id:"notice").Replace("\"claude-test\"","\"<synthetic>\"");
+            var attachment=JsonSerializer.Serialize(new{type="attachment",timestamp="2026-09-22T12:05:00Z",attachment=new{content=new{usage=new{input_tokens=1}}}});
+            File.WriteAllText(file,Line()+"\n"+synthetic+"\n"+attachment+"\n");
+            Check(ClaudeCodeParser.Parse(Encoding.UTF8.GetBytes(synthetic),"p","s",out var syntheticUsage,out _) is null&&!syntheticUsage);
+            var clean=new ClaudeCodeReader().Read(home);
+            Check(clean.Status=="ready"&&clean.Skipped==0&&clean.SkippedThrough is null&&clean.Rows.Count==1);
+            // A real reply with an inconsistent cache-write split is lost usage, dated by its own timestamp.
+            var inconsistent=Line(id:"broken",at:"2026-09-20T08:00:00Z").Replace("\"cache_creation_input_tokens\":30","\"cache_creation_input_tokens\":0");
+            File.AppendAllText(file,inconsistent+"\n");
+            var dated=new ClaudeCodeReader().Read(home);
+            Check(dated.Status=="partial"&&dated.Skipped==1&&dated.SkippedThrough==DateTimeOffset.Parse("2026-09-20T08:00:00Z"));
+            // Undatable damage falls back to the file's last write time.
+            File.AppendAllText(file,"{bad}\n");
+            var undated=new ClaudeCodeReader().Read(home);
+            Check(undated.Skipped==2&&undated.SkippedThrough==new DateTimeOffset(File.GetLastWriteTimeUtc(file)));
+        });
         test("Claude Code：取消不发布半成品，超长行不影响下一条记录",()=>
         {
             var home=Path.Combine(root,"claude-code-bounds");var project=Path.Combine(home,"projects","fixture");Directory.CreateDirectory(project);

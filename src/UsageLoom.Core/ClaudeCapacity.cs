@@ -39,10 +39,11 @@ public static class ClaudeCapacityEstimator
             return ClaudeCapacity.Unavailable(window,"resetUnavailable");
         if(code.Status is not ("ready" or "partial")||code.Rows.Count==0)
             return ClaudeCapacity.Unavailable(window,"codeUnavailable",reset);
-        if(code.Status=="partial"||code.Skipped>0)
+        var cycleStart=reset-duration;
+        // Skipped records dated before this cycle cannot hide its usage; unknown dates still block.
+        if((code.Status=="partial"||code.Skipped>0)&&!(code.SkippedThrough is {} through&&through<cycleStart.AddMinutes(-5)))
             return ClaudeCapacity.Unavailable(window,"partialLogs",reset);
 
-        var cycleStart=reset-duration;
         var points=ClaudeQuotaHistory.Normalize(ClaudeQuotaHistory.Observations(quota).Where(p=>
             p.Scope==quota.Scope&&p.Window==window&&p.At>=cycleStart&&p.At<=observed));
         bool SameReset(ClaudeQuotaObservation p)=>p.ResetsAt is null||Math.Abs((p.ResetsAt.Value-reset).TotalSeconds)<1;
