@@ -11,6 +11,8 @@ public sealed record TrayQuotaPresentation(string Source,TrayQuotaWindow? FiveHo
 
 public static class TrayQuotaSelection
 {
+    // Beyond one weekly cycle every window has reset, so a kept value would only be an inferred 100%.
+    public static readonly TimeSpan ClaudeStaleLimit=TimeSpan.FromDays(7);
     public static string Normalize(string? value)=>value is "codex" or "claude" or "tightest"?value:"auto";
     public static TrayQuotaPresentation Select(string? choice,bool codexEnabled,bool claudeEnabled,
         QuotaState codex,ClaudeQuotaSnapshot claude,DateTimeOffset now)
@@ -42,7 +44,7 @@ public static class TrayQuotaSelection
     private static TrayQuotaPresentation Claude(ClaudeQuotaSnapshot snapshot,bool enabled,DateTimeOffset now)
     {
         var age=snapshot.ObservedAt is {} at?now-at:(TimeSpan?)null;
-        var usable=enabled&&snapshot.Status=="snapshot"&&!snapshot.HistoryOnly&&!string.IsNullOrWhiteSpace(snapshot.Scope)&&age>=TimeSpan.Zero;
+        var usable=enabled&&snapshot.Status=="snapshot"&&!snapshot.HistoryOnly&&!string.IsNullOrWhiteSpace(snapshot.Scope)&&age>=TimeSpan.Zero&&age<=ClaudeStaleLimit;
         TrayQuotaWindow? Find(string key)
         {
             if(!usable)return null;

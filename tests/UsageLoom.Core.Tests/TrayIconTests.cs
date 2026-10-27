@@ -47,6 +47,10 @@ static class TrayIconTests
             var allReset=TrayQuotaSelection.Select("claude",true,true,codex,dayOld with{Windows=[new("five_hour",92,now.AddHours(-20)),new("seven_day",30,now.AddHours(-1))]},now);
             Check(allReset.DisplayRemaining==100&&allReset.DisplayStale);
             Check(TrayQuotaSelection.Select("tightest",true,true,codex,claude with{ObservedAt=observed},now) is {Source:"claude",DisplayStale:true});
+            // Kept for one weekly cycle, then the gray ring.
+            Check(TrayQuotaSelection.Select("claude",true,true,codex,dayOld with{ObservedAt=now.AddDays(-7)},now) is {DisplayRemaining:70,DisplayStale:true});
+            var expired=TrayQuotaSelection.Select("claude",true,true,codex,dayOld with{ObservedAt=now.AddDays(-7).AddMinutes(-1)},now);
+            Check(expired.DisplayRemaining is null&&!expired.DisplayStale&&expired.FiveHour is null&&expired.Weekly is null);
         });
         test("托盘图标：颜色阈值、DPI 尺寸与灰环无数字",() =>
         {
