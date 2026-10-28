@@ -100,22 +100,9 @@ internal sealed partial class Dashboard
                 var window=app.ClaudeQuota.Windows.FirstOrDefault(item=>item.Key==key);
                 return (key,L10n.T("claude."+key),window is null?QuotaPaceKind.Unavailable:QuotaPace.ForClaude(app.ClaudeQuota,window,app.Config.ClaudeEnabled,DateTimeOffset.Now));
             }));
-            var capacity=claudeOverview.Children.OfType<Grid>().FirstOrDefault(grid=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(grid)=="claude-overview-capacity");
-            if(claudeOverview.Spacing!=overviewQuota.Spacing||
-                claudeOverview.Children.OfType<ProgressBar>().Any(bar=>bar.Height!=5)||
-                capacity is null||capacity.Children.Count!=2||capacity.Children[0] is not TextBlock summary||
-                capacity.Children[1] is not Button info||Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(info)!="claude-capacity-info"||
-                claudeOverview.Children.OfType<StackPanel>().Any(stack=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(stack) is "claude-weekly-capacity" or "claude-five-hour-capacity"))
+            if(claudeOverview.Spacing!=overviewQuota.Spacing||claudeOverview.Children.OfType<ProgressBar>().Any(bar=>bar.Height!=5)||
+                claudeOverview.Children.OfType<Button>().Any())
                 throw new InvalidOperationException("Claude overview does not match the compact Codex card layout");
-            // Both windows report their own estimate or reason, 5 hours first.
-            var lines=summary.Text.Split('\n');
-            if(lines.Length!=2)throw new InvalidOperationException("Claude overview does not show both 5-hour and weekly estimates");
-            for(var i=0;i<2;i++)
-            {
-                var estimate=ClaudeCapacityAt(DateTimeOffset.Now,ClaudeCapacityEstimator.Windows[i]);
-                if(!lines[i].StartsWith(L10n.T(CapacityKey(estimate.Window,"title")),StringComparison.Ordinal)||!lines[i].EndsWith(CapacityValue(estimate,true),StringComparison.Ordinal))
-                    throw new InvalidOperationException("Claude overview hides the actual estimation reason");
-            }
         }
         foreach(FrameworkElement child in header.Children)
         {
@@ -177,9 +164,6 @@ internal sealed partial class Dashboard
         {
             if(claudeDetails?.Parent is not Border claudeCard||providers.Children.Count<2||providers.Children[1]!=claudeCard||claudeDetails.Children[0] is not Grid claudeHeader||claudeHeader.Children[0] is not TextBlock claudeTitle||claudeTitle.FontSize!=title.FontSize||claudeHeader.Children[1] is not TextBlock claudePlan||claudePlan.Text!=ClaudePlanLabel.Badge(app.Config.ClaudeManualPlan))
                 throw new InvalidOperationException("Codex and Claude card hierarchy differs");
-            if(!claudeDetails.Children.OfType<StackPanel>().Select(p=>Microsoft.UI.Xaml.Automation.AutomationProperties.GetAutomationId(p))
-                .Where(id=>id is "claude-five-hour-capacity" or "claude-weekly-capacity").SequenceEqual(["claude-five-hour-capacity","claude-weekly-capacity"]))
-                throw new InvalidOperationException("Claude quota card has no 5-hour and weekly comparison or sampling status");
             if(providers.ColumnDefinitions.Count>1)
             {
                 var codexTop=codexDetailsCard.TransformToVisual(providers).TransformPoint(new(0,0)).Y;

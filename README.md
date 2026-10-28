@@ -3,7 +3,7 @@
 Windows 11 上的 Codex 与 Claude 用量、额度面板。两个来源可分别启用或只显示其一：
 
 - **Codex**：无需登录即可统计本机 Codex Token；通过官方后端查询已有缓存账号的在线额度，并估算每周容量。
-- **Claude**：读取本机 Claude Code 日志统计 Token；5 小时与每周额度来自 Claude Code 状态栏快照或 Claude 桌面版缓存，并给出两个窗口的实验性容量参考。
+- **Claude**：读取本机 Claude Code 日志统计 Token；5 小时与每周额度来自 Claude Code 状态栏快照或 Claude 桌面版缓存。
 
 托盘图标直接显示剩余额度，所有统计在本机完成，不上传、无遥测。
 
@@ -11,19 +11,19 @@ Windows 11 上的 Codex 与 Claude 用量、额度面板。两个来源可分别
 
 UsageLoom 是独立开源项目，不隶属于 OpenAI 或 Anthropic。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.9.0
+## Windows 桌面版 0.9.5
 
-Claude 额度卡片新增实验性的 5 小时容量参考：与每周参考一样，把同一 5 小时周期内连续的额度快照与本机 Claude Code Token 配对，外推“同样工作量下 5 小时大约能用多少本机 Code Token”。5 小时额度涨得快，用一阵 Claude Code 就能出数；两个窗口分别计算，互不混用。托盘图标中间的剩余百分比数字按图标尺寸放大，125% 缩放下由 5 像素高增至 9 像素高，且不压住圆环。[使用边界](docs/claude-desktop-quota.md#额度容量参考实验) · [发布说明](docs/releases/RELEASE-0.9.0.md)
+移除 Claude 的 5 小时与每周容量参考估算：额度快照只有百分比，本机 Claude Code 日志又看不到网页、手机和其他电脑上的用量，估算结果不可靠，还要长时间采样。Claude 卡片和托盘小窗只保留剩余额度、重置时间与节奏提示。[发布说明](docs/releases/RELEASE-0.9.5.md)
+
+Claude 快照一段时间没有更新时，托盘图标以暗色显示最后一次的剩余百分比，悬停说明附最后更新时间；已过重置时间的窗口按满额计，超过 7 天未更新才变回灰环。[发布说明](docs/releases/RELEASE-0.9.4.md)
+
+托盘图标中间的剩余百分比数字按图标尺寸放大，125% 缩放下由 5 像素高增至 9 像素高，且不压住圆环。[发布说明](docs/releases/RELEASE-0.9.0.md)
 
 只用 Claude Code、不常开 Claude 桌面版时，也能看到最新的 5 小时和每周额度：把安装包附带的快照脚本接入 Claude Code 状态栏即可，原有状态栏不受影响。脚本只保存两个百分比和重置时间，不联网、不读凭据。[接入说明](docs/claude-desktop-quota.md#claude-code-状态栏额度) · [发布说明](docs/releases/RELEASE-0.8.42.md)
 
-Claude 每周参考估算无法给出数字时，概览卡片直接显示具体原因；右侧信息图标现在可点击查看采样进度和适用边界。未被本机 Claude Code 日志覆盖的额度增长仍不会被换算成 Token。[发布说明](docs/releases/RELEASE-0.8.36.md)
-
-概览里的 Codex／Claude 额度卡片统一标题、进度条与估算摘要的呈现方式，并移除“查看额度详情”按钮。Claude 的实验性估算诊断保留在额度详情页，概览只显示简洁摘要。[发布说明](docs/releases/RELEASE-0.8.35.md)
+概览里的 Codex／Claude 额度卡片统一标题、进度条与估算摘要的呈现方式，并移除“查看额度详情”按钮。[发布说明](docs/releases/RELEASE-0.8.35.md)
 
 Claude 与 Codex 概览日期筛选按钮使用相同的间距，卡片排列保持一致。[发布说明](docs/releases/RELEASE-0.8.34.md)
-
-Claude 额度卡片新增实验性的每周容量参考估算：将同一周期的连续额度快照与本机 Claude Code Token 日志配对；样本不足或来源不明确时直接说明原因，不把本机用量冒充全账号额度。[使用边界](docs/claude-desktop-quota.md) · [发布说明](docs/releases/RELEASE-0.8.33.md)
 
 Claude 与 Codex 的“自定义”日期筛选现在使用相同的“开始／结束”标签、`yyyy-MM-dd` 显示和窄窗口布局。[发布说明](docs/releases/RELEASE-0.8.32.md)
 
@@ -177,7 +177,6 @@ Claude 数据源默认关闭，在“设置 → 数据来源 → Claude”启用
 
 - **额度**：5 小时与每周额度有两个来源。一是 Claude Code 状态栏快照：安装包附带的 `usageloom-statusline.js` 接入 Claude Code 状态栏后，每次刷新保存两个百分比和重置时间，可与已有状态栏串联、显示不变。二是 Claude 桌面版的本地缓存。两者都有时整份采用较新的一份，不混合。
 - **Token 统计**：只读本机 Claude Code 的会话日志元数据，按模型、项目和 Session 汇总，并可按公开 API 价格估算等价金额；不是 Pro 账单。
-- **容量参考（实验）**：5 小时与每周额度分别与同期本机 Code Token 配对外推，样本不足、存在其他渠道用量或比例不稳时直接说明原因，不硬算。
 
 不读取 Claude 凭据、不代为联网请求，也不修改 Claude 或 Claude Code 的设置。详见 [Claude 接入说明](docs/claude-desktop-quota.md)。
 

@@ -17,11 +17,6 @@ internal sealed partial class Dashboard
     private StackPanel? claudeSettingsPanel;
     private Func<ClaudeSettingsInput>? readClaudeSettings;
     private string claudeScopesKey="";
-    private ClaudeQuotaSnapshot? cachedCapacityQuota;
-    private ClaudeCodeSnapshot? cachedCapacityCode;
-    private readonly Dictionary<string,ClaudeCapacity> cachedCapacity=new();
-    private DateTimeOffset cachedCapacityAt;
-    private Flyout? claudeCapacityInfoFlyout;
     private static TextBlock ClaudeText(string text,double size=12)=>new(){Text=text,FontSize=size,TextWrapping=TextWrapping.Wrap};
     internal static string StatusLineScript=>Path.Combine(AppContext.BaseDirectory,ClaudeStatusLineReader.ScriptName);
     // Forward slashes work in both cmd and the Git Bash shell Claude Code may use on Windows.
@@ -57,56 +52,7 @@ internal sealed partial class Dashboard
         AutomationProperties.SetAutomationId(group,"claude-statusline");
         return group;
     }
-    private Button ClaudeCapacityInfoButton(string detail)
-    {
-        var flyout=new Flyout{Content=new TextBlock{Text=detail,TextWrapping=TextWrapping.Wrap,MaxWidth=340,FontSize=12}};
-        claudeCapacityInfoFlyout=flyout;
-        var button=new Button{Content=new FontIcon{Glyph="\uE946",FontSize=12},Width=22,Height=22,MinWidth=0,MinHeight=0,
-            Padding=new Thickness(0),VerticalAlignment=VerticalAlignment.Center,
-            Background=new Microsoft.UI.Xaml.Media.SolidColorBrush(Microsoft.UI.Colors.Transparent),
-            BorderThickness=new Thickness(0),CornerRadius=new CornerRadius(4),Flyout=flyout};
-        AutomationProperties.SetAutomationId(button,"claude-capacity-info");
-        AutomationProperties.SetName(button,L10n.T("claude.capacity.info"));
-        ToolTipService.SetToolTip(button,L10n.T("claude.capacity.info"));
-        return button;
-    }
-    private ClaudeCapacity ClaudeCapacityAt(DateTimeOffset now,string window="seven_day")
-    {
-        if(cachedCapacity.Count==0||!ReferenceEquals(cachedCapacityQuota,app.ClaudeQuota)||
-            !ReferenceEquals(cachedCapacityCode,app.ClaudeCode)||Math.Abs((now-cachedCapacityAt).TotalSeconds)>=30||
-            cachedCapacity.Values.Any(c=>c.ResetsAt is {} reset&&reset<=now))
-        {
-            foreach(var key in ClaudeCapacityEstimator.Windows)cachedCapacity[key]=ClaudeCapacityEstimator.Estimate(app.ClaudeQuota,app.ClaudeCode,now,key);
-            cachedCapacityQuota=app.ClaudeQuota;cachedCapacityCode=app.ClaudeCode;cachedCapacityAt=now;
-        }
-        return cachedCapacity[window];
-    }
-    // The weekly strings keep their original keys; 5-hour ones override where the window is named.
-    private static string CapacityKey(string window,string suffix)=>
-        window=="five_hour"&&suffix is "title" or "tokens" or "api" or "overview.resetUnavailable" or "status.resetUnavailable"?
-            "claude.capacity.fiveHour."+suffix:"claude.capacity."+suffix;
-    private static string CapacityValue(ClaudeCapacity estimate,bool overview)=>estimate.Ready?
-        L10n.F(CapacityKey(estimate.Window,"tokens"),estimate.ProjectedTokens):
-        L10n.T(CapacityKey(estimate.Window,(overview?"overview.":"status.")+estimate.Status));
-    private StackPanel CapacityPanel(string window,DateTimeOffset now)
-    {
-        var estimate=ClaudeCapacityAt(now,window);
-        var estimatePanel=new StackPanel{Spacing=3};
-        AutomationProperties.SetAutomationId(estimatePanel,window=="five_hour"?"claude-five-hour-capacity":"claude-weekly-capacity");
-        estimatePanel.Children.Add(ClaudeText(L10n.T(CapacityKey(window,"title")),14));
-        if(estimate.Ready)
-        {
-            estimatePanel.Children.Add(ClaudeText(CapacityValue(estimate,false),15));
-            estimatePanel.Children.Add(ClaudeText(estimate.HasApiEquivalent?
-                L10n.F(CapacityKey(window,"api"),estimate.ProjectedApiEquivalent,estimate.PricingCoverage):L10n.T("claude.capacity.noApi")));
-            estimatePanel.Children.Add(ClaudeText(L10n.T("claude.capacity.note")));
-        }
-        else estimatePanel.Children.Add(ClaudeText(CapacityValue(estimate,false)));
-        estimatePanel.Children.Add(ClaudeText(L10n.F("claude.capacity.progress",estimate.PercentagePoints,estimate.Intervals)));
-        ToolTipService.SetToolTip(estimatePanel,L10n.T("claude.capacity.scope"));
-        return estimatePanel;
-    }
-    private void FillClaudeCard(StackPanel panel,bool overview=false)
+    private void FillClaudeCard(StackPanel panel)
     {
         var snapshot=app.ClaudeQuota;var now=DateTimeOffset.Now;panel.Children.Clear();
         var header=new Grid{ColumnSpacing=12};header.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});header.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
@@ -125,21 +71,6 @@ internal sealed partial class Dashboard
             if(window is not null&&PaceRow(QuotaPace.ForClaude(snapshot,window,app.Config.ClaudeEnabled,now),"claude",key,L10n.T("claude."+key)) is {} pace)
                 panel.Children.Add(pace);
         }
-        if(overview)
-        {
-            var summary=new Grid{ColumnSpacing=8};summary.ColumnDefinitions.Add(new(){Width=new GridLength(1,GridUnitType.Star)});summary.ColumnDefinitions.Add(new(){Width=GridLength.Auto});
-            AutomationProperties.SetAutomationId(summary,"claude-overview-capacity");
-            var estimates=ClaudeCapacityEstimator.Windows.Select(key=>ClaudeCapacityAt(now,key)).ToArray();
-            summary.Children.Add(ClaudeText(string.Join("\n",estimates.Select(e=>L10n.T(CapacityKey(e.Window,"title"))+" · "+CapacityValue(e,true)))));
-            var detail=string.Join("\n\n",estimates.Select(e=>L10n.T(CapacityKey(e.Window,"title"))+"\n"+
-                (e.Ready?L10n.T("claude.capacity.note"):CapacityValue(e,false))+"\n"+
-                L10n.F("claude.capacity.progress",e.PercentagePoints,e.Intervals)))+"\n\n"+L10n.T("claude.capacity.scope");
-            var info=ClaudeCapacityInfoButton(detail);
-            Grid.SetColumn(info,1);summary.Children.Add(info);panel.Children.Add(summary);
-            panel.Children.Add(SnapshotAgeRow("claude",snapshot.ObservedAt,now));
-            return;
-        }
-        foreach(var key in ClaudeCapacityEstimator.Windows)panel.Children.Add(CapacityPanel(key,now));
         panel.Children.Add(SnapshotAgeRow("claude",snapshot.ObservedAt,now));
     }
     private UIElement ClaudeDetailsCard()
@@ -154,7 +85,7 @@ internal sealed partial class Dashboard
         if(IsStatisticsPage&&statisticsProvider=="claude"&&ClaudeHistoryViewChanged())
         {renderedFilter=null;RenderStats();}
         UpdateStatisticsActions();
-        if(claudeOverview is not null)FillClaudeCard(claudeOverview,true);
+        if(claudeOverview is not null)FillClaudeCard(claudeOverview);
         if(claudeDetails is not null)FillClaudeCard(claudeDetails);
         if(claudeSettingsStatus is not null)claudeSettingsStatus.Text=app.ClaudeQuota.Describe(DateTimeOffset.Now)+"\n"+app.ClaudeQuota.TimestampText+"\n"+L10n.T("claude.identityNotice");
         if(claudeStatusLineStatus is not null)claudeStatusLineStatus.Text=StatusLineStatusText();
@@ -230,20 +161,6 @@ internal sealed partial class Dashboard
             AutomationProperties.SetName(view.ClaudeProgress[i],view.ClaudeValues[i].Text);
             view.ClaudeResets[i].Text=window?.Countdown(now)??snapshot.Describe(now);
         }
-        for(var i=0;i<2;i++)
-        {
-            var estimate=ClaudeCapacityAt(now,ClaudeCapacityEstimator.Windows[i]);
-            view.ClaudeEstimates[i].Text=L10n.T(i==0?"claude.capacity.compact.fiveHour":"claude.capacity.compact.week")+" · "+(
-                estimate.Ready?L10n.F("claude.capacity.compact.tokens",UsageNumbers.Compact((double)estimate.ProjectedTokens)):
-                estimate.Status=="insufficient"?L10n.F("claude.capacity.compact.progress",estimate.PercentagePoints,estimate.Intervals):
-                L10n.T(CapacityKey(estimate.Window,"overview."+estimate.Status)));
-            ToolTipService.SetToolTip(view.ClaudeEstimates[i],L10n.T(CapacityKey(estimate.Window,"title"))+"\n"+
-                (estimate.Ready?L10n.T("claude.capacity.note"):CapacityValue(estimate,false))+"\n"+
-                L10n.F("claude.capacity.progress",estimate.PercentagePoints,estimate.Intervals));
-        }
-        var estimates=string.Join("\n",ClaudeCapacityEstimator.Windows.Select(key=>ClaudeCapacityAt(now,key))
-            .Select(e=>L10n.T(CapacityKey(e.Window,"title"))+" · "+CapacityValue(e,false)));
-        ToolTipService.SetToolTip(view.ClaudeCard,snapshot.Describe(now)+"\n"+snapshot.TimestampText+"\n"+
-            estimates+"\n"+L10n.T("claude.capacity.note"));
+        ToolTipService.SetToolTip(view.ClaudeCard,snapshot.Describe(now)+"\n"+snapshot.TimestampText);
     }
 }

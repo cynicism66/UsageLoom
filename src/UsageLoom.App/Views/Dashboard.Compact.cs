@@ -51,7 +51,6 @@ internal sealed partial class Dashboard
         internal readonly TextBlock[] ClaudeValues=[CompactText(12,18),CompactText(12,18)];
         internal readonly ProgressBar[] ClaudeProgress=[new(){Minimum=0,Maximum=100,Height=4},new(){Minimum=0,Maximum=100,Height=4}];
         internal readonly TextBlock[] ClaudeResets=[CompactText(11,16),CompactText(11,16)];
-        internal readonly TextBlock[] ClaudeEstimates=[CompactText(11,16),CompactText(11,16)];
         internal string? PlanKey;
     }
 
@@ -91,15 +90,7 @@ internal sealed partial class Dashboard
             AutomationProperties.SetAutomationId(view.ClaudeProgress[i],$"compact-claude-progress-{i}");
             claude.Children.Add(view.ClaudeValues[i]);claude.Children.Add(view.ClaudeProgress[i]);claude.Children.Add(view.ClaudeResets[i]);
         }
-        // One fixed line per capacity reference, so changing estimates never resize the card.
-        view.ClaudeEstimates[0].Margin=new Thickness(0,4,0,0);
-        for(var i=0;i<2;i++)
-        {
-            view.ClaudeEstimates[i].Opacity=.75;
-            AutomationProperties.SetAutomationId(view.ClaudeEstimates[i],$"compact-claude-estimate-{i}");
-            claude.Children.Add(view.ClaudeEstimates[i]);
-        }
-        view.ClaudeCard=CompactCard(claude,"compact-claude-card");view.ClaudeCard.Height=176;
+        view.ClaudeCard=CompactCard(claude,"compact-claude-card");view.ClaudeCard.Height=136;
         view.ClaudeCard.Visibility=app.ClaudeShown?Visibility.Visible:Visibility.Collapsed;quotaPanel.Children.Add(view.ClaudeCard);
         view.Disabled.Text=L10n.T("source.none");quotaPanel.Children.Add(view.Disabled);
         view.Capacity.Opacity=.75;view.CapacityRow.Height=40;view.CapacityRow.Margin=new Thickness(0,8,0,0);
