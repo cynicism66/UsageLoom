@@ -348,7 +348,7 @@ internal sealed partial class Dashboard
             await Task.Delay(650);
             await CapacityTestDispatcherSettled(this);
             if(AppWindow.Size.Width!=size.Width||AppWindow.Size.Height!=size.Height)
-                throw new InvalidOperationException("Display watcher did not restore compact bounds");
+                throw new InvalidOperationException($"Display watcher did not restore compact bounds: {AppWindow.Size.Width}x{AppWindow.Size.Height}, expected {size.Width}x{size.Height}");
             var card=Geometry(Find("compact-quota-card")).Bounds;
             if(card.X<0||card.X>25||card.Right>root.ActualWidth+.5)
                 throw new InvalidOperationException($"Display recovery left card offset or clipped: {card}; root={root.ActualWidth}");

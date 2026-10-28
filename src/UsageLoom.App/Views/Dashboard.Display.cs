@@ -11,6 +11,10 @@ internal sealed partial class Dashboard
     private long lastContentMinute=-1;
     // DIP above and below the cards (title bar, heading, padding, frame) used by the last fit.
     private double compactChrome=136;
+    // At fractional scales every laid-out height snaps to whole pixels, so a re-measured chrome
+    // drifts by up to one pixel. Changes within this band are noise; the headroom keeps the
+    // snapped card area at least as tall as the cards so the Viewbox never shrinks them.
+    private const double ChromeNoise=1,ChromeHeadroom=2;
 
     private void StartDisplayTracking()
     {
@@ -36,7 +40,7 @@ internal sealed partial class Dashboard
         // window once then, so the Viewbox never shrinks the cards beside an empty strip.
         page.SizeChanged+=(_,_)=>
         {
-            if(released||!IsPanelVisible||fittingDisplay||LaidOutCompactChrome() is not {} chrome||Math.Abs(chrome-compactChrome)<.5)return;
+            if(released||!IsPanelVisible||fittingDisplay||LaidOutCompactChrome() is not {} chrome||Math.Abs(chrome-compactChrome)<=ChromeNoise)return;
             var info=new Native.MonitorInfo{size=(uint)System.Runtime.InteropServices.Marshal.SizeOf<Native.MonitorInfo>()};
             if(!Native.GetMonitorInfo(Native.MonitorFromWindow(WinRT.Interop.WindowNative.GetWindowHandle(this),2),ref info))return;
             // Keep a corner-anchored window anchored (as every open is), so reopening does not move it.
@@ -46,10 +50,12 @@ internal sealed partial class Dashboard
     }
     private double? LaidOutCompactChrome()
     {
-        // Everything in the window except the card area, frame included.
+        // Everything in the window except the card area, frame included. A layout still sized
+        // for other window bounds can give a non-positive value; that is not a measurement.
         if(page.ActualHeight<=0||AppWindow.Size.Height<=0)return null;
         var scale=Math.Max(1,Native.GetDpiForWindow(WinRT.Interop.WindowNative.GetWindowHandle(this))/96d);
-        return AppWindow.Size.Height/scale-page.ActualHeight;
+        var chrome=AppWindow.Size.Height/scale-page.ActualHeight;
+        return double.IsFinite(chrome)&&chrome>0?chrome:null;
     }
 
     private void FitCompactWindow(Native.MonitorInfo info,bool anchor)
@@ -71,8 +77,9 @@ internal sealed partial class Dashboard
             quotaPanel.Measure(new Windows.Foundation.Size(quotaPanel.Width,double.PositiveInfinity));
             // Use the laid-out title bar, heading and padding once known; before the first layout,
             // keep the largest height seen so far. Too little makes the Viewbox shrink the cards.
-            compactChrome=LaidOutCompactChrome() is {} laidOut&&double.IsFinite(laidOut)?laidOut:Math.Max(136,compactChrome);
-            target=CompactWindowLayout.Fit(work,scale,quotaPanel.DesiredSize.Height,current,anchor,compactChrome);
+            if(LaidOutCompactChrome() is {} laidOut){if(Math.Abs(laidOut-compactChrome)>ChromeNoise)compactChrome=laidOut;}
+            else compactChrome=Math.Max(136,compactChrome);
+            target=CompactWindowLayout.Fit(work,scale,quotaPanel.DesiredSize.Height,current,anchor,compactChrome+ChromeHeadroom);
             if(target!=current)AppWindow.MoveAndResize(new Windows.Graphics.RectInt32(target.X,target.Y,target.Width,target.Height));
             // XAML can settle its scale after the native DPI notification. A
             // later tick will remeasure once if that happened asynchronously.
