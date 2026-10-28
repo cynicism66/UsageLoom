@@ -52,7 +52,8 @@ internal sealed partial class Dashboard
             };
         }
         ToolTipService.SetToolTip(toolbar,L10n.T("claude.code.scope"));panel.Children.Add(Card(toolbar));
-        if(snapshot.Status is not "ready")
+        // A partial read still shows what was recognized; only states the user can act on get a notice.
+        if(snapshot.Status is not ("ready" or "partial"))
         {
             var notice=new StackPanel{Spacing=10};notice.Children.Add(ClaudeText(L10n.T("claude.code.status."+snapshot.Status),15));
             notice.Children.Add(Button(L10n.T("sDF3D58C7D84B"),()=>{Navigate("settings");return Task.CompletedTask;}));panel.Children.Add(Card(notice));

@@ -125,6 +125,12 @@ public sealed partial class LoomApp
             new ClaudeQuotaObservation("preview",at.AddMinutes(-10*(17-i)),"five_hour",i*3,at.AddHours(1),"cache"),
             new ClaudeQuotaObservation("preview",at.AddMinutes(-10*(17-i)),"seven_day",20+i,at.AddDays(2),"cache")}))};
     }
+    // Smoke-test seam: changes only the preview Claude Code status, keeping its rows.
+    internal void ConfigureClaudeCodeStatusPreview(string status)
+    {
+        if(!args.Contains("--smoke-test")||!args.Contains("--preview-claude"))return;
+        ClaudeCode=ClaudeCode with{Status=status};
+    }
     internal void ConfigureClaudeRefreshPreview(int step)
     {
         if(!CapacityUiCheck||!args.Contains("--preview-claude"))return;

@@ -112,6 +112,19 @@ internal sealed partial class Dashboard
                     if(VisualTreeHelper.GetParent(claudeRangeButton) is not StackPanel claudeRangeButtons||
                         claudeRangeButtons.Spacing!=historyRangeButtons.Spacing)
                         throw new InvalidOperationException("Claude date-range button spacing differs from Codex");
+                    // A partial read shows its recognized rows without a notice; actionable states keep one.
+                    var codeStatus=app.ClaudeCode.Status;
+                    try
+                    {
+                        foreach(var (state,notice) in new[]{("partial",false),("readFailed",true)})
+                        {
+                            app.ConfigureClaudeCodeStatusPreview(state);renderedFilter=null;RenderStats();root.UpdateLayout();
+                            if(CapacityTestDescendants(statisticsBody).OfType<Button>().Any(b=>Equals(b.Content,L10n.T("sDF3D58C7D84B")))!=notice)
+                                throw new InvalidOperationException($"Claude Code {state} notice shown={!notice}, expected {notice}");
+                        }
+                    }
+                    finally{app.ConfigureClaudeCodeStatusPreview(codeStatus);}
+                    Program.Log.Write("INFO","StatisticsProvidersTest","Claude Code partial read has no notice; read failure keeps one passed");
                     claudeCodeRangeIndex=4;renderedFilter=null;RenderStats();root.UpdateLayout();
                     var claudeDates=CapacityTestDescendants(statisticsBody).OfType<CalendarDatePicker>().ToArray();
                     if(claudeDates.Length!=2||

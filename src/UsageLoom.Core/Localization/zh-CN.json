@@ -51,7 +51,6 @@
   "claude.code.status.waiting": "正在等待读取本机 Claude Code 日志。",
   "claude.code.status.missing": "未发现 Claude Code JSONL 日志。普通聊天或 Cowork 不保证生成此类日志；未采集不代表用量为 0。",
   "claude.code.status.empty": "找到日志，但没有可识别且可安全去重的 Token 记录。",
-  "claude.code.status.partial": "部分日志暂不能读取或记录不完整；下方仅统计已识别部分，完整性未知。",
   "claude.code.status.readFailed": "日志读取失败或超时，本次不展示旧数据为最新结果。请检查目录后重试。",
   "claude.code.status.invalidPath": "目录无效或包含符号链接/目录联接。请选择本机实际 Claude Code Home。",
   "claude.code.total": "{0} Token · {1:N0} 条回复 · {2:N0} 个 Session",

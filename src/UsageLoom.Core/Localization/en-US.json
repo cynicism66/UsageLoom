@@ -51,7 +51,6 @@
   "claude.code.status.waiting": "Waiting to read local Claude Code logs.",
   "claude.code.status.missing": "No Claude Code JSONL logs found. Chat or Cowork may not produce these logs; missing data does not mean zero usage.",
   "claude.code.status.empty": "Logs found, but no recognizable, safely deduplicated Token records.",
-  "claude.code.status.partial": "Some files or records are unavailable/incomplete. Only recognized usage is shown; completeness is unknown.",
   "claude.code.status.readFailed": "Reading failed or timed out. Old results are not presented as current. Check the directory and retry.",
   "claude.code.status.invalidPath": "Invalid directory or symbolic link/junction. Select an actual local Claude Code Home.",
   "claude.code.total": "{0} Tokens · {1:N0} responses · {2:N0} Sessions",
