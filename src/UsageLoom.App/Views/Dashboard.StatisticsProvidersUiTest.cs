@@ -13,10 +13,10 @@ internal sealed partial class Dashboard
     {
         var consumptionHint=UsageCharts.QuotaTooltip(new QuotaConsumptionBucket(80,QuotaConsumptionMissing.ResetTail),L10n.T("quota.chart.fiveHour"));
         var missingHint=UsageCharts.QuotaTooltip(null,L10n.T("quota.chart.weekly"));
-        if(!consumptionHint.Contains(L10n.T("quota.chart.fiveHour"),StringComparison.Ordinal)||
-            !consumptionHint.Contains("80",StringComparison.Ordinal)||!consumptionHint.Contains(L10n.T("quota.chart.partial"),StringComparison.Ordinal)||
-            !missingHint.Contains("--",StringComparison.Ordinal)||!missingHint.Contains(L10n.T("quota.chart.weekly"),StringComparison.Ordinal))
-            throw new InvalidOperationException("Token chart quota hover lacks window, percentage points or missing-value explanation");
+        // The hover is one line: window and percentage points, even when the day is only partly observed.
+        if(consumptionHint!=L10n.F("quota.chart.points",L10n.T("quota.chart.fiveHour"),80d)||
+            missingHint!=L10n.F("quota.chart.empty",L10n.T("quota.chart.weekly"))||!missingHint.Contains("--",StringComparison.Ordinal))
+            throw new InvalidOperationException("Token chart quota hover is not a single window/percentage line");
         var savedPage=selectedPage;var savedProvider=statisticsProvider;
         var codexEnabled=app.Config.CodexEnabled;var claudeEnabled=app.Config.ClaudeEnabled;
         var codexVisible=app.Config.CodexVisible;var claudeVisible=app.Config.ClaudeVisible;
@@ -145,6 +145,16 @@ internal sealed partial class Dashboard
                     history.IsExpanded=true;root.UpdateLayout();
                     if(!CapacityTestDescendants(history).OfType<ToggleButton>().Any(t=>AutomationProperties.GetAutomationId(t)=="claude-history-days-30"&&t.IsChecked==true))throw new InvalidOperationException("Collapsed quota history lost its date selector");
                     if(app.ClaudeQuota.History.Count>0&&!CapacityTestDescendants(history).OfType<Canvas>().Any())throw new InvalidOperationException("Auxiliary quota history chart missing");
+                    // A new snapshot rebuilds the view; an opened inner section must stay open, the others closed.
+                    Expander[] Cycles()=>CapacityTestDescendants(root).OfType<Expander>().Where(e=>Equals(e.Header,L10n.T("claude.historyCycles"))).ToArray();
+                    if(Cycles() is not [var opened,_,..])throw new InvalidOperationException("Claude reset-cycle sections missing");
+                    opened.IsExpanded=true;root.UpdateLayout();
+                    renderedFilter=null;RenderStats();root.UpdateLayout();
+                    if(Cycles() is not [var reopened,var stillClosed,..]||ReferenceEquals(reopened,opened)||!reopened.IsExpanded||stillClosed.IsExpanded)
+                        throw new InvalidOperationException("Rebuilding Claude statistics collapsed an opened section or opened another");
+                    reopened.IsExpanded=false;
+                    Program.Log.Write("INFO","StatisticsProvidersTest","Claude statistics keep opened sections across rebuilds passed");
+                    history=CapacityTestDescendants(root).OfType<Expander>().Single(e=>Equals(e.Header,L10n.T("claude.code.quotaHistory")));
                     history.IsExpanded=false;
                 }
                 if(app.Config.ClaudeEnabled&&app.ClaudeCode.Rows.Count>0&&!CapacityTestDescendants(root).OfType<Canvas>().Any(c=>AutomationProperties.GetAutomationId(c)=="claude-token-chart"))

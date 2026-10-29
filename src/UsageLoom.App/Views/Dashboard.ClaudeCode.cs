@@ -181,12 +181,7 @@ internal sealed partial class Dashboard
         composition.Children.Add(ClaudeText(L10n.T("s719CAC683641"),19));
         composition.Children.Add(ClaudeText(hasRows?L10n.F("claude.code.counters",rows.Sum(r=>r.Input),rows.Sum(r=>r.Output),rows.Sum(r=>r.CacheRead),rows.Sum(r=>r.CacheWrite)):L10n.T("claude.code.unobserved"),15));
         composition.Children.Add(ClaudeText(L10n.T("claude.code.definition")));
-        panel.Children.Add(StableExpander.Configure(new Expander{Header=L10n.T("sA29E4482CC69"),Content=composition,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch}));
-        var pricing=new StackPanel{Spacing=8};
-        pricing.Children.Add(ClaudeText(L10n.T("claude.code.estimateExplain")));
-        if(estimate.Assumed5m)pricing.Children.Add(ClaudeText(L10n.T("claude.code.cacheAssumption")));
-        pricing.Children.Add(new HyperlinkButton{Content=L10n.T("claude.code.priceSource"),NavigateUri=new Uri(ClaudeCodePricing.Source)});
-        panel.Children.Add(StableExpander.Configure(new Expander{Header=L10n.T("claude.code.estimateDetails"),Content=pricing,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch}));
+        panel.Children.Add(RememberedExpander("composition",L10n.T("sA29E4482CC69"),composition));
         panel.Children.Add(ClaudeText(L10n.F("claude.code.quality",app.ClaudeCode.Files,app.ClaudeCode.Skipped)));
         return panel;
     }

@@ -15,6 +15,17 @@ internal sealed partial class Dashboard
     private ClaudeQuotaSnapshot? renderedClaudeStatistics;
     private ClaudeCodeSnapshot? renderedClaudeCode;
     private string? renderedClaudeDescription,renderedClaudeHistoryError;
+    // The Claude statistics view is rebuilt whenever a new snapshot arrives (about every 30 s while
+    // Claude Code runs); sections the user opened stay open across those rebuilds.
+    private readonly HashSet<string> expandedClaudeSections=[];
+    private Expander RememberedExpander(string key,object header,UIElement content)
+    {
+        var expander=StableExpander.Configure(new Expander{Header=header,Content=content,IsExpanded=expandedClaudeSections.Contains(key),
+            HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch});
+        expander.Expanding+=(_,_)=>expandedClaudeSections.Add(key);
+        expander.Collapsed+=(_,_)=>expandedClaudeSections.Remove(key);
+        return expander;
+    }
     private bool ClaudeHistoryViewChanged()
     {
         var current=app.ClaudeQuota;var previous=renderedClaudeStatistics;
@@ -77,7 +88,7 @@ internal sealed partial class Dashboard
                     var cyclePairs=cycle.Count(s=>s.Connected);
                     cycles.Children.Add(ClaudeText(L10n.F("claude.historyCycle",cycle.Key.ToLocalTime(),cycle.Count(),cyclePairs>0?cycle.Sum(s=>s.Increase??0).ToString("0.#"):"—")));
                 }
-                if(cycles.Children.Count>0)chart.Children.Add(StableExpander.Configure(new Expander{Header=L10n.T("claude.historyCycles"),Content=cycles,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch}));
+                if(cycles.Children.Count>0)chart.Children.Add(RememberedExpander("cycles-"+key,L10n.T("claude.historyCycles"),cycles));
             }
             charts.Add(Card(chart));
         }
@@ -86,7 +97,7 @@ internal sealed partial class Dashboard
         details.Children.Add(ClaudeText(L10n.T("claude.historyRecentNotice")));
         foreach(var p in points.OrderByDescending(p=>p.At).Take(20))
             details.Children.Add(ClaudeText(L10n.F("claude.historyRow",p.At.ToLocalTime(),L10n.T("claude."+p.Window),p.Used is {} u?u.ToString("0.#")+"%":L10n.T("claude.historyConflict"),L10n.T("claude.historyOrigin."+p.Origin))));
-        panel.Children.Add(StableExpander.Configure(new Expander{Header=L10n.T("claude.historyRecent"),Content=details,HorizontalAlignment=HorizontalAlignment.Stretch,HorizontalContentAlignment=HorizontalAlignment.Stretch}));
+        panel.Children.Add(RememberedExpander("recent",L10n.T("claude.historyRecent"),details));
         panel.Children.Add(ClaudeText(L10n.T("claude.historyCapabilities")));
         return panel;
     }

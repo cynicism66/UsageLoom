@@ -12,22 +12,8 @@ internal static class UsageCharts
 {
     private enum TrendMetric { Tokens, Requests, Cost }
     internal static readonly Windows.UI.Color[] Colorset=[ColorHelper.FromArgb(255,163,138,245),ColorHelper.FromArgb(255,199,181,255),ColorHelper.FromArgb(255,116,134,215),ColorHelper.FromArgb(255,101,179,184),ColorHelper.FromArgb(255,184,151,201),ColorHelper.FromArgb(255,130,139,157)];
-    internal static string QuotaTooltip(QuotaConsumptionBucket? consumption,string window)
-    {
-        var value=consumption?.Points is {} points?L10n.F("quota.chart.points",window,points):L10n.F("quota.chart.empty",window);
-        if(consumption is {Partial:true})
-        {
-            value+=" *";
-            var reasons=new List<string>();
-            foreach(var (flag,key) in new[]{
-                (QuotaConsumptionMissing.Barrier,"barrier"),(QuotaConsumptionMissing.Gap,"gap"),
-                (QuotaConsumptionMissing.ResetTail,"resetTail"),(QuotaConsumptionMissing.ResetUnknown,"resetUnknown"),
-                (QuotaConsumptionMissing.Regression,"regression")})
-                if(consumption.Missing.HasFlag(flag))reasons.Add(L10n.T("quota.chart.reason."+key));
-            value+="\n"+L10n.T("quota.chart.partial")+" · "+string.Join(" / ",reasons);
-        }
-        return value+"\n"+L10n.T("quota.chart.source");
-    }
+    internal static string QuotaTooltip(QuotaConsumptionBucket? consumption,string window)=>
+        consumption?.Points is {} points?L10n.F("quota.chart.points",window,points):L10n.F("quota.chart.empty",window);
     internal static FrameworkElement Trend(IReadOnlyList<HistoryTrendBucket> buckets,Action<DateOnly,DateOnly> select,bool hourly=false,bool tokenOnly=false,
         IReadOnlyList<QuotaConsumptionBucket>? quotaUsage=null,string? quotaWindow=null)
     {
