@@ -18,23 +18,39 @@ public sealed record ClaudeCodeSnapshot(string Status,IReadOnlyList<ClaudeCodeUs
     // Latest time any skipped usage could belong to: the record's own timestamp, else its file's
     // last write. MaxValue when unknown. Lets estimates ignore gaps that end before their cycle.
     public DateTimeOffset? SkippedThrough {get;init;}
+    // Session digest -> the name Claude Code shows for it: the /rename name, else its generated title.
+    public IReadOnlyDictionary<string,string> Titles {get;init;}=new Dictionary<string,string>(StringComparer.Ordinal);
+    public string SessionName(string session)=>Titles.TryGetValue(session,out var title)?title:ClaudeCodeParser.SessionLabel(session);
     public static ClaudeCodeSnapshot Empty(string status)=>new(status,[]);
 }
+// A session title record. Text is null when the record clears the name or holds no usable text.
+public readonly record struct ClaudeCodeTitle(string Session,string? Text,bool Custom);
 
 public static class ClaudeCodeParser
 {
     private static string Text(ref Utf8JsonReader reader)=>reader.TokenType==JsonTokenType.String&&reader.ValueSpan.Length<=1024?reader.GetString()??"":"";
     private static string Digest(string value)=>Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(value)));
+    public static string SessionLabel(string session)=>"Session · "+session[..Math.Min(12,session.Length)];
+    // Titles are short one-line labels; control and format characters cannot reshape the UI.
+    private static string? Title(string value)
+    {
+        var text=new string(value.Take(81).Select(c=>char.IsControl(c)||char.GetUnicodeCategory(c)==UnicodeCategory.Format?' ':c).ToArray()).Trim();
+        if(text.Length>80){text=text[..80];if(char.IsHighSurrogate(text[^1]))text=text[..^1];text=text.TrimEnd()+"…";}
+        return text.Length==0?null:text;
+    }
     public static ClaudeCodeUsage? Parse(ReadOnlySpan<byte> line,string project,string fallbackSession)=>
         Parse(line,project,fallbackSession,out _,out _);
+    public static ClaudeCodeUsage? Parse(ReadOnlySpan<byte> line,string project,string fallbackSession,out bool usageRecord,out DateTimeOffset? recordedAt)=>
+        Parse(line,project,fallbackSession,out usageRecord,out recordedAt,out _);
     // usageRecord: an assistant reply that carries usage, so a null result means lost usage.
     // Claude Code's own "<synthetic>" notices and other record types (attachments, user turns)
     // are not usage even when their content mentions it. recordedAt is the record's timestamp.
-    public static ClaudeCodeUsage? Parse(ReadOnlySpan<byte> line,string project,string fallbackSession,out bool usageRecord,out DateTimeOffset? recordedAt)
+    // title: Claude Code's own session name record ("custom-title" from /rename, "ai-title" generated).
+    public static ClaudeCodeUsage? Parse(ReadOnlySpan<byte> line,string project,string fallbackSession,out bool usageRecord,out DateTimeOffset? recordedAt,out ClaudeCodeTitle? title)
     {
-        usageRecord=false;recordedAt=null;
+        usageRecord=false;recordedAt=null;title=null;
         var reader=new Utf8JsonReader(line,new JsonReaderOptions{MaxDepth=64});
-        string type="",id="",request="",session="",model="",timestamp="";bool sidechain=false,hasUsage=false,invalid=false;
+        string type="",id="",request="",session="",model="",timestamp="";string? aiTitle=null,customTitle=null;bool sidechain=false,hasUsage=false,invalid=false;
         long? input=null,output=null;long read=0,write=0;long? write1h=null,write5m=null;
         try
         {
@@ -50,6 +66,8 @@ public static class ClaudeCodeParser
                     case "requestId":request=Text(ref reader);break;
                     case "sessionId":session=Text(ref reader);break;
                     case "isSidechain":sidechain=reader.TokenType==JsonTokenType.True;break;
+                    case "aiTitle":aiTitle=Text(ref reader);break;
+                    case "customTitle":customTitle=Text(ref reader);break;
                     case "message" when reader.TokenType==JsonTokenType.StartObject:
                         while(reader.Read()&&reader.TokenType!=JsonTokenType.EndObject)
                         {
@@ -94,6 +112,12 @@ public static class ClaudeCodeParser
                 if(reader.TokenType is JsonTokenType.StartObject or JsonTokenType.StartArray)reader.Skip();
             }
             usageRecord=type=="assistant"&&hasUsage&&!model.StartsWith('<');
+            if(reader.TokenType==JsonTokenType.EndObject&&(type=="custom-title"&&customTitle is not null||type=="ai-title"&&aiTitle is not null))
+            {
+                var name=string.IsNullOrEmpty(session)?fallbackSession:session;
+                if(name.Length>0)title=new(Digest(name),Title(type=="custom-title"?customTitle!:aiTitle!),type=="custom-title");
+                return null;
+            }
             if(DateTimeOffset.TryParse(timestamp,CultureInfo.InvariantCulture,DateTimeStyles.AssumeUniversal,out var stamp))recordedAt=stamp;
             if(reader.TokenType!=JsonTokenType.EndObject||reader.Read()||type!="assistant"||!hasUsage||invalid||input is null||output is null||
                 !DateTimeOffset.TryParse(timestamp,CultureInfo.InvariantCulture,DateTimeStyles.AssumeUniversal,out var at)||at.Year<2020||
@@ -133,7 +157,9 @@ public sealed class ClaudeCodeReader
     // Rejected/RejectedThrough cover complete lines only, so a resumed pass can extend them;
     // Skipped/SkippedThrough add this pass's trailing partial line or row-limit stop.
     private sealed record Cached(long Length,DateTime Modified,long Parsed,byte[] Anchor,IReadOnlyList<ClaudeCodeUsage> Rows,
-        int Rejected,DateTimeOffset? RejectedThrough,int Skipped,DateTimeOffset? SkippedThrough);
+        int Rejected,DateTimeOffset? RejectedThrough,int Skipped,DateTimeOffset? SkippedThrough,IReadOnlyDictionary<string,SessionTitle> Titles);
+    // The latest of each title kind in one transcript; a /rename name wins over the generated title.
+    private readonly record struct SessionTitle(string? Generated,string? Custom);
     private const long MaxFileBytes=1L<<30,MaxPassBytes=2L<<30;
     private const int AnchorBytes=4096;
     // Bytes of transcript read by the last pass, for tests of append-only resumption.
@@ -146,6 +172,7 @@ public sealed class ClaudeCodeReader
     {
         token.ThrowIfCancellationRequested();
         var next=new Dictionary<string,Cached>(StringComparer.OrdinalIgnoreCase);var all=new List<ClaudeCodeUsage>();int files=0,skipped=0;long readBytes=0;
+        var titles=new Dictionary<string,string>(StringComparer.Ordinal);
         DateTimeOffset? through=null;
         void Skip(DateTimeOffset? at,int count=1){skipped+=count;var value=at??DateTimeOffset.MaxValue;if(through is null||value>through)through=value;}
         try
@@ -179,6 +206,7 @@ public sealed class ClaudeCodeReader
                         if(length-start>MaxFileBytes||(readBytes+=length-start)>MaxPassBytes){Skip(written);continue;}
                         var rows=resume?new List<ClaudeCodeUsage>(previous!.Rows):new List<ClaudeCodeUsage>();var added=0;
                         var rejected=resume?previous!.Rejected:0;DateTimeOffset? rejectedThrough=resume?previous!.RejectedThrough:null;
+                        var named=resume?new Dictionary<string,SessionTitle>(previous!.Titles,StringComparer.Ordinal):new Dictionary<string,SessionTitle>(StringComparer.Ordinal);
                         // A rejected record is dated by its own timestamp when readable, else by the file write time.
                         void Reject(DateTimeOffset? at){rejected++;var value=at??written;if(rejectedThrough is null||value>rejectedThrough)rejectedThrough=value;}
                         using var stream=new FileStream(file,FileMode.Open,FileAccess.Read,FileShare.ReadWrite|FileShare.Delete,65536,FileOptions.SequentialScan);
@@ -197,8 +225,13 @@ public sealed class ClaudeCodeReader
                                     {
                                         var bytes=line.GetBuffer().AsSpan(0,(int)line.Length);
                                         if(bytes.StartsWith("\uFEFF"u8))bytes=bytes[3..];
-                                        var row=ClaudeCodeParser.Parse(bytes,parts[0],Path.GetFileNameWithoutExtension(file),out var usageRecord,out var recordedAt);
+                                        var row=ClaudeCodeParser.Parse(bytes,parts[0],Path.GetFileNameWithoutExtension(file),out var usageRecord,out var recordedAt,out var title);
                                         if(row is not null){rows.Add(row);added++;}
+                                        else if(title is {} found)
+                                        {
+                                            var current=named.GetValueOrDefault(found.Session);
+                                            named[found.Session]=found.Custom?current with{Custom=found.Text}:current with{Generated=found.Text};
+                                        }
                                         else if(usageRecord)Reject(recordedAt);
                                         else if(!IsValidJson(bytes))Reject(null);
                                     }
@@ -219,11 +252,13 @@ public sealed class ClaudeCodeReader
                         if(!info.Exists||info.Length<length||info.Length==length&&info.LastWriteTimeUtc!=modified){Skip(info.Exists?new DateTimeOffset(info.LastWriteTimeUtc):null);continue;}
                         var skippedThrough=pending>0&&(rejectedThrough is null||written>rejectedThrough)?written:rejectedThrough;
                         // A pass stopped by the row limit must not look complete to the unchanged-file shortcut.
-                        entry=new(limited?-1:length,modified,parsed,anchor,ClaudeCodeParser.Normalize(rows),rejected,rejectedThrough,rejected+pending,skippedThrough);
+                        entry=new(limited?-1:length,modified,parsed,anchor,ClaudeCodeParser.Normalize(rows),rejected,rejectedThrough,rejected+pending,skippedThrough,named);
                         next[file]=entry;
                     }
                     if(ReferenceEquals(entry,previous))next[file]=entry;
                     all.AddRange(entry.Rows);if(entry.Skipped>0)Skip(entry.SkippedThrough,entry.Skipped);
+                    // A session is named by its own transcript; subagent files never rename their parent.
+                    if(parts.Length!=4)foreach(var (session,title) in entry.Titles)if((title.Custom??title.Generated) is {} name)titles[session]=name;
                     if(all.Count>1_000_000){Skip(null);break;}
                 }
                 catch(Exception ex)when(ex is IOException or UnauthorizedAccessException){Skip(null);}
@@ -233,7 +268,7 @@ public sealed class ClaudeCodeReader
         {return new("readFailed",[],files,skipped+1){SkippedThrough=DateTimeOffset.MaxValue};}
         token.ThrowIfCancellationRequested();cache=next;LastReadBytes=readBytes;
         var normalized=ClaudeCodeParser.Normalize(all);
-        return new(skipped>0?"partial":files==0?"missing":normalized.Count==0?"empty":"ready",normalized,files,skipped,all.Count-normalized.Count){SkippedThrough=through};
+        return new(skipped>0?"partial":files==0?"missing":normalized.Count==0?"empty":"ready",normalized,files,skipped,all.Count-normalized.Count){SkippedThrough=through,Titles=titles};
     }
     private static byte[] Anchor(FileStream stream,long parsed)
     {

@@ -72,7 +72,8 @@ public sealed partial class LoomApp
             {
                 var code=await Task.Run(()=>{if(fullRead)claudeCodeReader.Clear();return claudeCodeReader.Read(codeHome,token);},token);
                 if(quitting||generation!=claudeGeneration||!Config.ClaudeEnabled)return;
-                if(ClaudeCode.Status!=code.Status||ClaudeCode.Files!=code.Files||ClaudeCode.Skipped!=code.Skipped||!ClaudeCode.Rows.SequenceEqual(code.Rows))
+                if(ClaudeCode.Status!=code.Status||ClaudeCode.Files!=code.Files||ClaudeCode.Skipped!=code.Skipped||!ClaudeCode.Rows.SequenceEqual(code.Rows)||
+                    ClaudeCode.Titles.Count!=code.Titles.Count||ClaudeCode.Titles.Except(code.Titles).Any())
                 {ClaudeCode=code;ClaudeChanged?.Invoke();}
             }
         }
@@ -118,7 +119,8 @@ public sealed partial class LoomApp
         if(!args.Contains("--preview-claude")){Config.ClaudeEnabled=false;return;}
         Config.ClaudeEnabled=true;
         Config.ClaudeCodeEnabled=true;
-        ClaudeCode=new("ready",Enumerable.Range(0,20).Select(i=>new ClaudeCodeUsage("preview-message-"+i,"preview-request-"+i,"preview-session-0001","preview-project","claude-preview",DateTimeOffset.Now.AddHours(-i*3),100+i*20,200+i*30,1000,300)).ToArray(),1);
+        ClaudeCode=new("ready",Enumerable.Range(0,20).Select(i=>new ClaudeCodeUsage("preview-message-"+i,"preview-request-"+i,"preview-session-0001","preview-project","claude-preview",DateTimeOffset.Now.AddHours(-i*3),100+i*20,200+i*30,1000,300)).ToArray(),1)
+            {Titles=new Dictionary<string,string>{["preview-session-0001"]=L10n.T("claude.code.previewTitle")}};
         ClaudeQuota=new("snapshot",[new("five_hour",65,DateTimeOffset.Now.AddHours(1)),new("seven_day",42,DateTimeOffset.Now.AddDays(2))],DateTimeOffset.Now,"preview",["preview"]);
         var at=ClaudeQuota.ObservedAt!.Value;
         ClaudeQuota=ClaudeQuota with{History=ClaudeQuotaHistory.Normalize(Enumerable.Range(0,18).SelectMany(i=>new[]{

@@ -79,9 +79,10 @@ internal sealed partial class Dashboard
                 var pages=Math.Max(1,(groups.Length+49)/50);claudeCodePage=Math.Clamp(claudeCodePage,0,pages-1);
                 foreach(var group in groups.Skip(claudeCodePage*50).Take(50))
                 {
-                    var name=sessions?"Session · "+group.Key[..12]:group.Key;
+                    var name=sessions?snapshot.SessionName(group.Key):group.Key;
                     var text=ClaudeText(name+"\n"+L10n.F("claude.code.group",group.Sum(r=>r.Total),group.Count()),15);
-                    ToolTipService.SetToolTip(text,L10n.F("claude.code.counters",group.Sum(r=>r.Input),group.Sum(r=>r.Output),group.Sum(r=>r.CacheRead),group.Sum(r=>r.CacheWrite)));
+                    var counters=L10n.F("claude.code.counters",group.Sum(r=>r.Input),group.Sum(r=>r.Output),group.Sum(r=>r.CacheRead),group.Sum(r=>r.CacheWrite));
+                    ToolTipService.SetToolTip(text,sessions?ClaudeCodeParser.SessionLabel(group.Key)+" · "+group.First().Project+"\n"+counters:counters);
                     table.Children.Add(text);
                 }
                 if(groups.Length==0)table.Children.Add(ClaudeText(L10n.T("claude.code.rangeEmpty")));
@@ -169,7 +170,7 @@ internal sealed partial class Dashboard
         var recent=new StackPanel{Spacing=12};
         recent.Children.Add(ClaudeText(L10n.T("sEB6D48FEBAB7"),19));
         foreach(var session in rows.GroupBy(r=>r.Session).OrderByDescending(g=>g.Max(r=>r.At)).Take(4))
-            recent.Children.Add(ClaudeText($"Session · {session.Key[..Math.Min(12,session.Key.Length)]} · {session.Sum(r=>r.Total):N0} Token · {session.Count():N0} {L10n.T("claude.code.responseUnit")}",13));
+            recent.Children.Add(ClaudeText($"{app.ClaudeCode.SessionName(session.Key)} · {session.Sum(r=>r.Total):N0} Token · {session.Count():N0} {L10n.T("claude.code.responseUnit")}",13));
         if(!hasRows)recent.Children.Add(ClaudeText(L10n.T("claude.code.rangeEmpty")));
         recent.Children.Add(Button(L10n.T("sD24CA3C355C7"),()=>{Navigate("sessions");return Task.CompletedTask;}));
         var modelsCard=Card(models);var recentCard=Card(recent);

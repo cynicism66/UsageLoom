@@ -104,6 +104,10 @@ internal sealed partial class Dashboard
                     foreach(var id in new[]{"claude-overview-attribution","claude-overview-metrics","claude-overview-models","claude-overview-sessions"})
                         if(!CapacityTestDescendants(statisticsBody).OfType<FrameworkElement>().Any(e=>AutomationProperties.GetAutomationId(e)==id))
                             throw new InvalidOperationException("Claude overview is missing Codex-style section: "+id);
+                    // Recent sessions carry Claude Code's own session name, not a bare ID.
+                    var recentSessions=CapacityTestDescendants(statisticsBody).OfType<FrameworkElement>().Single(e=>AutomationProperties.GetAutomationId(e)=="claude-overview-sessions");
+                    if(app.ClaudeCode.Rows.Count>0&&!CapacityTestDescendants(recentSessions).OfType<TextBlock>().Any(t=>t.Text.StartsWith(L10n.T("claude.code.previewTitle")+" · ",StringComparison.Ordinal)))
+                        throw new InvalidOperationException("Claude recent sessions do not show the session title");
                     for(var i=0;i<5;i++)
                         if(!CapacityTestDescendants(statisticsBody).OfType<ToggleButton>().Any(e=>AutomationProperties.GetAutomationId(e)=="claude-code-range-"+i))
                             throw new InvalidOperationException("Claude overview is missing a shared date-range choice: "+i);

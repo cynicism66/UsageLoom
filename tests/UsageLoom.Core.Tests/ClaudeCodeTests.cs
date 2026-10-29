@@ -63,6 +63,27 @@ static class ClaudeCodeTests
             Check(reader.Read(Path.Combine(root,"missing-code-home")).Rows.Count==0);
             Check(reader.Read("relative-directory").Status=="invalidPath");
         });
+        test("Claude Code：会话名取 /rename 名称，否则取自动标题；子代理不改名，追加读取与改写都更新",()=>
+        {
+            string Title(string type,string? text,string session="session-a")=>JsonSerializer.Serialize(type=="custom-title"?
+                (object)new{type,customTitle=text,sessionId=session}:new{type,aiTitle=text,sessionId=session});
+            var home=Path.Combine(root,"claude-code-titles");var project=Path.Combine(home,"projects","fixture");var agents=Path.Combine(project,"session","subagents");Directory.CreateDirectory(agents);
+            var file=Path.Combine(project,"session.jsonl");var reader=new ClaudeCodeReader();
+            var key=Parse(Line())!.Session;
+            File.WriteAllText(file,Line()+"\n"+Title("ai-title","First idea")+"\n"+Title("ai-title","Fix\nthe‮tray ring")+"\n");
+            File.WriteAllText(Path.Combine(agents,"agent.jsonl"),Title("custom-title","Agent name")+"\n"+Title("ai-title","Other","session-b")+"\n");
+            var generated=reader.Read(home);
+            Check(generated.Status=="ready"&&generated.Rows.Count==1&&generated.Titles.Count==1&&generated.SessionName(key)=="Fix the tray ring");
+            Check(generated.SessionName("ABCDEF0123456789")=="Session · ABCDEF012345");
+            File.AppendAllText(file,Title("custom-title","My rename")+"\n"+Title("ai-title","Later generated")+"\n");
+            Check(reader.Read(home).SessionName(key)=="My rename");
+            File.AppendAllText(file,Title("custom-title","")+"\n");
+            Check(reader.Read(home).SessionName(key)=="Later generated");
+            File.WriteAllText(file,Line()+"\n"+Title("custom-title",new string('长',90))+"\n");
+            var rewritten=reader.Read(home).SessionName(key);Check(rewritten.Length==81&&rewritten.EndsWith('…'));
+            File.WriteAllText(file,Line()+"\n");Check(reader.Read(home).Titles.Count==0);
+            Check(Parse(Title("ai-title","Not usage")) is null);
+        });
         test("Claude Code：子代理日志、跨文件去重和损坏记录保守提示",()=>
         {
             var home=Path.Combine(root,"claude-code-subagents");var project=Path.Combine(home,"projects","fixture");var agents=Path.Combine(project,"session","subagents");Directory.CreateDirectory(agents);

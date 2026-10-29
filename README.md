@@ -11,7 +11,9 @@ Windows 11 上的 Codex 与 Claude 用量、额度面板。两个来源可分别
 
 UsageLoom 是独立开源项目，不隶属于 OpenAI 或 Anthropic。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.9.5
+## Windows 桌面版 0.9.8
+
+Claude 的“最近 Session”和 Session 明细显示 Claude Code 记录的会话名：用 `/rename` 改过名的显示该名称，否则显示自动生成的标题，不再只是一串匿名标识。[发布说明](docs/releases/RELEASE-0.9.8.md)
 
 移除 Claude 的 5 小时与每周容量参考估算：额度快照只有百分比，本机 Claude Code 日志又看不到网页、手机和其他电脑上的用量，估算结果不可靠，还要长时间采样。Claude 卡片和托盘小窗只保留剩余额度、重置时间与节奏提示。[发布说明](docs/releases/RELEASE-0.9.5.md)
 
