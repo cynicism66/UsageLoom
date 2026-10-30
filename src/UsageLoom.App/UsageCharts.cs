@@ -12,6 +12,17 @@ internal static class UsageCharts
 {
     private enum TrendMetric { Tokens, Requests, Cost }
     internal static readonly Windows.UI.Color[] Colorset=[ColorHelper.FromArgb(255,163,138,245),ColorHelper.FromArgb(255,199,181,255),ColorHelper.FromArgb(255,116,134,215),ColorHelper.FromArgb(255,101,179,184),ColorHelper.FromArgb(255,184,151,201),ColorHelper.FromArgb(255,130,139,157)];
+    // Axis labels are 100 px boxes centred on their point and kept inside the chart; the text itself is narrower.
+    internal const double AxisLabelGap=72;
+    internal static double AxisLabelCenter(double x,double width)=>Math.Clamp(x-50,0,width-100)+50;
+    // Evenly spaced labels plus the last bucket. A regular label that would crowd the last one gives way to it.
+    internal static IReadOnlyList<int> AxisLabelIndices(IReadOnlyList<double> centers,double width)
+    {
+        var count=centers.Count;var result=new List<int>();if(count==0)return result;
+        var visible=Math.Clamp((int)Math.Floor(width/105),2,7);var step=Math.Max(1,(int)Math.Ceiling(count/(double)visible));
+        for(var i=0;i<count-1;i+=step)if(centers[count-1]-centers[i]>=AxisLabelGap)result.Add(i);
+        result.Add(count-1);return result;
+    }
     internal static string QuotaTooltip(QuotaConsumptionBucket? consumption,string window)=>
         consumption?.Points is {} points?L10n.F("quota.chart.points",window,points):L10n.F("quota.chart.empty",window);
     internal static FrameworkElement Trend(IReadOnlyList<HistoryTrendBucket> buckets,Action<DateOnly,DateOnly> select,bool hourly=false,bool tokenOnly=false,
@@ -82,12 +93,12 @@ internal static class UsageCharts
                 var label=new Border{Width=labelWidth,Height=22,CornerRadius=new CornerRadius(7),Background=new SolidColorBrush(ColorHelper.FromArgb(38,163,138,245)),BorderBrush=new SolidColorBrush(ColorHelper.FromArgb(110,163,138,245)),BorderThickness=new Thickness(1),Child=new TextBlock{Text=text,FontSize=10.5,FontWeight=Microsoft.UI.Text.FontWeights.SemiBold,Foreground=accent,TextAlignment=TextAlignment.Center,VerticalAlignment=VerticalAlignment.Center}};
                 Canvas.SetLeft(label,x-labelWidth/2);Canvas.SetTop(label,Math.Max(top,points[index].Y-29));canvas.Children.Add(label);
             }
-            var visibleAxisLabels=Math.Clamp((int)Math.Floor(width/105),2,7);var axisStep=Math.Max(1,(int)Math.Ceiling(buckets.Count/(double)visibleAxisLabels));
+            var axisLabels=AxisLabelIndices(points.Select(p=>AxisLabelCenter(p.X,width)).ToArray(),width).ToHashSet();
             for(var i=0;i<buckets.Count;i++)
             {
                 if(values[i]>0){var point=new Ellipse{Width=9,Height=9,Fill=new SolidColorBrush(ColorHelper.FromArgb(255,42,45,54)),Stroke=accent,StrokeThickness=2};Canvas.SetLeft(point,points[i].X-4.5);Canvas.SetTop(point,points[i].Y-4.5);canvas.Children.Add(point);ToolTipService.SetToolTip(point,$"{buckets[i].Label} · {Exact(buckets[i])}"+(quotaWindow is null?"":"\n"+QuotaTooltip(quotaUsage is not null&&i<quotaUsage.Count?quotaUsage[i]:null,quotaWindow)));}
-                if(i%axisStep!=0&&i!=buckets.Count-1)continue;
-                var label=new TextBlock{Text=buckets[i].Label+"\n"+Format(values[i]),Width=100,FontSize=10.5,TextAlignment=TextAlignment.Center,TextWrapping=TextWrapping.NoWrap};Canvas.SetLeft(label,Math.Clamp(points[i].X-50,0,width-100));Canvas.SetTop(label,height-bottom+18);canvas.Children.Add(label);
+                if(!axisLabels.Contains(i))continue;
+                var label=new TextBlock{Text=buckets[i].Label+"\n"+Format(values[i]),Width=100,FontSize=10.5,TextAlignment=TextAlignment.Center,TextWrapping=TextWrapping.NoWrap};Canvas.SetLeft(label,AxisLabelCenter(points[i].X,width)-50);Canvas.SetTop(label,height-bottom+18);canvas.Children.Add(label);
             }
             indicator=new Line{Y1=top,Y2=top+plotHeight,Stroke=accent,StrokeThickness=1,StrokeDashArray=new DoubleCollection{3,4},Visibility=Visibility.Collapsed};canvas.Children.Add(indicator);
             tooltipText=new TextBlock{FontSize=11,TextWrapping=TextWrapping.Wrap,Foreground=new SolidColorBrush(Colors.White)};tooltip=new Border{Width=250,Padding=new Thickness(12,9,12,9),CornerRadius=new CornerRadius(10),Background=new SolidColorBrush(ColorHelper.FromArgb(245,36,39,48)),BorderBrush=new SolidColorBrush(ColorHelper.FromArgb(110,163,138,245)),BorderThickness=new Thickness(1),Child=tooltipText,Visibility=Visibility.Collapsed};canvas.Children.Add(tooltip);

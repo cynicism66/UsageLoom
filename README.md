@@ -11,7 +11,9 @@ Windows 11 上的 Codex 与 Claude 用量、额度面板。两个来源可分别
 
 UsageLoom 是独立开源项目，不隶属于 OpenAI 或 Anthropic。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.9.8
+## Windows 桌面版 0.9.9
+
+修复历史趋势图横轴最右侧日期与前一个标注重叠的问题。[发布说明](docs/releases/RELEASE-0.9.9.md)
 
 Claude 的“最近 Session”和 Session 明细显示 Claude Code 记录的会话名：用 `/rename` 改过名的显示该名称，否则显示自动生成的标题，不再只是一串匿名标识。[发布说明](docs/releases/RELEASE-0.9.8.md)
 

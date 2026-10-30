@@ -17,6 +17,15 @@ internal sealed partial class Dashboard
         if(consumptionHint!=L10n.F("quota.chart.points",L10n.T("quota.chart.fiveHour"),80d)||
             missingHint!=L10n.F("quota.chart.empty",L10n.T("quota.chart.weekly"))||!missingHint.Contains("--",StringComparison.Ordinal))
             throw new InvalidOperationException("Token chart quota hover is not a single window/percentage line");
+        // 50 days put the last date one step after a regular label; it must not overlap it. Every count keeps the last label.
+        foreach(var width in new[]{420d,640d,860d,1200d})
+            for(var count=1;count<=120;count++)
+            {
+                var centers=Enumerable.Range(0,count).Select(i=>UsageCharts.AxisLabelCenter(count==1?width/2:36+(width-72)*i/(count-1),width)).ToArray();
+                var labels=UsageCharts.AxisLabelIndices(centers,width);
+                if(labels[^1]!=count-1||labels.Zip(labels.Skip(1)).Any(pair=>centers[pair.Second]-centers[pair.First]<UsageCharts.AxisLabelGap))
+                    throw new InvalidOperationException($"Trend axis labels overlap: {count} buckets at {width} px");
+            }
         var savedPage=selectedPage;var savedProvider=statisticsProvider;
         var codexEnabled=app.Config.CodexEnabled;var claudeEnabled=app.Config.ClaudeEnabled;
         var codexVisible=app.Config.CodexVisible;var claudeVisible=app.Config.ClaudeVisible;
