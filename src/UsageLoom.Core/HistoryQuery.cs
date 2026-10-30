@@ -10,6 +10,8 @@ public sealed record HistoryDateRange(DateOnly? From,DateOnly? Through,string La
 public sealed record HistoryTrendBucket(DateOnly From,DateOnly Through,string Label,long Tokens,int Requests,decimal EstimatedCost)
 {
     public int? Hour {get;init;}
+    // Tokens left out of EstimatedCost because their model has no known price.
+    public long UnpricedTokens {get;init;}
 }
 public sealed record SessionSummary(string Session,string Name,string Project,long Tokens,DateTimeOffset? LastActivity,IReadOnlyList<UsageEvent> Events)
 {

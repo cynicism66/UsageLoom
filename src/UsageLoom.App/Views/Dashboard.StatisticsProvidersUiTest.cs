@@ -17,6 +17,12 @@ internal sealed partial class Dashboard
         if(consumptionHint!=L10n.F("quota.chart.points",L10n.T("quota.chart.fiveHour"),80d)||
             missingHint!=L10n.F("quota.chart.empty",L10n.T("quota.chart.weekly"))||!missingHint.Contains("--",StringComparison.Ordinal))
             throw new InvalidOperationException("Token chart quota hover is not a single window/percentage line");
+        // Token chart value hover: dollars when priced, flagged when partial, never $0 for unpriced or unobserved buckets.
+        static string CostHint(long tokens,decimal cost,long unpriced)=>UsageCharts.CostTooltip(new HistoryTrendBucket(default,default,"",tokens,0,cost){UnpricedTokens=unpriced});
+        if(CostHint(1000,1234.56m,0)!=L10n.F("claude.code.apiValue",$"${1234.56m:N2}")||CostHint(1000,.0042m,0)!=L10n.F("claude.code.apiValue",$"${.0042m:N4}")||
+            CostHint(1000,12.5m,10)!=L10n.F("claude.code.apiValuePartial",$"${12.5m:N2}")||
+            CostHint(1000,0,1000)!=L10n.T("claude.code.apiValueEmpty")||CostHint(0,0,0)!=L10n.T("claude.code.apiValueEmpty"))
+            throw new InvalidOperationException("Token chart value hover does not separate priced, partial and unpriced buckets");
         // 50 days put the last date one step after a regular label; it must not overlap it. Every count keeps the last label.
         foreach(var width in new[]{420d,640d,860d,1200d})
             for(var count=1;count<=120;count++)
@@ -117,6 +123,10 @@ internal sealed partial class Dashboard
                     var recentSessions=CapacityTestDescendants(statisticsBody).OfType<FrameworkElement>().Single(e=>AutomationProperties.GetAutomationId(e)=="claude-overview-sessions");
                     if(app.ClaudeCode.Rows.Count>0&&!CapacityTestDescendants(recentSessions).OfType<TextBlock>().Any(t=>t.Text.StartsWith(L10n.T("claude.code.previewTitle")+" · ",StringComparison.Ordinal)))
                         throw new InvalidOperationException("Claude recent sessions do not show the session title");
+                    // The preview model has no price, so its points must say so rather than show $0.
+                    var tokenChart=CapacityTestDescendants(statisticsBody).OfType<FrameworkElement>().Single(e=>AutomationProperties.GetAutomationId(e)=="claude-token-chart");
+                    if(app.ClaudeCode.Rows.Count>0&&!CapacityTestDescendants(tokenChart).OfType<Microsoft.UI.Xaml.Shapes.Ellipse>().Any(e=>ToolTipService.GetToolTip(e) is string hint&&hint.Contains("\n"+L10n.T("claude.code.apiValueEmpty")+"\n",StringComparison.Ordinal)))
+                        throw new InvalidOperationException("Claude token chart points do not show the API-equivalent line");
                     for(var i=0;i<5;i++)
                         if(!CapacityTestDescendants(statisticsBody).OfType<ToggleButton>().Any(e=>AutomationProperties.GetAutomationId(e)=="claude-code-range-"+i))
                             throw new InvalidOperationException("Claude overview is missing a shared date-range choice: "+i);

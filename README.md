@@ -11,7 +11,9 @@ Windows 11 上的 Codex 与 Claude 用量、额度面板。两个来源可分别
 
 UsageLoom 是独立开源项目，不隶属于 OpenAI 或 Anthropic。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.9.9
+## Windows 桌面版 0.9.10
+
+Claude 历史趋势图悬停时显示该日或该小时的 API 等价估算金额。这是按公开 API 价格折算的参考值，不是账单。[发布说明](docs/releases/RELEASE-0.9.10.md)
 
 修复历史趋势图横轴最右侧日期与前一个标注重叠的问题。[发布说明](docs/releases/RELEASE-0.9.9.md)
 

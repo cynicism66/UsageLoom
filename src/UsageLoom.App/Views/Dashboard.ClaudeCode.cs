@@ -148,14 +148,14 @@ internal sealed partial class Dashboard
             var count=hourly?24:Math.Min(60,(end.Date-start.Date).Days+1);
             var daysPerBucket=hourly?1:Math.Max(1,(int)Math.Ceiling(((end.Date-start.Date).Days+1)/(double)count));
             var grouped=rows.GroupBy(r=>hourly?r.At.LocalDateTime.Hour:Math.Min(count-1,(r.At.LocalDateTime.Date-start.Date).Days/daysPerBucket))
-                .ToDictionary(g=>g.Key,g=>(Tokens:g.Sum(r=>r.Total),Requests:g.Count(),Cost:ClaudeCodePricing.Summarize(g).Cost));
+                .ToDictionary(g=>g.Key,g=>{var price=ClaudeCodePricing.Summarize(g);return (Tokens:g.Sum(r=>r.Total),Requests:g.Count(),price.Cost,price.Unpriced);});
             for(var i=0;i<count;i++)
             {
                 var from=hourly?start:start.AddDays(i*daysPerBucket);
                 var day=DateOnly.FromDateTime(from);
                 var through=hourly?day:DateOnly.FromDayNumber(Math.Min(range.Through!.Value.DayNumber,day.DayNumber+daysPerBucket-1));
                 var values=grouped.GetValueOrDefault(i);
-                buckets.Add(new HistoryTrendBucket(day,through,hourly?$"{i:00}:00":from.ToString("MM-dd"),values.Tokens,values.Requests,values.Cost){Hour=hourly?i:null});
+                buckets.Add(new HistoryTrendBucket(day,through,hourly?$"{i:00}:00":from.ToString("MM-dd"),values.Tokens,values.Requests,values.Cost){Hour=hourly?i:null,UnpricedTokens=values.Unpriced});
             }
         }
         var quotaWindow=range.IsSingleDay?"five_hour":"seven_day";

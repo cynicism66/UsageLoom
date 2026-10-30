@@ -25,6 +25,13 @@ internal static class UsageCharts
     }
     internal static string QuotaTooltip(QuotaConsumptionBucket? consumption,string window)=>
         consumption?.Points is {} points?L10n.F("quota.chart.points",window,points):L10n.F("quota.chart.empty",window);
+    // Nothing priced means no value to show, not $0; unpriced tokens never read as free.
+    internal static string CostTooltip(HistoryTrendBucket bucket)
+    {
+        if(bucket.Tokens<=bucket.UnpricedTokens)return L10n.T("claude.code.apiValueEmpty");
+        var value=bucket.EstimatedCost<.01m?$"${bucket.EstimatedCost:N4}":$"${bucket.EstimatedCost:N2}";
+        return L10n.F(bucket.UnpricedTokens>0?"claude.code.apiValuePartial":"claude.code.apiValue",value);
+    }
     internal static FrameworkElement Trend(IReadOnlyList<HistoryTrendBucket> buckets,Action<DateOnly,DateOnly> select,bool hourly=false,bool tokenOnly=false,
         IReadOnlyList<QuotaConsumptionBucket>? quotaUsage=null,string? quotaWindow=null)
     {
@@ -59,6 +66,7 @@ internal static class UsageCharts
         string Format(double value)=>metricValue switch{TrendMetric.Requests=>$"{value:0}",TrendMetric.Cost=>FormatCost(value),_=>FormatNumber(value)};
         double Value(HistoryTrendBucket bucket)=>metricValue switch{TrendMetric.Requests=>bucket.Requests,TrendMetric.Cost=>(double)bucket.EstimatedCost,_=>bucket.Tokens};
         string Exact(HistoryTrendBucket bucket)=>metricValue switch{TrendMetric.Requests=>L10n.F("s6E078A45FC35", bucket.Requests),TrendMetric.Cost=>$"${bucket.EstimatedCost:N4}",_=>$"{bucket.Tokens:N0} Token"};
+        string Notes(int index)=>(tokenOnly?"\n"+CostTooltip(buckets[index]):"")+(quotaWindow is null?"":"\n"+QuotaTooltip(quotaUsage is not null&&index<quotaUsage.Count?quotaUsage[index]:null,quotaWindow));
         var accent=new SolidColorBrush(Colorset[0]);var gridBrush=new SolidColorBrush(ColorHelper.FromArgb(46,127,132,150));var baselineBrush=new SolidColorBrush(ColorHelper.FromArgb(86,127,132,150));
         var currentWidth=960d;var plotWidth=currentWidth-left-right;var plotHeight=height-top-bottom;Point[] currentPoints=[];Line? indicator=null;Border? tooltip=null;TextBlock? tooltipText=null;
         void Draw()
@@ -96,7 +104,7 @@ internal static class UsageCharts
             var axisLabels=AxisLabelIndices(points.Select(p=>AxisLabelCenter(p.X,width)).ToArray(),width).ToHashSet();
             for(var i=0;i<buckets.Count;i++)
             {
-                if(values[i]>0){var point=new Ellipse{Width=9,Height=9,Fill=new SolidColorBrush(ColorHelper.FromArgb(255,42,45,54)),Stroke=accent,StrokeThickness=2};Canvas.SetLeft(point,points[i].X-4.5);Canvas.SetTop(point,points[i].Y-4.5);canvas.Children.Add(point);ToolTipService.SetToolTip(point,$"{buckets[i].Label} · {Exact(buckets[i])}"+(quotaWindow is null?"":"\n"+QuotaTooltip(quotaUsage is not null&&i<quotaUsage.Count?quotaUsage[i]:null,quotaWindow)));}
+                if(values[i]>0){var point=new Ellipse{Width=9,Height=9,Fill=new SolidColorBrush(ColorHelper.FromArgb(255,42,45,54)),Stroke=accent,StrokeThickness=2};Canvas.SetLeft(point,points[i].X-4.5);Canvas.SetTop(point,points[i].Y-4.5);canvas.Children.Add(point);ToolTipService.SetToolTip(point,$"{buckets[i].Label} · {Exact(buckets[i])}"+Notes(i));}
                 if(!axisLabels.Contains(i))continue;
                 var label=new TextBlock{Text=buckets[i].Label+"\n"+Format(values[i]),Width=100,FontSize=10.5,TextAlignment=TextAlignment.Center,TextWrapping=TextWrapping.NoWrap};Canvas.SetLeft(label,AxisLabelCenter(points[i].X,width)-50);Canvas.SetTop(label,height-bottom+18);canvas.Children.Add(label);
             }
@@ -117,8 +125,7 @@ internal static class UsageCharts
         {
             if(currentPoints.Length==0||indicator is null||tooltip is null||tooltipText is null)return;
             var index=Nearest(e.GetCurrentPoint(canvas).Position.X);indicator.X1=indicator.X2=currentPoints[index].X;indicator.Visibility=Visibility.Visible;
-            tooltipText.Text=(tokenOnly?$"{buckets[index].Label} · {buckets[index].Tokens:N0} Token":$"{buckets[index].From:yyyy-MM-dd}"+(hourly?$" · {buckets[index].Label}":buckets[index].From==buckets[index].Through?"":L10n.F("sBB1DCF021E6A", buckets[index].Through))+L10n.F("s0B429D8FF175", buckets[index].Tokens, buckets[index].Requests, buckets[index].EstimatedCost))+
-                (quotaWindow is null?"":"\n"+QuotaTooltip(quotaUsage is not null&&index<quotaUsage.Count?quotaUsage[index]:null,quotaWindow));
+            tooltipText.Text=(tokenOnly?$"{buckets[index].Label} · {buckets[index].Tokens:N0} Token":$"{buckets[index].From:yyyy-MM-dd}"+(hourly?$" · {buckets[index].Label}":buckets[index].From==buckets[index].Through?"":L10n.F("sBB1DCF021E6A", buckets[index].Through))+L10n.F("s0B429D8FF175", buckets[index].Tokens, buckets[index].Requests, buckets[index].EstimatedCost))+Notes(index);
             Canvas.SetLeft(tooltip,Math.Clamp(currentPoints[index].X-125,8,currentWidth-258));Canvas.SetTop(tooltip,8);tooltip.Visibility=Visibility.Visible;
         };
         canvas.PointerExited+=(_,_)=>{if(indicator is not null)indicator.Visibility=Visibility.Collapsed;if(tooltip is not null)tooltip.Visibility=Visibility.Collapsed;};
