@@ -8,6 +8,27 @@ static class TrayIconTests
         var now=new DateTimeOffset(2026,9,30,12,0,0,TimeSpan.Zero);
         var codex=new QuotaState([new("codex:five","5h",81,300,now.AddHours(2)),new("codex:weekly","week",50,10080,now.AddDays(3))],null,now,"ok",true,"account");
         var claude=new ClaudeQuotaSnapshot("snapshot",[new("five_hour",92,now.AddHours(2)),new("seven_day",30,now.AddDays(3))],now,"scope");
+        test("托盘窗口：默认最紧张，固定窗口不借用另一个窗口，最紧张来源按所选窗口比较",() =>
+        {
+            Check(TrayQuotaSelection.NormalizeWindow(null)=="tightest"&&TrayQuotaSelection.NormalizeWindow("unexpected")=="tightest");
+            Check(TrayQuotaSelection.WindowChoices.All(item=>TrayQuotaSelection.NormalizeWindow(item)==item));
+            // Five hours remaining 8, weekly 70 for Claude; 19 and 50 for Codex.
+            Check(TrayQuotaSelection.Select("claude",true,true,codex,claude,now,"tightest").DisplayRemaining==8);
+            Check(TrayQuotaSelection.Select("claude",true,true,codex,claude,now,"five_hour").DisplayRemaining==8);
+            Check(TrayQuotaSelection.Select("claude",true,true,codex,claude,now,"weekly").DisplayRemaining==70);
+            Check(TrayQuotaSelection.Select("codex",true,true,codex,claude,now,"five_hour").DisplayRemaining==19);
+            var lowWeekly=claude with{Windows=[new("five_hour",3,now.AddHours(2)),new("seven_day",35,now.AddDays(3))]};
+            Check(TrayQuotaSelection.Select("claude",true,true,codex,lowWeekly,now).DisplayRemaining==65);
+            Check(TrayQuotaSelection.Select("claude",true,true,codex,lowWeekly,now,"five_hour").DisplayRemaining==97);
+            var observed=now.AddHours(-1);
+            var weeklyOnly=claude with{Windows=[new("seven_day",30,now.AddDays(3))],ObservedAt=observed};
+            Check(TrayQuotaSelection.Select("claude",true,true,codex,weeklyOnly,now,"five_hour") is {DisplayRemaining:null,DisplayStale:false,Weekly:not null});
+            Check(TrayQuotaSelection.Select("claude",true,true,codex,weeklyOnly,now,"weekly") is {DisplayRemaining:70,DisplayStale:true});
+            var fiveHourReset=claude with{Windows=[new("five_hour",92,now.AddMinutes(-1)),new("seven_day",30,now.AddDays(3))]};
+            Check(TrayQuotaSelection.Select("claude",true,true,codex,fiveHourReset,now,"five_hour").DisplayRemaining==100);
+            Check(TrayQuotaSelection.Select("tightest",true,true,codex,claude,now,"weekly") is {Source:"codex",DisplayRemaining:50});
+            Check(TrayQuotaSelection.Select("tightest",true,true,new QuotaState([new("codex:weekly","week",50,10080,now.AddDays(3))],null,now,"ok",true,"account"),claude,now,"five_hour") is {Source:"claude",DisplayRemaining:8});
+        });
         test("托盘来源：默认 Codex、仅 Claude 与最紧张来源",() =>
         {
             Check(TrayQuotaSelection.Select("auto",true,true,codex,claude,now).Source=="codex");

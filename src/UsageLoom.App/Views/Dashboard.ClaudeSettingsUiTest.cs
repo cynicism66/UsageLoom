@@ -74,6 +74,7 @@ internal sealed partial class Dashboard
                 if(app.Config.ClaudeManualPlan!="pro"||(claudePlanChoice?.SelectedItem as ComboBoxItem)?.Tag as string!="pro")throw new InvalidOperationException("Claude manual plan reverted on restart");
                 if(!app.Config.ClaudeCodeEnabled||app.Config.ClaudeCodeHome!=Path.Combine(Program.DataPath,"code-fixture"))throw new InvalidOperationException("Claude Code settings reverted on restart");
                 if(app.Config.CodexEnabled||codexEnabledChoice!.IsOn)throw new InvalidOperationException("Disabled Codex source reverted on restart");
+                if(app.Config.TrayDisplayWindow!="five_hour"||trayWindowChoice?.SelectedIndex!=1)throw new InvalidOperationException("Tray display window reverted on restart");
                 await app.VerifyDisabledSourceAsync();
                 Program.Log.Write("INFO","ClaudeSettingsTest","Data sources independent switches, stop guards, retained history and safe boundary passed");
                 if(claudeEnabledChoice?.IsOn!=true||claudeDirectoryChoice?.Text!=fixtureDirectory)throw new InvalidOperationException("Claude settings reverted after process restart");
@@ -100,6 +101,14 @@ internal sealed partial class Dashboard
             CheckSaved(true,fixtureDirectory,null);
             if(readClaudeSettings!().Scope is not null)throw new InvalidOperationException("Old directory scope returned on a repeated save");
             Reenter(true);
+            // The tray window defaults to the tightest one; a fixed choice survives saving and returning to the page.
+            if(app.Config.TrayDisplayWindow!="tightest"||trayWindowChoice?.SelectedIndex!=0)throw new InvalidOperationException("Tray display window does not default to the tightest window");
+            trayWindowChoice.SelectedIndex=1;
+            CapacityTestInvoke(settingsSaveButton!);
+            await CapacityTestWait(()=>app.Config.TrayDisplayWindow=="five_hour"&&settingsSaveButton!.IsEnabled,"Global save did not store the tray display window");
+            if(Settings.Load().TrayDisplayWindow!="five_hour")throw new InvalidOperationException("Tray display window was not persisted");
+            Reenter(true);
+            if(trayWindowChoice?.SelectedIndex!=1)throw new InvalidOperationException("Tray display window reverted after navigation");
             var snapshot=app.ClaudeQuota;
             CapacityTestInvoke(settingsSaveButton!);
             await CapacityTestDispatcherSettled(this);

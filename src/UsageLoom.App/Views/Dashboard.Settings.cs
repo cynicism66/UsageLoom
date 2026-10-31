@@ -9,6 +9,7 @@ namespace UsageLoom.App;
 internal sealed partial class Dashboard
 {
     private Button? settingsSaveButton;
+    private ComboBox? trayWindowChoice;
     private Expander? dataSourcesSettings;
     private UIElement SettingsPanel()
     {
@@ -23,9 +24,13 @@ internal sealed partial class Dashboard
             throw new InvalidOperationException("Older settings did not migrate the refresh-on-open default");
         var traySource=new ComboBox{Header=L10n.T("tray.sourceSetting"),ItemsSource=new[]{"Codex","Claude",L10n.T("tray.tightest")},
             SelectedIndex=app.Config.TrayQuotaSource switch{"claude"=>1,"tightest"=>2,"codex"=>0,_=>app.CodexShown?0:1}};
+        var trayWindow=new ComboBox{Header=L10n.T("tray.windowSetting"),ItemsSource=new[]{L10n.T("tray.windowTightest"),L10n.T("tray.fiveHour"),L10n.T("tray.weekly")},
+            SelectedIndex=Array.IndexOf(TrayQuotaSelection.WindowChoices,TrayQuotaSelection.NormalizeWindow(app.Config.TrayDisplayWindow))};
+        trayWindowChoice=trayWindow;
         var fixedTray=new ToggleSwitch{Header=L10n.T("tray.fixedSetting"),IsOn=app.Config.UseFixedTrayIcon,
             OnContent=L10n.Language=="en-US"?"On":"开",OffContent=L10n.Language=="en-US"?"Off":"关"};
         ToolTipService.SetToolTip(traySource,L10n.T("tray.sourceNote"));
+        ToolTipService.SetToolTip(trayWindow,L10n.T("tray.windowNote"));
         ToolTipService.SetToolTip(fixedTray,L10n.T("tray.fixedNote"));
         var seconds=new NumberBox{Header=L10n.T("sEE9FB7A5B7ED"),Minimum=30,Maximum=3600,Value=app.Config.BackgroundSeconds};
         var foreground=new NumberBox{Header=L10n.T("s2791B0EC8468"),Minimum=15,Maximum=3600,Value=app.Config.ForegroundSeconds};
@@ -68,7 +73,7 @@ internal sealed partial class Dashboard
         Section(L10n.T("s38C043E08502"),theme,language);
         dataSourcesSettings=Section(L10n.T("s6E89737A00E1"),Card(CodexSettings(cli,home)),Card(ClaudeSettings()));
         var codexChoice=codexEnabledChoice!;
-        Section(L10n.T("s16685D3221B9"),Card(SectionBody(openRefresh,traySource,fixedTray)),ProviderCard("Codex",auto,foreground,seconds),ProviderCard(L10n.T("claude.desktop"),
+        Section(L10n.T("s16685D3221B9"),Card(SectionBody(openRefresh,traySource,trayWindow,fixedTray)),ProviderCard("Codex",auto,foreground,seconds),ProviderCard(L10n.T("claude.desktop"),
             new TextBlock{Text=L10n.T("settings.claude.refresh"),TextWrapping=TextWrapping.Wrap}));
         Section(L10n.T("sA28590E6B1D8"),ProviderCard("Codex",low,threshold,reset,minutes),ProviderCard(L10n.T("claude.desktop"),
             new TextBlock{Text=L10n.T("settings.claude.notifications"),TextWrapping=TextWrapping.Wrap}));
@@ -108,6 +113,7 @@ internal sealed partial class Dashboard
             var claudeDraft=readClaudeDraft(); // Validate all Claude inputs before changing ordinary settings.
             app.Config.CliPath=cli.Text.Trim();app.Config.CodexHome=home.Text.Trim();app.Config.AutoRefresh=auto.IsOn;app.Config.RefreshOnOpen=openRefresh.IsOn;
             app.Config.TrayQuotaSource=traySource.SelectedIndex switch{1=>"claude",2=>"tightest",_=>"codex"};app.Config.UseFixedTrayIcon=fixedTray.IsOn;
+            app.Config.TrayDisplayWindow=TrayQuotaSelection.WindowChoices[Math.Max(0,trayWindow.SelectedIndex)];
             app.Config.BackgroundSeconds=(int)Math.Clamp(seconds.Value,30,3600);app.Config.LowNotify=low.IsOn;app.Config.LowPercent=(int)Math.Clamp(threshold.Value,1,99);
             app.Config.ForegroundSeconds=(int)Math.Clamp(foreground.Value,15,3600);
             app.Config.ResetNotify=reset.IsOn;app.Config.ResetMinutes=(int)Math.Clamp(minutes.Value,1,120);app.Config.Theme=theme.SelectedIndex switch{1=>"Light",2=>"Dark",_=>"Default"};app.Config.AppearanceConfigured=true;

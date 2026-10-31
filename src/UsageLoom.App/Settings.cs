@@ -14,6 +14,7 @@ internal sealed class Settings
     public bool AutoRefresh { get; set; }=true;
     public bool RefreshOnOpen { get; set; }=true;
     public string TrayQuotaSource { get; set; }="auto";
+    public string TrayDisplayWindow { get; set; }="tightest";
     public bool UseFixedTrayIcon { get; set; }
     public bool ClaudeEnabled { get; set; }
     public bool CodexEnabled { get; set; }=true;
@@ -52,6 +53,7 @@ internal sealed class Settings
             settings.UpdateCheckHours=UpdateSchedule.NormalizeHours(settings.UpdateCheckHours);
             settings.ClaudeManualPlan=ClaudePlanLabel.Normalize(settings.ClaudeManualPlan);
             settings.TrayQuotaSource=TrayQuotaSelection.Normalize(settings.TrayQuotaSource);
+            settings.TrayDisplayWindow=TrayQuotaSelection.NormalizeWindow(settings.TrayDisplayWindow);
             settings.ForegroundSeconds=Math.Clamp(settings.ForegroundSeconds,15,3600);
             settings.LowPercent=Math.Clamp(settings.LowPercent,1,99);
             settings.ResetMinutes=Math.Clamp(settings.ResetMinutes,1,120);

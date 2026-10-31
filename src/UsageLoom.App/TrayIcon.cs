@@ -66,7 +66,7 @@ internal sealed class TrayIcon : IDisposable
             (window.Pace==QuotaPaceKind.Unavailable?"":" · "+L10n.T(window.Pace switch{QuotaPaceKind.Fast=>"tray.pace.fast",QuotaPaceKind.Exhausted=>"tray.pace.exhausted",_=>"tray.pace.normal"}));
         var source=value.Source switch{"codex"=>"Codex","claude"=>"Claude",_=>L10n.T("tray.noSource")};
         var stale=value.StaleSince is {} since?$" · {L10n.T("tray.lastUpdated")} {since.ToLocalTime():MM-dd HH:mm}":"";
-        var tip=$"{source} · {L10n.T("tray.snapshotNote")}{stale} · {L10n.T("tray.fiveHour")} {Window(value.FiveHour)} · {L10n.T("tray.weekly")} {Window(value.Weekly)}";
+        var tip=$"{source}{stale} · {L10n.T("tray.fiveHour")} {Window(value.FiveHour)} · {L10n.T("tray.weekly")} {Window(value.Weekly)}";
         return tip[..Math.Min(tip.Length,127)];
     }
     public void Update(TrayQuotaPresentation next,bool fixedMode)

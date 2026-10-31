@@ -8,6 +8,6 @@ public sealed partial class LoomApp
     {
         if(quitting||tray is null)return;
         tray.Update(TrayQuotaSelection.Select(Config.TrayQuotaSource,CodexShown,ClaudeShown,
-            Quota,ClaudeQuota,DateTimeOffset.UtcNow),Config.UseFixedTrayIcon);
+            Quota,ClaudeQuota,DateTimeOffset.UtcNow,Config.TrayDisplayWindow),Config.UseFixedTrayIcon);
     }
 }

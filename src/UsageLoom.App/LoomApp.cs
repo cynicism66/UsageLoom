@@ -423,10 +423,12 @@ public sealed partial class LoomApp : Application
             if(CapacityUiCheck)ConfigureCapacityUiPreview();
             Message = L10n.T("sEFF3B8AB8B40");
             UpdateTrayQuota();
-            var trayTip=TrayIcon.Tooltip(TrayQuotaSelection.Select(Config.TrayQuotaSource,CodexShown,ClaudeShown,Quota,ClaudeQuota,DateTimeOffset.Now));
-            if(trayTip.Length>127||!trayTip.Contains(L10n.T("tray.snapshotNote"),StringComparison.Ordinal)||
-                !trayTip.Contains(L10n.T("tray.fiveHour"),StringComparison.Ordinal)||!trayTip.Contains(L10n.T("tray.weekly"),StringComparison.Ordinal))
-                throw new InvalidOperationException("Dynamic tray tooltip omitted source, quota window or snapshot caveat");
+            var traySelection=TrayQuotaSelection.Select(Config.TrayQuotaSource,CodexShown,ClaudeShown,Quota,ClaudeQuota,DateTimeOffset.Now,Config.TrayDisplayWindow);
+            var trayTip=TrayIcon.Tooltip(traySelection);
+            // Source first, then the two windows; only the "last updated" note may sit between them.
+            if(trayTip.Length>127||!trayTip.Contains(L10n.T("tray.weekly"),StringComparison.Ordinal)||
+                traySelection.StaleSince is null&&trayTip.IndexOf(" · ",StringComparison.Ordinal)!=trayTip.IndexOf(" · "+L10n.T("tray.fiveHour"),StringComparison.Ordinal))
+                throw new InvalidOperationException("Dynamic tray tooltip omitted a quota window or added text after the source");
         }
         else
         {

@@ -2,29 +2,34 @@ namespace UsageLoom.Core;
 
 public sealed record TrayQuotaWindow(double Remaining,DateTimeOffset? Reset,QuotaPaceKind Pace);
 // StaleSince is the observation time of a snapshot older than the freshness limit; its values are the last known ones.
-public sealed record TrayQuotaPresentation(string Source,TrayQuotaWindow? FiveHour,TrayQuotaWindow? Weekly,DateTimeOffset? StaleSince=null)
+public sealed record TrayQuotaPresentation(string Source,TrayQuotaWindow? FiveHour,TrayQuotaWindow? Weekly,DateTimeOffset? StaleSince=null,string WindowChoice="tightest")
 {
     public TrayQuotaWindow? MostConstrained=>new[]{FiveHour,Weekly}.Where(window=>window is not null).OrderBy(window=>window!.Remaining).FirstOrDefault();
-    public int? DisplayRemaining=>MostConstrained is {} window?(int)Math.Clamp(Math.Round(window.Remaining,MidpointRounding.AwayFromZero),0,100):null;
-    public bool DisplayStale=>StaleSince is not null&&MostConstrained is not null;
+    // A fixed choice never borrows the other window: no data for it means the gray ring.
+    public TrayQuotaWindow? Displayed=>WindowChoice switch{"five_hour"=>FiveHour,"weekly"=>Weekly,_=>MostConstrained};
+    public int? DisplayRemaining=>Displayed is {} window?(int)Math.Clamp(Math.Round(window.Remaining,MidpointRounding.AwayFromZero),0,100):null;
+    public bool DisplayStale=>StaleSince is not null&&Displayed is not null;
 }
 
 public static class TrayQuotaSelection
 {
     // Beyond one weekly cycle every window has reset, so a kept value would only be an inferred 100%.
     public static readonly TimeSpan ClaudeStaleLimit=TimeSpan.FromDays(7);
+    public static readonly string[] WindowChoices=["tightest","five_hour","weekly"];
     public static string Normalize(string? value)=>value is "codex" or "claude" or "tightest"?value:"auto";
+    public static string NormalizeWindow(string? value)=>value is "five_hour" or "weekly"?value:"tightest";
     public static TrayQuotaPresentation Select(string? choice,bool codexEnabled,bool claudeEnabled,
-        QuotaState codex,ClaudeQuotaSnapshot claude,DateTimeOffset now)
+        QuotaState codex,ClaudeQuotaSnapshot claude,DateTimeOffset now,string? window=null)
     {
-        var fromCodex=Codex(codex,codexEnabled,now);
-        var fromClaude=Claude(claude,claudeEnabled,now);
+        var windowChoice=NormalizeWindow(window);
+        var fromCodex=Codex(codex,codexEnabled,now) with{WindowChoice=windowChoice};
+        var fromClaude=Claude(claude,claudeEnabled,now) with{WindowChoice=windowChoice};
         return Normalize(choice) switch
         {
             "codex"=>fromCodex,
             "claude"=>fromClaude,
-            "tightest"=>new[]{fromCodex,fromClaude}.Where(item=>item.MostConstrained is not null)
-                .OrderBy(item=>item.MostConstrained!.Remaining).FirstOrDefault()??new("none",null,null),
+            "tightest"=>new[]{fromCodex,fromClaude}.Where(item=>item.Displayed is not null)
+                .OrderBy(item=>item.Displayed!.Remaining).FirstOrDefault()??new("none",null,null),
             _=>codexEnabled?fromCodex:fromClaude
         };
     }
