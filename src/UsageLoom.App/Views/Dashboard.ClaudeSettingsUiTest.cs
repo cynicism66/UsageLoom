@@ -28,6 +28,15 @@ internal sealed partial class Dashboard
                 foreach(var key in new[]{"s16685D3221B9","sA28590E6B1D8","sD9EBFF4C171F","sD39DC68172D7","s5AB943671D29"})
                 {
                     var section=((StackPanel)scrollContent.Content).Children.OfType<Expander>().SingleOrDefault(e=>Equals(e.Header,L10n.T(key)));
+                    // Codex capacity settings fold on their own, closed by default, above the short Claude note.
+                    if(key=="sD9EBFF4C171F")
+                    {
+                        if(section is not {IsExpanded:false}||section.Content is not StackPanel capacity||capacity.Children.Count!=2||
+                            capacity.Children[0] is not Expander {IsExpanded:false} codexCapacity||!Equals(codexCapacity.Header,"Codex")||
+                            capacity.Children[1] is not Border {Child:StackPanel claudeCapacity}||claudeCapacity.Children.FirstOrDefault() is not TextBlock capacityTitle||capacityTitle.Text!=L10n.T("claude.desktop"))
+                            throw new InvalidOperationException("Capacity settings are not a collapsed Codex section above the Claude card");
+                        continue;
+                    }
                     // Refresh-on-open and tray display are global controls;
                     // the two following cards still belong to separate AIs.
                     var providerOffset=key=="s16685D3221B9"?1:0;

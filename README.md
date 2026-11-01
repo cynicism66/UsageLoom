@@ -11,7 +11,9 @@ Windows 11 上的 Codex 与 Claude 用量、额度面板。两个来源可分别
 
 UsageLoom 是独立开源项目，不隶属于 OpenAI 或 Anthropic。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.9.11
+## Windows 桌面版 0.9.12
+
+设置“容量估算（实验）”里的 Codex 部分可以单独折叠，默认收起。[发布说明](docs/releases/RELEASE-0.9.12.md)
 
 设置里新增“托盘额度窗口”：托盘图标默认显示 5 小时和每周额度中剩余较少的一个，也可以固定为其中一个。[发布说明](docs/releases/RELEASE-0.9.11.md)
 

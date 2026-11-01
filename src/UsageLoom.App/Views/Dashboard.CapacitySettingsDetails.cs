@@ -7,6 +7,7 @@ namespace UsageLoom.App;
 internal sealed partial class Dashboard
 {
     private Expander? capacitySettingsExpander;
+    private Expander? capacityCodexExpander;
     private Expander? capacityValuationExpander;
     private StackPanel? capacityValuationContent;
     private StackPanel? capacityEstimateContent;
@@ -26,8 +27,9 @@ internal sealed partial class Dashboard
     private void RevealCapacitySettings()
     {
         if(released||!capacitySettingsRevealPending||selectedPage!="settings"||
-            capacitySettingsExpander is not {} section||capacityValuationExpander is not {} details)return;
+            capacitySettingsExpander is not {} section||capacityCodexExpander is not {} codex||capacityValuationExpander is not {} details)return;
         section.IsExpanded=true;
+        codex.IsExpanded=true;
         details.IsExpanded=true;
         if(!section.IsLoaded)return;
         capacitySettingsRevealPending=false;

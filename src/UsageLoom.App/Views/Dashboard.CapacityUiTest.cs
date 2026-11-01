@@ -96,6 +96,9 @@ internal sealed partial class Dashboard
                     "Compact footer settings gear did not open settings");
                 var main=app.CapacitySettingsTestDashboard!;
                 CapacityTestExpand(main.capacitySettingsExpander!);
+                await CapacityTestWait(()=>main.capacityCodexExpander!.IsLoaded,"Codex capacity section is not attached");
+                if(scenario=="current"&&main.capacityCodexExpander!.IsExpanded)throw new InvalidOperationException("Codex capacity section does not start collapsed");
+                CapacityTestExpand(main.capacityCodexExpander!);
                 await CapacityTestWait(()=>main.capacityValuationExpander!.IsLoaded,"Inline valuation expander is not attached");
                 CapacityTestExpand(main.capacityValuationExpander!);
                 await CapacityTestWait(()=>CapacitySettingsBodyReady(main,scenario),"Inline valuation content did not open from settings");
@@ -169,6 +172,12 @@ internal sealed partial class Dashboard
                         throw new InvalidOperationException("Restoring sampled data reopened a user-collapsed capacity section");
                     section.Expand();
                     Program.Log.Write("INFO","CapacityUiTest","Collapsed settings stay collapsed across Changed; unsaved input retained");
+                    // The jump from the quota card must open every level down to the estimate basis.
+                    main.capacityCodexExpander!.IsExpanded=false;
+                    main.ShowCapacitySettings();
+                    await CapacityTestWait(()=>main.capacitySettingsExpander?.IsExpanded==true&&main.capacityCodexExpander?.IsExpanded==true&&main.capacityValuationExpander?.IsExpanded==true&&main.capacityValuationContent?.ActualHeight>0,
+                        "Jumping to the estimate basis left a section closed");
+                    CapacityTestSettingDraft(main,unsavedSetting,draftBackgroundSeconds,savedBackgroundSeconds);
                 }
                 expand.Expand();
                 await CapacityTestWait(()=>main.capacityValuationExpander?.IsExpanded==true&&main.capacityValuationContent?.ActualHeight>0,"Inline valuation expander did not reopen");
