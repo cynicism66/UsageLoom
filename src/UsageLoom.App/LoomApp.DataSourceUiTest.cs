@@ -18,6 +18,23 @@ public sealed partial class LoomApp
         try{await MaintainCapacityAsync("repair");throw new Exception("Disabled source began repair");}catch(InvalidOperationException){}
         if(store.ReadQuotaObservations().LastOrDefault()?.BarrierReason!="explicit-boundary")throw new InvalidOperationException("Source pause boundary missing");
     }
+    internal int SourceBoundaryCount=>store.ReadQuotaObservations().Count(item=>item.BarrierReason=="explicit-boundary");
+    internal async Task VerifyLocalOnlySourceAsync()
+    {
+        if(!ClaudeSettingsCheck||!CodexActive||!Config.CodexLocalOnly)throw new InvalidOperationException("Local-only check requires isolated active local-only preview");
+        if(store.ReadQuotaObservations().LastOrDefault()?.BarrierReason!="explicit-boundary")throw new InvalidOperationException("Local-only switch boundary missing");
+        if(TrayCodexShown)throw new InvalidOperationException("Local-only Codex still drives the tray");
+        var observations=store.ReadQuotaObservations().Count;
+        // A leftover live snapshot must be replaced, not refreshed, by a quota request.
+        Quota=new([new("codex:primary","weekly",13,10080,DateTimeOffset.Now.AddDays(3))],null,DateTimeOffset.Now,"ok",true,"local-only-probe");
+        await RefreshQuotaAsync(false);await RefreshQuotaAsync(true);RenewIdentityIfDue();EvaluateNotifications();
+        if(!Quota.IsLocalAccount||Quota.Fresh||Quota.AccountKey is not null||Quota.Status!=L10n.T("source.codexLocalOnlyStatus")||
+            store.ReadQuotaObservations().Count!=observations||client.IsConnected||identityRefreshing||WeeklyCapacity.Count!=0)
+            throw new InvalidOperationException("Local-only Codex queried the account or kept quota state");
+        try{await CalculateCapacityNowAsync();throw new Exception("Local-only source calculated capacity");}catch(InvalidOperationException){}
+        try{await AuthorizeAsync();throw new Exception("Local-only source began login");}catch(InvalidOperationException){}
+        try{await UseCachedLoginAsync(Config.CliPath??"",Config.CodexHome);throw new Exception("Local-only source used a cached login");}catch(InvalidOperationException){}
+    }
     internal async Task VerifyPendingSourceBoundaryAsync()
     {
         if(!ClaudeSettingsCheck)throw new InvalidOperationException("Boundary check requires isolated preview");

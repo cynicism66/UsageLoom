@@ -7,7 +7,7 @@ public sealed partial class LoomApp
     private void UpdateTrayQuota()
     {
         if(quitting||tray is null)return;
-        tray.Update(TrayQuotaSelection.Select(Config.TrayQuotaSource,CodexShown,ClaudeShown,
+        tray.Update(TrayQuotaSelection.Select(Config.TrayQuotaSource,TrayCodexShown,ClaudeShown,
             Quota,ClaudeQuota,DateTimeOffset.UtcNow,Config.TrayDisplayWindow),Config.UseFixedTrayIcon);
     }
 }

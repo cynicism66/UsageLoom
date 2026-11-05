@@ -7,7 +7,7 @@ namespace UsageLoom.App;
 
 internal sealed partial class Dashboard
 {
-    private ToggleSwitch? codexEnabledChoice,codexVisibleChoice,claudeVisibleChoice;
+    private ToggleSwitch? codexEnabledChoice,codexVisibleChoice,claudeVisibleChoice,codexLocalOnlyChoice;
     private StackPanel? codexSettingsPanel;
     private Button? codexApplyButton;
     private static StackPanel SourceSettingsGroup(string title,ToggleSwitch enabled,ToggleSwitch visible,params UIElement[] controls)
@@ -36,9 +36,13 @@ internal sealed partial class Dashboard
     private UIElement CodexSettings(TextBox executable,TextBox home)
     {
         var enabled=codexEnabledChoice=new ToggleSwitch{IsOn=app.Config.CodexEnabled};
-        var panel=codexSettingsPanel=SourceSettingsGroup("Codex",enabled,codexVisibleChoice=SourceVisibleChoice("codex"),executable,home);
+        var localOnly=codexLocalOnlyChoice=new ToggleSwitch{Header=L10n.T("source.codexLocalOnly"),IsOn=app.Config.CodexLocalOnly,
+            OnContent=L10n.Language=="en-US"?"On":"开",OffContent=L10n.Language=="en-US"?"Off":"关"};
+        AutomationProperties.SetAutomationId(localOnly,"codex-local-only");
+        var panel=codexSettingsPanel=SourceSettingsGroup("Codex",enabled,codexVisibleChoice=SourceVisibleChoice("codex"),executable,home,
+            localOnly,ClaudeText(L10n.T("source.codexLocalOnlyNote")));
         panel.Children.Add(ClaudeText(L10n.T("source.codexNotice")));
-        codexApplyButton=Button(L10n.T("claude.apply"),()=>app.ConfigureCodexAsync(enabled.IsOn,executable.Text,home.Text));
+        codexApplyButton=Button(L10n.T("claude.apply"),()=>app.ConfigureCodexAsync(enabled.IsOn,executable.Text,home.Text,localOnly.IsOn));
         panel.Children.Add(codexApplyButton);
         panel.Children.Add(Button(L10n.T("s637A0D380AEC"),()=>app.RefreshQuotaAsync(true,false)));
         return panel;

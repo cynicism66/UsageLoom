@@ -102,7 +102,7 @@ public sealed partial class LoomApp : Application
                     g.Min(i=>i.From).ToLocalTime(),g.Max(i=>i.To).ToLocalTime())));
     }
     private CapacitySource appliedCapacitySource;
-    private CapacitySource CurrentCapacitySource()=>new(Config.CliPath,Config.CodexHome,Config.AuthorizedAccount,Config.ReuseBackend);
+    private CapacitySource CurrentCapacitySource()=>new(Config.CliPath,Config.CodexHome,Config.AuthorizedAccount,Config.ReuseBackend,Config.CodexLocalOnly);
     internal string CapacityCalculationStatus=>capacityFeedback+"\n"+L10n.F("capacity.schedule",capacityLastCalculated?.ToLocalTime().ToString("MM-dd HH:mm:ss")??"—",capacityBatch.NextAt.ToLocalTime().ToString("HH:mm:ss"));
     private void RecordCapacityObservation(QuotaState quota,bool barrier=false,bool queryFailure=false)
     {
@@ -233,7 +233,7 @@ public sealed partial class LoomApp : Application
     }
     internal async Task CalculateCapacityNowAsync()
     {
-        RequireCodexSource();
+        RequireAccountQueries();
         if(!Config.CapacityEnabled)capacityFeedback=L10n.T("capacity.disabled");
         else WeeklyCapacity=ObserveCapacity(Quota,true);
         Changed?.Invoke();
@@ -254,7 +254,7 @@ public sealed partial class LoomApp : Application
     private Task? attributionTask;
     internal Task ConfirmAttributionAsync(IReadOnlyList<UsageEvent> preview,string account)
     {
-        RequireCodexSource();
+        RequireAccountQueries();
         if(attributionBusy)throw new InvalidOperationException(L10n.T("attribution.retry"));
         attributionTask=ConfirmAttributionCoreAsync(preview,account);return attributionTask;
     }
@@ -360,9 +360,9 @@ public sealed partial class LoomApp : Application
         queue = DispatcherQueue.GetForCurrentThread();
         if(!IsDemo)
         {
-            try{if(CodexActive)restartCheckpoint=store.ReadPendingRestart(openedAt);}
+            try{if(CodexActive&&!Config.CodexLocalOnly)restartCheckpoint=store.ReadPendingRestart(openedAt);}
             catch(Exception ex){Program.Log.Write("WARN","Attribution",ex.Message);}
-            try{RestoreCapacity();Program.Log.Write("INFO","CapacityCache","缓存已读取，等待账号、套餐和周窗口核验");}
+            try{if(!Config.CodexLocalOnly){RestoreCapacity();Program.Log.Write("INFO","CapacityCache","缓存已读取，等待账号、套餐和周窗口核验");}}
             catch(Exception ex){Program.Log.Write("WARN","CapacityCache",ex.Message);}
         }
         notifications.Restore(Config.NotificationWindows, DateTimeOffset.Now);
@@ -423,7 +423,7 @@ public sealed partial class LoomApp : Application
             if(CapacityUiCheck)ConfigureCapacityUiPreview();
             Message = L10n.T("sEFF3B8AB8B40");
             UpdateTrayQuota();
-            var traySelection=TrayQuotaSelection.Select(Config.TrayQuotaSource,CodexShown,ClaudeShown,Quota,ClaudeQuota,DateTimeOffset.Now,Config.TrayDisplayWindow);
+            var traySelection=TrayQuotaSelection.Select(Config.TrayQuotaSource,TrayCodexShown,ClaudeShown,Quota,ClaudeQuota,DateTimeOffset.Now,Config.TrayDisplayWindow);
             var trayTip=TrayIcon.Tooltip(traySelection);
             // Source first, then the two windows; only the "last updated" note may sit between them.
             if(trayTip.Length>127||!trayTip.Contains(L10n.T("tray.weekly"),StringComparison.Ordinal)||
@@ -434,6 +434,7 @@ public sealed partial class LoomApp : Application
         {
             RetrySourceBoundary();
             if(!CodexActive)Quota=new([],null,null,L10n.T("source.codexDisabled"),false);
+            else if(Config.CodexLocalOnly)Quota=LocalOnlyQuota;
             _ = LoadHistoryAsync();
             _ = RefreshSessionTitlesAsync(true);
             WatchHistory();
@@ -539,6 +540,8 @@ public sealed partial class LoomApp : Application
     {
         if(manual&&includeClaude)_ = RefreshClaudeAsync(true);
         if(!CodexActive)return Task.CompletedTask;
+        // Local-only mode never starts the backend: no account, quota or plan is read.
+        if(Config.CodexLocalOnly){Quota=LocalOnlyQuota;Message=Quota.Status;Changed?.Invoke();return Task.CompletedTask;}
         if(IsDemo){Message=L10n.T("s987E3F3AAADE");Changed?.Invoke();return Task.CompletedTask;}
         if (quitting || capacityMaintenanceBusy || attributionBusy || Authorizing || refreshing || identityRefreshing || (!manual && !Config.AutoRefresh)) return quotaTask ?? Task.CompletedTask;
         refreshing = true; lastAttempt = DateTimeOffset.Now;
@@ -605,7 +608,8 @@ public sealed partial class LoomApp : Application
         scanning = true;
         historyRevision++;
         var home = Config.CodexHome;
-        var accountScope=client.AttributionIdentity.Get(Config.AuthorizedAccount?AuthorizedHome:Config.CodexHome,DateTimeOffset.UtcNow);
+        // Local-only scans record no account: new usage stays unattributed.
+        var accountScope=Config.CodexLocalOnly?null:client.AttributionIdentity.Get(Config.AuthorizedAccount?AuthorizedHome:Config.CodexHome,DateTimeOffset.UtcNow);
         scanTask = ScanCoreAsync(home,verifyIntegrity,rebuild,accountScope);
         return scanTask;
     }
@@ -712,6 +716,7 @@ public sealed partial class LoomApp : Application
             Config.CodexEnabled=wasEnabled;Config.CodexBoundaryPending=wasPending;
             Config.CliPath=appliedCapacitySource.Executable;Config.CodexHome=appliedCapacitySource.Home;
             Config.AuthorizedAccount=appliedCapacitySource.Authorized;Config.ReuseBackend=appliedCapacitySource.ReuseBackend;
+            Config.CodexLocalOnly=appliedCapacitySource.LocalOnly;
             throw;
         }
         UpdateTrayQuota();
@@ -729,7 +734,7 @@ public sealed partial class LoomApp : Application
         if(!IsDemo)AbandonRestartEvidence();else restartCheckpoint=null;
         client.AttributionIdentity.Clear();
         CancelIdentityScan();
-        Quota=new([],null,null,L10n.T(Config.CodexEnabled?"s2A585008799C":"source.codexDisabled"),false);
+        Quota=Config.CodexEnabled&&Config.CodexLocalOnly?LocalOnlyQuota:new([],null,null,L10n.T(Config.CodexEnabled?"s2A585008799C":"source.codexDisabled"),false);
         WatchHistory(); // Dispose watchers immediately; pending boundary keeps them stopped.
         Changed?.Invoke();
         appliedCapacitySource=source;
@@ -752,8 +757,8 @@ public sealed partial class LoomApp : Application
         Program.Log.Write("INFO","CapacitySettings","Source transition completed; sampling boundary persisted before resume");
         WatchHistory();historyDirty=true;lastHistoryCheck=DateTimeOffset.MinValue;
         capacityHistoryReady=false;lastSessionTitleCheck=DateTimeOffset.MinValue;
-        if(Config.CodexEnabled&&Config.CapacityEnabled&&!IsDemo)RestoreCapacity();
-        Quota = new([], null, null, L10n.T(Config.CodexEnabled?"s2A585008799C":"source.codexDisabled"), false);
+        if(Config.CodexEnabled&&Config.CapacityEnabled&&!Config.CodexLocalOnly&&!IsDemo)RestoreCapacity();
+        Quota = Config.CodexEnabled&&Config.CodexLocalOnly?LocalOnlyQuota:new([], null, null, L10n.T(Config.CodexEnabled?"s2A585008799C":"source.codexDisabled"), false);
         failures = 0; lastAttempt = DateTimeOffset.MinValue;
         dashboard?.ApplyTheme(); flyout?.ApplyTheme();
         Message = L10n.T("sBD03C0AAD701"); Changed?.Invoke();
@@ -809,7 +814,7 @@ public sealed partial class LoomApp : Application
     internal void CancelAuthorization()=>authorizationCancellation?.Cancel();
     internal async Task UseCachedLoginAsync(string executable,string home)
     {
-        RequireCodexSource();
+        RequireAccountQueries();
         if(IsDemo){Message=L10n.T("s70344027B536");Changed?.Invoke();return;}
         if(Authorizing)throw new InvalidOperationException(L10n.T("s77DDD463240B"));
         if(!Path.IsPathFullyQualified(home))throw new ArgumentException(L10n.T("sA279FE7C2774"));
@@ -820,7 +825,7 @@ public sealed partial class LoomApp : Application
     }
     internal Task AuthorizeAsync(bool logout=false)
     {
-        RequireCodexSource();
+        RequireAccountQueries();
         if(IsDemo){Message=L10n.T("s8253A60AB040");Changed?.Invoke();return Task.CompletedTask;}
         if(Authorizing||quitting||capacityMaintenanceBusy||attributionBusy||identityRefreshing)return authorizationTask??Task.CompletedTask;
         client.AttributionIdentity.Clear();

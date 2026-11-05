@@ -21,6 +21,7 @@ try {
         if(!($lines -match 'Claude settings contained in Data sources without nested expander passed')){throw "Claude data source grouping check missing: $phase"}
         if(!($lines -match 'Data sources independent switches, stop guards, retained history and safe boundary passed')){throw "Data source lifecycle check missing: $phase"}
         if($phase -eq 'save' -and !($lines -match 'Claude manual plan: both save paths, navigation, rollback and matching card labels passed')){throw 'Claude manual plan regression check missing'}
+        if($phase -eq 'save' -and !($lines -match 'Codex local-only mode: no account work, boundaries and both save paths passed')){throw 'Codex local-only check missing'}
         Write-Output "PASS $expected"
     }
 } finally { $env:USAGELOOM_TEST_DATA=$original }

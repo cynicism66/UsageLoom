@@ -8,6 +8,9 @@ public sealed partial class LoomApp
     private DateTimeOffset nextSourceBoundaryRetry;
     internal bool CodexActive=>Config.CodexEnabled&&!Config.CodexBoundaryPending;
     internal bool CodexShown=>Config.CodexEnabled&&Config.CodexVisible;
+    // Local-only Codex still counts local logs but has no quota, so the tray treats it as absent.
+    internal bool TrayCodexShown=>CodexShown&&!Config.CodexLocalOnly;
+    private static QuotaState LocalOnlyQuota=>QuotaState.LocalAccount with{Status=L10n.T("source.codexLocalOnlyStatus")};
     internal bool ClaudeShown=>Config.ClaudeEnabled&&Config.ClaudeVisible;
     internal void SetSourceVisible(string provider,bool visible)
     {
@@ -41,19 +44,20 @@ public sealed partial class LoomApp
         try{CompleteSourceBoundary();WatchHistory();historyDirty=true;Changed?.Invoke();}
         catch(Exception ex){Message=L10n.T("source.boundaryFailed");Program.Log.Write("WARN","DataSource",ex.Message);}
     }
-    internal async Task ConfigureCodexAsync(bool enabled,string executable,string home)
+    internal async Task ConfigureCodexAsync(bool enabled,string executable,string home,bool? localOnly=null)
     {
         if(!Path.IsPathFullyQualified(home.Trim()))throw new ArgumentException(L10n.T("s772A83DE6A61"));
         RequireSourceSettingsIdle();
-        var oldPath=Config.CliPath;var oldHome=Config.CodexHome;
-        Config.CliPath=executable.Trim();Config.CodexHome=home.Trim();
+        var oldPath=Config.CliPath;var oldHome=Config.CodexHome;var oldLocalOnly=Config.CodexLocalOnly;
+        Config.CliPath=executable.Trim();Config.CodexHome=home.Trim();Config.CodexLocalOnly=localOnly??oldLocalOnly;
         try{await SaveSettingsAsync(codexEnabled:enabled);}
         catch
         {
             // Restore drafts only if persistence itself failed, not after a
             // committed enable/disable transition with a pending safe boundary.
             var saved=Settings.Load();
-            if(saved.CliPath!=Config.CliPath||saved.CodexHome!=Config.CodexHome){Config.CliPath=oldPath;Config.CodexHome=oldHome;}
+            if(saved.CliPath!=Config.CliPath||saved.CodexHome!=Config.CodexHome||saved.CodexLocalOnly!=Config.CodexLocalOnly)
+            {Config.CliPath=oldPath;Config.CodexHome=oldHome;Config.CodexLocalOnly=oldLocalOnly;}
             throw;
         }
     }
@@ -61,5 +65,11 @@ public sealed partial class LoomApp
     {
         RequireSourceSettingsIdle();
         if(!CodexActive)throw new InvalidOperationException(L10n.T("source.codexDisabled"));
+    }
+    // Sign-in, quota and capacity work all need the account, which local-only mode ignores.
+    internal void RequireAccountQueries()
+    {
+        RequireCodexSource();
+        if(Config.CodexLocalOnly)throw new InvalidOperationException(L10n.T("source.codexLocalOnlyBlocked"));
     }
 }

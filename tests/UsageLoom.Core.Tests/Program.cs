@@ -687,6 +687,7 @@ Test("设置采样边界只比较数据来源与登录模式",() =>
     Check(!source.Matches(source with{Home=@"C:\Data\Other"}));
     Check(!source.Matches(source with{Executable=@"C:\Other\codex.exe"}));
     Check(!source.Matches(source with{Authorized=true}));Check(!source.Matches(source with{ReuseBackend=true}));
+    Check(!source.Matches(source with{LocalOnly=true})&&(source with{LocalOnly=true}).Matches(source with{LocalOnly=true}));
     Check(new CapacitySource(null,@"C:\Data\Codex",false,false).Matches(new(" ",@"C:\Data\Codex",false,false)));
     // Saving ordinary settings leaves this source snapshot and estimator intact.
     var now=DateTimeOffset.Now;var reset=now.AddDays(6);

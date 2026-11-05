@@ -11,7 +11,9 @@ Windows 11 上的 Codex 与 Claude 用量、额度面板。两个来源可分别
 
 UsageLoom 是独立开源项目，不隶属于 OpenAI 或 Anthropic。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.9.12
+## Windows 桌面版 0.9.13
+
+Codex 可以只统计本机用量：在数据来源设置里开启“只统计本机用量（忽略账号）”后，UsageLoom 不登录、不查询账号和额度，也不估算容量，只统计本机日志里的 Token。[发布说明](docs/releases/RELEASE-0.9.13.md)
 
 设置“容量估算（实验）”里的 Codex 部分可以单独折叠，默认收起。[发布说明](docs/releases/RELEASE-0.9.12.md)
 

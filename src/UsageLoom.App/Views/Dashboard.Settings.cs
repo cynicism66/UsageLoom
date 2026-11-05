@@ -23,7 +23,7 @@ internal sealed partial class Dashboard
         if(app.IsDemo&&System.Text.Json.JsonSerializer.Deserialize<Settings>("{\"AutoRefresh\":false}")?.RefreshOnOpen!=true)
             throw new InvalidOperationException("Older settings did not migrate the refresh-on-open default");
         var traySource=new ComboBox{Header=L10n.T("tray.sourceSetting"),ItemsSource=new[]{"Codex","Claude",L10n.T("tray.tightest")},
-            SelectedIndex=app.Config.TrayQuotaSource switch{"claude"=>1,"tightest"=>2,"codex"=>0,_=>app.CodexShown?0:1}};
+            SelectedIndex=app.Config.TrayQuotaSource switch{"claude"=>1,"tightest"=>2,"codex"=>0,_=>app.TrayCodexShown?0:1}};
         var trayWindow=new ComboBox{Header=L10n.T("tray.windowSetting"),ItemsSource=new[]{L10n.T("tray.windowTightest"),L10n.T("tray.fiveHour"),L10n.T("tray.weekly")},
             SelectedIndex=Array.IndexOf(TrayQuotaSelection.WindowChoices,TrayQuotaSelection.NormalizeWindow(app.Config.TrayDisplayWindow))};
         trayWindowChoice=trayWindow;
@@ -87,12 +87,12 @@ internal sealed partial class Dashboard
             })),ProviderCard(L10n.T("claude.desktop"),new TextBlock{Text=L10n.T("settings.claude.cache"),TextWrapping=TextWrapping.Wrap}));
         async Task Authorize(bool logout)
         {
-            app.RequireCodexSource();
+            app.RequireAccountQueries();
             if(app.Authorizing)throw new InvalidOperationException(L10n.T("s081CDEB65923"));
             var dialog=new ContentDialog{XamlRoot=((FrameworkElement)Content).XamlRoot,Title=logout?L10n.T("sFEED4D9A5148"):L10n.T("s3B66445DA90A"),CloseButtonText=L10n.T("s2CD0F3BE8738"),PrimaryButtonText=logout?L10n.T("sADF861A2A343"):L10n.T("sC33740D74933"),DefaultButton=ContentDialogButton.Close,
                 Content=logout?L10n.T("s8CF30C934669"):L10n.T("sA591BDDE3429")};
             if(await dialog.ShowAsync()!=ContentDialogResult.Primary)return;
-            app.RequireCodexSource();
+            app.RequireAccountQueries();
             if(!app.IsDemo)app.Config.CliPath=cli.Text.Trim();
             await app.AuthorizeAsync(logout);
         }
@@ -111,7 +111,7 @@ internal sealed partial class Dashboard
             if(!double.IsFinite(seconds.Value)||!double.IsFinite(foreground.Value)||!double.IsFinite(threshold.Value)||!double.IsFinite(minutes.Value))throw new ArgumentException(L10n.T("sD1E6C6F01819"));
             if(string.IsNullOrWhiteSpace(home.Text)||!Path.IsPathFullyQualified(home.Text.Trim()))throw new ArgumentException(L10n.T("s772A83DE6A61"));
             var claudeDraft=readClaudeDraft(); // Validate all Claude inputs before changing ordinary settings.
-            app.Config.CliPath=cli.Text.Trim();app.Config.CodexHome=home.Text.Trim();app.Config.AutoRefresh=auto.IsOn;app.Config.RefreshOnOpen=openRefresh.IsOn;
+            app.Config.CliPath=cli.Text.Trim();app.Config.CodexHome=home.Text.Trim();app.Config.CodexLocalOnly=codexLocalOnlyChoice!.IsOn;app.Config.AutoRefresh=auto.IsOn;app.Config.RefreshOnOpen=openRefresh.IsOn;
             app.Config.TrayQuotaSource=traySource.SelectedIndex switch{1=>"claude",2=>"tightest",_=>"codex"};app.Config.UseFixedTrayIcon=fixedTray.IsOn;
             app.Config.TrayDisplayWindow=TrayQuotaSelection.WindowChoices[Math.Max(0,trayWindow.SelectedIndex)];
             app.Config.BackgroundSeconds=(int)Math.Clamp(seconds.Value,30,3600);app.Config.LowNotify=low.IsOn;app.Config.LowPercent=(int)Math.Clamp(threshold.Value,1,99);

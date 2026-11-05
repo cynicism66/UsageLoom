@@ -169,6 +169,20 @@ internal sealed partial class Dashboard
             claudeEnabledChoice!.IsOn=false;CapacityTestInvoke(claudeApplyButton!);
             await CapacityTestWait(()=>!app.Config.ClaudeEnabled&&claudeApplyButton!.IsEnabled,"Codex-only mode failed");
             if(!app.CodexActive||small.QuotaCard.Visibility!=Visibility.Visible||small.ClaudeCard.Visibility!=Visibility.Collapsed)throw new InvalidOperationException("Codex-only compact view not isolated");
+            // Local-only Codex: no account work, still shown, with a sampling boundary on both switches and both save paths.
+            var boundaries=app.SourceBoundaryCount;
+            codexLocalOnlyChoice!.IsOn=true;CapacityTestInvoke(codexApplyButton!);
+            await CapacityTestWait(()=>app.Config.CodexLocalOnly&&app.CodexActive&&codexApplyButton!.IsEnabled,"Section save did not turn on local-only Codex");
+            if(!Settings.Load().CodexLocalOnly||app.SourceBoundaryCount!=boundaries+1)throw new InvalidOperationException("Local-only Codex was not persisted behind a boundary");
+            await app.VerifyLocalOnlySourceAsync();
+            if(small.QuotaCard.Visibility!=Visibility.Visible)throw new InvalidOperationException("Local-only Codex hid the Codex card");
+            Navigate("overview");Navigate("settings");CheckGrouping();
+            if(codexLocalOnlyChoice?.IsOn!=true)throw new InvalidOperationException("Local-only switch reverted after navigation");
+            codexLocalOnlyChoice.IsOn=false;CapacityTestInvoke(settingsSaveButton!);
+            await CapacityTestWait(()=>!app.Config.CodexLocalOnly&&app.CodexActive&&settingsSaveButton!.IsEnabled,"Global save did not turn off local-only Codex");
+            if(Settings.Load().CodexLocalOnly||app.Quota.IsLocalAccount||app.SourceBoundaryCount!=boundaries+2||!app.TrayCodexShown)
+                throw new InvalidOperationException("Leaving local-only Codex kept local mode or skipped the boundary");
+            Program.Log.Write("INFO","ClaudeSettingsTest","Codex local-only mode: no account work, boundaries and both save paths passed");
             codexEnabledChoice!.IsOn=false;CapacityTestInvoke(settingsSaveButton!);
             await CapacityTestWait(()=>!app.Config.CodexEnabled&&settingsSaveButton!.IsEnabled,"Both-disabled mode failed");
             if(small.Disabled.Visibility!=Visibility.Visible||small.QuotaCard.Visibility!=Visibility.Collapsed||small.ClaudeCard.Visibility!=Visibility.Collapsed)throw new InvalidOperationException("Both-disabled guidance missing");
