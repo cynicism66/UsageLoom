@@ -680,6 +680,22 @@ Test("反复查询失败不永久截断后续快照确认",() =>
     var result=TemporalCapacity.CalculateStable(rows,[e],at.AddMinutes(10));
     Check(result.Interruptions.Count==0&&result.Cache!.Windows.Single().Percent==3);
 });
+Test("重置时间：今天、明天显示时刻，更远显示日期；缺失与已过沿用原提示，倒计时只在未重置时提供",() =>
+{
+    var local=new DateTime(2026,11,10,9,5,0);var now=new DateTimeOffset(local,TimeZoneInfo.Local.GetUtcOffset(local));
+    Check(ResetClock.Format(now.AddHours(5).AddMinutes(25),now)==L10n.F("reset.at",L10n.T("reset.today"),"14:30"));
+    Check(ResetClock.Format(now.AddHours(14).AddMinutes(54),now)==L10n.F("reset.at",L10n.T("reset.today"),"23:59"));
+    Check(ResetClock.Format(now.AddHours(14).AddMinutes(55),now)==L10n.F("reset.at",L10n.T("reset.tomorrow"),"00:00"));
+    Check(ResetClock.Format(now.AddDays(6).AddHours(-4),now)==L10n.F("reset.at","11-16","05:05"));
+    Check(ResetClock.Format(now.AddHours(5).ToUniversalTime(),now)==ResetClock.Format(now.AddHours(5),now));
+    var claude=new ClaudeQuotaWindow("five_hour",10,now.AddHours(3));
+    Check(claude.ResetText(now)==ResetClock.Format(now.AddHours(3),now)&&claude.PendingCountdown(now)==claude.Countdown(now));
+    Check((claude with{ResetsAt=null}).ResetText(now)==L10n.T("claude.noReset")&&(claude with{ResetsAt=null}).PendingCountdown(now) is null);
+    Check((claude with{ResetsAt=now.AddMinutes(-1)}).ResetText(now)==L10n.T("claude.awaitReset")&&(claude with{ResetsAt=now}).PendingCountdown(now) is null);
+    var codex=new QuotaWindow("codex:primary","weekly",13,10080,now.AddDays(2));
+    Check(codex.ResetClockText(now)==ResetClock.Format(now.AddDays(2),now)&&codex.PendingCountdown(now)==codex.ResetCountdown(now));
+    Check((codex with{ResetsAt=null}).ResetClockText(now)==L10n.T("sFB4EF6852264")&&(codex with{ResetsAt=now}).ResetClockText(now)==L10n.T("s8149D5B6846D"));
+});
 Test("设置采样边界只比较数据来源与登录模式",() =>
 {
     var source=new CapacitySource(@"C:\Tools\codex.exe",@"C:\Data\Codex",false,false);

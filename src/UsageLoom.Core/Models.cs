@@ -53,6 +53,8 @@ public sealed record QuotaWindow(string Key, string Label, double Used, int Minu
         var days=minutes/1440;var hours=minutes%1440/60;var rest=minutes%60;
         return L10n.T("s407FA6B07943")+(days>0?L10n.F("s658760D2AB1E", days):"")+(hours>0?L10n.F("s470A7C92EF5A", hours):"")+(rest>0?L10n.F("sC65627EAD130", rest):"").TrimEnd();
     }
+    public string ResetClockText(DateTimeOffset now)=>ResetsAt is not {} at?L10n.T("sFB4EF6852264"):at<=now?L10n.T("s8149D5B6846D"):ResetClock.Format(at,now);
+    public string? PendingCountdown(DateTimeOffset now)=>ResetsAt>now?ResetCountdown(now):null;
 }
 public sealed record QuotaState(List<QuotaWindow> Windows, int? ResetCount, DateTimeOffset? FetchedAt, string Status, bool Fresh, string? AccountKey = null, string? Plan = null)
 {

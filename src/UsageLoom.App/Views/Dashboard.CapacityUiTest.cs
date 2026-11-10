@@ -323,6 +323,11 @@ internal sealed partial class Dashboard
                             throw new InvalidOperationException($"Claude compact progress mismatch: step={step}, index={index}, available={available}, value={bar.Value}, expected={(available?100-window!.Used:0)}, opacity={bar.Opacity:R}, indeterminate={bar.IsIndeterminate}");
                         // The hover is the current line, optionally followed by the pace hint; never an earlier refresh's text.
                         var reset=compactView.ClaudeResets[index];
+                        if(window is not null&&!reset.Text.StartsWith(window.ResetText(DateTimeOffset.Now),StringComparison.Ordinal))
+                            throw new InvalidOperationException($"Claude reset line is not the clock time: step={step}, index={index}, text={reset.Text}");
+                        if(window?.PendingCountdown(DateTimeOffset.Now) is {} pending&&ToolTipService.GetToolTip(reset) is string hover&&!hover.Contains("\n"+pending,StringComparison.Ordinal)&&
+                            !hover.Contains("\n"+window.Countdown(DateTimeOffset.Now.AddMinutes(-1)),StringComparison.Ordinal))
+                            throw new InvalidOperationException($"Claude reset hover lacks the countdown: step={step}, index={index}, hover={hover}");
                         if(ToolTipService.GetToolTip(reset) is not string resetTip||resetTip!=reset.Text&&!resetTip.StartsWith(reset.Text+"\n",StringComparison.Ordinal))
                             throw new InvalidOperationException($"Claude reset hover is stale: step={step}, index={index}, text={reset.Text}, hover={ToolTipService.GetToolTip(reset)}");
                         var bounds=bar.TransformToVisual(compactView.ClaudeCard).TransformBounds(new(0,0,bar.ActualWidth,bar.ActualHeight));

@@ -127,8 +127,9 @@ internal sealed partial class Dashboard
             var row=view.Windows[index];var window=windows[index];row.Root.Visibility=Visibility.Visible;
             row.Name.Text=window.Label+L10n.T("sD6822B04178D");row.Value.Text=window.RemainingText;
             row.Progress.Value=window.Remaining;
-            row.Reset.Text=window.ResetCountdown(now)+(quota.Fresh?"":L10n.T("s6749C5BF4AEA"));
-            ToolTipService.SetToolTip(row.Reset,row.Reset.Text);
+            row.Reset.Text=window.ResetClockText(now)+(quota.Fresh?"":L10n.T("s6749C5BF4AEA"));
+            row.Reset.Tag=window.PendingCountdown(now);
+            ToolTipService.SetToolTip(row.Reset,row.Reset.Text+(row.Reset.Tag is string countdown?"\n"+countdown:""));
             var pace=QuotaPace.ForCodex(quota,window,app.Config.CodexEnabled,now);
             if(pace!=QuotaPaceKind.Unavailable)paceCandidates.Add((window.Remaining,pace,row.Reset,window.Label));
         }
@@ -174,7 +175,7 @@ internal sealed partial class Dashboard
         if(paceCandidates.OrderBy(item=>item.Remaining).FirstOrDefault() is {Target: {} target} mostTense)
         {
             target.Text+=" · "+PaceLabel(mostTense.Kind);
-            ToolTipService.SetToolTip(target,target.Text+"\n"+L10n.F("quota.pace.hint",mostTense.Window));
+            ToolTipService.SetToolTip(target,target.Text+(target.Tag is string countdown?"\n"+countdown:"")+"\n"+L10n.F("quota.pace.hint",mostTense.Window));
         }
     }
 }

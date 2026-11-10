@@ -67,7 +67,9 @@ internal sealed partial class Dashboard
         {
             overviewQuota.Children.Add(new TextBlock{Text=L10n.F("s6D65FE80C728",window.Label,window.RemainingText),TextWrapping=TextWrapping.Wrap});
             overviewQuota.Children.Add(new ProgressBar{Minimum=0,Maximum=100,Value=window.Remaining,Height=5,Foreground=accent});
-            overviewQuota.Children.Add(ClaudeText(window.ResetCountdown(DateTimeOffset.Now)));
+            var reset=ClaudeText(window.ResetClockText(DateTimeOffset.Now));
+            if(window.PendingCountdown(DateTimeOffset.Now) is {} countdown)ToolTipService.SetToolTip(reset,countdown);
+            overviewQuota.Children.Add(reset);
             if(PaceRow(QuotaPace.ForCodex(quota,window,app.Config.CodexEnabled,DateTimeOffset.Now),"codex",window.Key,window.Label) is {} pace)
                 overviewQuota.Children.Add(pace);
         }

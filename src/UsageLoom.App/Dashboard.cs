@@ -522,7 +522,9 @@ internal sealed partial class Dashboard : Window
                 var row=new StackPanel{Spacing=6};
                 row.Children.Add(new TextBlock{Text=L10n.F("s6D65FE80C728", window.Label, window.RemainingText),FontSize=15});
                 row.Children.Add(new ProgressBar{Minimum=0,Maximum=100,Value=window.Remaining,Height=4,Foreground=accent});
-                row.Children.Add(new TextBlock{Text=window.ResetCountdown(DateTimeOffset.Now),FontSize=12,Opacity=.65,TextWrapping=TextWrapping.Wrap});
+                var reset=new TextBlock{Text=window.ResetClockText(DateTimeOffset.Now),FontSize=12,Opacity=.65,TextWrapping=TextWrapping.Wrap};
+                if(window.PendingCountdown(DateTimeOffset.Now) is {} countdown)ToolTipService.SetToolTip(reset,countdown);
+                row.Children.Add(reset);
                 spark.Children.Add(row);
             }
             quotaCards.Add(spark);

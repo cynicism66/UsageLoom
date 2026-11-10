@@ -67,7 +67,9 @@ internal sealed partial class Dashboard
             var window=snapshot.Windows.FirstOrDefault(w=>w.Key==key);
             panel.Children.Add(ClaudeText(L10n.T("claude."+key)+" · "+L10n.F("claude.remaining",window?.RemainingText(now)??"—"),14));
             panel.Children.Add(new ProgressBar{Minimum=0,Maximum=100,Value=window is not null&&!window.Expired(now)?100-window.Used:0,Height=5,Foreground=accent,Opacity=(window is null||window.Expired(now))?0.3:1});
-            panel.Children.Add(ClaudeText(window?.Countdown(now)??L10n.T("claude.noReset")));
+            var reset=ClaudeText(window?.ResetText(now)??L10n.T("claude.noReset"));
+            if(window?.PendingCountdown(now) is {} countdown)ToolTipService.SetToolTip(reset,countdown);
+            panel.Children.Add(reset);
             if(window is not null&&PaceRow(QuotaPace.ForClaude(snapshot,window,app.Config.ClaudeEnabled,now),"claude",key,L10n.T("claude."+key)) is {} pace)
                 panel.Children.Add(pace);
         }
@@ -159,9 +161,10 @@ internal sealed partial class Dashboard
             view.ClaudeProgress[i].Value=available?100-window!.Used:0;
             view.ClaudeProgress[i].Opacity=available?1:0.3;
             AutomationProperties.SetName(view.ClaudeProgress[i],view.ClaudeValues[i].Text);
-            view.ClaudeResets[i].Text=window?.Countdown(now)??snapshot.Describe(now);
+            view.ClaudeResets[i].Text=window?.ResetText(now)??snapshot.Describe(now);
+            view.ClaudeResets[i].Tag=window?.PendingCountdown(now);
             // Reset with the text: a pace hint added by an earlier refresh must not outlive its countdown.
-            ToolTipService.SetToolTip(view.ClaudeResets[i],view.ClaudeResets[i].Text);
+            ToolTipService.SetToolTip(view.ClaudeResets[i],view.ClaudeResets[i].Text+(view.ClaudeResets[i].Tag is string countdown?"\n"+countdown:""));
         }
         ToolTipService.SetToolTip(view.ClaudeCard,snapshot.Describe(now)+"\n"+snapshot.TimestampText);
     }

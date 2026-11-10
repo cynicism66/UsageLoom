@@ -13,7 +13,7 @@ UsageLoom 是独立开源项目，不隶属于 OpenAI 或 Anthropic。本地统�
 
 ## Windows 桌面版 0.9.14
 
-修复托盘小窗中 Claude 重置时间的悬停说明不随刷新更新的问题。[发布说明](docs/releases/RELEASE-0.9.14.md)
+额度重置时间改为显示具体时刻（如“今天 14:30 重置”），悬停显示倒计时；并修复托盘小窗中 Claude 重置时间的悬停说明不随刷新更新的问题。[发布说明](docs/releases/RELEASE-0.9.14.md)
 
 Codex 可以只统计本机用量：在数据来源设置里开启“只统计本机用量（忽略账号）”后，UsageLoom 不登录、不查询账号和额度，也不估算容量，只统计本机日志里的 Token。[发布说明](docs/releases/RELEASE-0.9.13.md)
 

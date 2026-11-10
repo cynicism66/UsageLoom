@@ -28,6 +28,9 @@ public sealed record ClaudeQuotaWindow(string Key,double Used,DateTimeOffset? Re
         var minutes=(long)Math.Ceiling((reset-now).TotalMinutes);
         return L10n.F("claude.countdown",minutes/1440,minutes%1440/60,minutes%60);
     }
+    public string ResetText(DateTimeOffset now)=>ResetsAt is not {} reset?L10n.T("claude.noReset"):reset<=now?L10n.T("claude.awaitReset"):ResetClock.Format(reset,now);
+    // The countdown accompanies the clock time on hover, only while a reset is still ahead.
+    public string? PendingCountdown(DateTimeOffset now)=>ResetsAt>now?Countdown(now):null;
 }
 public sealed record ClaudeQuotaSnapshot(string Status,IReadOnlyList<ClaudeQuotaWindow> Windows,DateTimeOffset? ObservedAt=null,
     string? Scope=null,IReadOnlyList<string>? Scopes=null,bool HistoryOnly=false)
