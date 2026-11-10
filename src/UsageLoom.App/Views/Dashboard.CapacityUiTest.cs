@@ -321,6 +321,10 @@ internal sealed partial class Dashboard
                         var bar=(ProgressBar)Find($"compact-claude-progress-{index}");
                         if(bar.Value!=(available?100-window!.Used:0)||Math.Abs(bar.Opacity-(available?1:0.3))>0.000001||bar.IsIndeterminate)
                             throw new InvalidOperationException($"Claude compact progress mismatch: step={step}, index={index}, available={available}, value={bar.Value}, expected={(available?100-window!.Used:0)}, opacity={bar.Opacity:R}, indeterminate={bar.IsIndeterminate}");
+                        // The hover is the current line, optionally followed by the pace hint; never an earlier refresh's text.
+                        var reset=compactView.ClaudeResets[index];
+                        if(ToolTipService.GetToolTip(reset) is not string resetTip||resetTip!=reset.Text&&!resetTip.StartsWith(reset.Text+"\n",StringComparison.Ordinal))
+                            throw new InvalidOperationException($"Claude reset hover is stale: step={step}, index={index}, text={reset.Text}, hover={ToolTipService.GetToolTip(reset)}");
                         var bounds=bar.TransformToVisual(compactView.ClaudeCard).TransformBounds(new(0,0,bar.ActualWidth,bar.ActualHeight));
                         if(bounds.Top<0||bounds.Bottom>compactView.ClaudeCard.ActualHeight||bounds.Left<0||bounds.Right>compactView.ClaudeCard.ActualWidth)
                             throw new InvalidOperationException("Claude progress is outside its compact card");

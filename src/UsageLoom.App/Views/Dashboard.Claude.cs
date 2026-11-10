@@ -160,6 +160,8 @@ internal sealed partial class Dashboard
             view.ClaudeProgress[i].Opacity=available?1:0.3;
             AutomationProperties.SetName(view.ClaudeProgress[i],view.ClaudeValues[i].Text);
             view.ClaudeResets[i].Text=window?.Countdown(now)??snapshot.Describe(now);
+            // Reset with the text: a pace hint added by an earlier refresh must not outlive its countdown.
+            ToolTipService.SetToolTip(view.ClaudeResets[i],view.ClaudeResets[i].Text);
         }
         ToolTipService.SetToolTip(view.ClaudeCard,snapshot.Describe(now)+"\n"+snapshot.TimestampText);
     }
