@@ -30,6 +30,17 @@ static class ClaudeCodeTests
             Check(mixed.Cost==price.Cost&&mixed.Unpriced==baseRow.Total&&mixed.Coverage<100);
             Check(ClaudeCodePricing.Find("fake-claude-sonnet-5") is null);
             Check(ClaudeCodePricing.Find("claude-opus-5-5")?.CacheRead==.20m);
+            // 2026-11-15 official table: Fable 5.2, Sonnet 5.5 (its own cache-read rate, not Sonnet 5's) and Haiku 5.5's two prompt tiers.
+            Check(ClaudeCodePricing.Find("claude-fable-5-2") is {Input:8,CacheWrite5m:10,CacheWrite1h:16,CacheRead:.20m,Output:40});
+            Check(ClaudeCodePricing.Find("claude-sonnet-5-5")?.CacheRead==.10m&&ClaudeCodePricing.Find("claude-sonnet-5")?.CacheRead==.20m);
+            Check(ClaudeCodePricing.Find("claude-sonnet-5-20260901")?.CacheRead==.20m&&ClaudeCodePricing.Find("claude-fable-5-1-20261001")?.CacheRead==.25m);
+            Check(ClaudeCodePricing.Find("claude-sonnet-5-9") is null&&ClaudeCodePricing.Find("claude-opus-5-55") is null&&ClaudeCodePricing.Find("claude-haiku-5-5-preview") is null);
+            var fable=baseRow with{Model="claude-fable-5-2",Input=1_000_000,Output=1_000_000,CacheRead=1_000_000,CacheWrite=1_000_000,CacheWrite1h=500_000};
+            Check(ClaudeCodePricing.Summarize([fable]).Cost==8+40+.20m+5+8);
+            var haiku=baseRow with{Model="claude-haiku-5-5",Input=40_000,Output=1_000,CacheRead=60_000,CacheWrite=0,CacheWrite1h=0};
+            Check(ClaudeCodePricing.Summarize([haiku]).Cost==(40_000*.10m+1_000*.50m+60_000*.01m)/1_000_000m);
+            var longHaiku=haiku with{CacheRead=60_001};
+            Check(ClaudeCodePricing.Summarize([longHaiku]).Cost==(40_000*.50m+1_000*2.50m+60_001*.05m)/1_000_000m);
             Check(ClaudeCodePricing.Summarize([row with{CacheWrite1h=null}]).Assumed5m);
         });
         test("Claude Code：回复身份去重而非 uuid，最新 usage 替换，跨文件副本与侧链重放",()=>

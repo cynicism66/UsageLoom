@@ -1,5 +1,10 @@
 # 变更日志
 
+## Windows 0.9.17 — 2026-11-15
+
+- Claude API 等价估算补上 Claude Fable 5.2、Fable 5.1、Fable 5、Sonnet 5.5 和 Haiku 5.5 的官方价格（Haiku 5.5 按每次请求的提示长度分两档）。
+- 修复 Sonnet 5.5 被按 Sonnet 5 的缓存读取价计算；以后出现未收录的新型号时显示为未定价，不再套用相近型号的价格。
+
 ## Windows 0.9.16 — 2026-11-15
 
 - 新增 Claude Code mod `usageloom-quota`：在 Claude 桌面版的 Code 标签页（状态栏命令不运行）里也能保存 5 小时和每周额度；用 `claude plugin install usageloom-quota --marketplace cynicism66/UsageLoom` 安装。设置页的状态栏额度说明加上了安装命令。
