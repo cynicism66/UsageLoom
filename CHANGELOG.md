@@ -1,5 +1,9 @@
 # 变更日志
 
+## Windows 0.9.16 — 2026-11-15
+
+- 新增 Claude Code mod `usageloom-quota`：在 Claude 桌面版的 Code 标签页（状态栏命令不运行）里也能保存 5 小时和每周额度；用 `claude plugin install usageloom-quota --marketplace cynicism66/UsageLoom` 安装。设置页的状态栏额度说明加上了安装命令。
+
 ## Windows 0.9.15 — 2026-11-15
 
 - 修复新版 Claude 桌面版把数据迁到 `%LOCALAPPDATA%\Claude-Data\` 后，自动查找不到桌面版额度缓存、Claude 额度停止更新的问题。

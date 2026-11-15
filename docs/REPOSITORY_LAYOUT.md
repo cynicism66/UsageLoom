@@ -10,6 +10,9 @@ tests/
   UsageLoom.Core.Tests/   桌面核心回归测试
   project/               公共仓库与隐私规则测试
 legacy/codex-plugin/     独立的 JavaScript/MCP 原型及测试
+integrations/claude-code/usageloom-quota/
+                         Claude Code 额度 mod（桌面版 Code 标签页也可用）
+.claude-plugin/          插件市场文件，供 `claude plugin install` 从本仓库安装上述 mod
 scripts/
   common/                共享构建配置（版本读取）
 packaging/              Windows Installer 配置

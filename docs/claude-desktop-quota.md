@@ -52,6 +52,18 @@ UsageLoom 的刷新只重读本地文件，不会替 Claude 发起网络请求�
 
 格式依据：[Claude 官方本地目录说明](https://code.claude.com/docs/en/claude-directory)、[官方缓存 Token 口径](https://platform.claude.com/docs/en/build-with-claude/prompt-caching)。参考核对了 [ccusage 的 Claude Code 数据来源说明](https://ccusage.com/guide/claude/)，不依赖安装或运行 ccusage。
 
+## Claude 桌面版 Code 标签页：额度 mod
+
+Claude 桌面版的 Code 标签页不运行 `settings.json` 里的状态栏命令，上面的状态栏脚本在那里不会更新。仓库附带一个 Claude Code mod `usageloom-quota`（[源码](../integrations/claude-code/usageloom-quota)）：每轮对话后，Claude Code 把当前账号的 5 小时和每周额度交给 mod，mod 按状态栏脚本的同一格式写入同一个 `usageloom-rate-limits.json`，UsageLoom 读取方式不变。
+
+在终端的 Claude Code 中运行一次即可安装，选择用户范围后，桌面版启动的会话也会加载它：
+
+```
+claude plugin install usageloom-quota --marketplace cynicism66/UsageLoom
+```
+
+mod 只保存这两个窗口的百分比与重置时间，不保存会话、项目、提示词、费用或账号信息，不联网，出错时不影响会话；可与状态栏脚本同时使用。卸载：`claude plugin uninstall usageloom-quota`。
+
 ## Claude Code 状态栏额度
 
 Claude Code 会把当前账号的 5 小时和每周额度（已用百分比与重置时间）交给 `settings.json` 中 `statusLine` 指定的命令，但不会保存到磁盘，所以 UsageLoom 无法直接读取。安装目录附带的 `usageloom-statusline.js` 负责保存一份快照，适用于任何装有 Node.js 的电脑：

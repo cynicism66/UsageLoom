@@ -161,6 +161,7 @@
 "claude.statusLine.notice":"Claude Code 只把 5 小时和每周额度交给状态栏命令，不保存到磁盘。把下面一行放进 Claude Code 的 settings.json（通常在用户目录 .claude 下），UsageLoom 附带的快照脚本就会在每次刷新状态栏时保存这两个百分比和重置时间，UsageLoom 再读取。脚本本身不显示任何内容，不联网、不读凭据，也不记录会话、项目或费用；需要本机安装 Node.js。与桌面版缓存同时存在时，自动采用时间较新的一份，两者不混合。",
 "claude.statusLine.command":"粘贴到 settings.json 的设置",
 "claude.statusLine.chain":"已经有自己的状态栏时，在脚本路径后加 --pass |，再接原来的状态栏命令，例如：node \"…/usageloom-statusline.js\" --pass | node \"…/my-statusline.js\"。原状态栏照常显示。移动或卸载 UsageLoom 后请同步修改或删除这一行。",
+"claude.statusLine.desktop":"在 Claude 桌面版的 Code 标签页里，状态栏命令不会运行。请在终端的 Claude Code 中运行下面一行，安装 UsageLoom 额度 mod（按用户范围安装后，桌面版的会话也会使用它，保存的是同一个快照文件）：claude plugin install usageloom-quota --marketplace cynicism66/UsageLoom",
 "claude.statusLine.copy":"复制设置",
 "claude.statusLine.copied":"已复制，请粘贴到 Claude Code 的 settings.json。",
 "claude.statusLine.missing":"未发现状态栏快照：尚未接入，或 Claude Code 还没有刷新过状态栏。",

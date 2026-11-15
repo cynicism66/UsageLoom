@@ -1,0 +1,8 @@
+{
+  "name": "usageloom-quota",
+  "version": "0.1.0",
+  "description": "Saves the Claude 5-hour and weekly rate limits for UsageLoom, also in the Claude desktop app's Code tab",
+  "author": { "name": "UsageLoom contributors" },
+  "license": "MIT",
+  "homepage": "https://github.com/cynicism66/UsageLoom"
+}

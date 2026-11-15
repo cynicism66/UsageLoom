@@ -40,6 +40,8 @@ internal sealed partial class Dashboard
         AutomationProperties.SetAutomationId(command,"claude-statusline-command");
         group.Children.Add(command);
         group.Children.Add(ClaudeText(L10n.T("claude.statusLine.chain")));
+        // The desktop app's Code tab never runs a status line command; the mod saves the same file there.
+        group.Children.Add(new TextBlock{Text=L10n.T("claude.statusLine.desktop"),TextWrapping=TextWrapping.Wrap,IsTextSelectionEnabled=true,FontSize=13});
         group.Children.Add(Button(L10n.T("claude.statusLine.copy"),()=>
         {
             var data=new Windows.ApplicationModel.DataTransfer.DataPackage();data.SetText(StatusLineSetting);

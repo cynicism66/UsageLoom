@@ -11,7 +11,9 @@ Windows 11 上的 Codex 与 Claude 用量、额度面板。两个来源可分别
 
 UsageLoom 是独立开源项目，不隶属于 OpenAI 或 Anthropic。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.9.15
+## Windows 桌面版 0.9.16
+
+在 Claude 桌面版的 Code 标签页里也能读到 Claude 额度：在终端运行 `claude plugin install usageloom-quota --marketplace cynicism66/UsageLoom` 安装附带的 Claude Code mod 即可。[发布说明](docs/releases/RELEASE-0.9.16.md)
 
 新版 Claude 桌面版把数据迁到了 `%LOCALAPPDATA%\Claude-Data\`，UsageLoom 现在能自动找到它，继续读取桌面版的额度缓存。[发布说明](docs/releases/RELEASE-0.9.15.md)
 

@@ -1,0 +1,11 @@
+{
+  "name": "usageloom",
+  "owner": { "name": "UsageLoom contributors" },
+  "plugins": [
+    {
+      "name": "usageloom-quota",
+      "source": "./integrations/claude-code/usageloom-quota",
+      "description": "Saves the Claude 5-hour and weekly rate limits for UsageLoom, also in the Claude desktop app's Code tab"
+    }
+  ]
+}
