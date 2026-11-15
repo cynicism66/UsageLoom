@@ -11,7 +11,9 @@ Windows 11 上的 Codex 与 Claude 用量、额度面板。两个来源可分别
 
 UsageLoom 是独立开源项目，不隶属于 OpenAI 或 Anthropic。本地统计与费用估算由 UsageLoom 计算。
 
-## Windows 桌面版 0.9.14
+## Windows 桌面版 0.9.15
+
+新版 Claude 桌面版把数据迁到了 `%LOCALAPPDATA%\Claude-Data\`，UsageLoom 现在能自动找到它，继续读取桌面版的额度缓存。[发布说明](docs/releases/RELEASE-0.9.15.md)
 
 额度重置时间改为显示具体时刻（如“今天 14:30 重置”），悬停显示倒计时；并修复托盘小窗中 Claude 重置时间的悬停说明不随刷新更新的问题。[发布说明](docs/releases/RELEASE-0.9.14.md)
 

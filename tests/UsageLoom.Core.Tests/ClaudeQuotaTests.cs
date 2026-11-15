@@ -104,6 +104,20 @@ static class ClaudeQuotaTests
             Check(ClaudeQuotaParser.History("{\"version\":1,\"samples\":[]}"u8.ToArray(),root,null,now).Status=="unsupported");
             Check(ClaudeDesktopReader.Read(Path.Combine(root,"absent"),null,now).Status=="notFound");
         });
+        test("Claude 数据目录：新版迁到 Claude-Data，旧目录留下迁出标记后不再采用",()=>
+        {
+            var home=Path.Combine(fixtureRoot,"claude-discover");var roaming=Path.Combine(home,"Roaming");var local=Path.Combine(home,"Local");
+            var old=Path.Combine(roaming,"Claude");Directory.CreateDirectory(Path.Combine(old,"Cache"));
+            Check(ClaudeDesktopReader.Discover(roaming,local).SequenceEqual([Path.GetFullPath(old)]));
+            var current=Path.Combine(local,"Claude-Data","claude_fixture");Directory.CreateDirectory(current);
+            File.WriteAllText(Path.Combine(current,"plan-usage-history.json"),"{}");
+            Check(ClaudeDesktopReader.Discover(roaming,local).Count==2); // Both look current: the user must choose.
+            File.WriteAllText(Path.Combine(old,".user-data-left.claude_fixture"),"{}");
+            Check(ClaudeDesktopReader.Discover(roaming,local).SequenceEqual([Path.GetFullPath(current)]));
+            File.WriteAllText(Path.Combine(local,"Claude-Data","README.txt"),"not a data folder");
+            Check(ClaudeDesktopReader.Discover(roaming,local).SequenceEqual([Path.GetFullPath(current)]));
+            Check(ClaudeDesktopReader.Discover(Path.Combine(home,"none"),Path.Combine(home,"none")).Count==0);
+        });
         test("Claude 缓存并发损坏时使用已校验历史，不将旧值冒充实时额度",()=>
         {
             var fallbackRoot=Path.Combine(fixtureRoot,"claude-cache-fallback");

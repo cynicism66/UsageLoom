@@ -15,12 +15,18 @@ public sealed class ClaudeDesktopReader
     private readonly CancellationToken cancellation;
     private readonly Stopwatch elapsed=Stopwatch.StartNew();
     private ClaudeDesktopReader(string root,CancellationToken cancellation){this.root=Path.GetFullPath(root);this.cancellation=cancellation;}
-    public static IReadOnlyList<string> Discover()
+    public static IReadOnlyList<string> Discover()=>Discover(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData));
+    // Newer Claude builds keep their data in %LOCALAPPDATA%\Claude-Data\<app id> and leave a
+    // ".user-data-left.*" marker in the folders they moved out of; a marked folder is no longer current.
+    internal static IReadOnlyList<string> Discover(string roaming,string local)
     {
-        var roaming=Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        var local=Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return new[]{Path.Combine(roaming,"Claude"),Path.Combine(local,"Packages","Claude_pzs8sxrjxfjjc","LocalCache","Roaming","Claude")}
-            .Where(Directory.Exists).Where(p=>File.Exists(Path.Combine(p,"plan-usage-history.json"))||Directory.Exists(Path.Combine(p,"Cache")))
+        var candidates=new List<string>{Path.Combine(roaming,"Claude"),Path.Combine(local,"Packages","Claude_pzs8sxrjxfjjc","LocalCache","Roaming","Claude")};
+        var moved=Path.Combine(local,"Claude-Data");
+        if(Directory.Exists(moved))
+            candidates.AddRange(Directory.EnumerateDirectories(moved,"*",new EnumerationOptions{AttributesToSkip=FileAttributes.ReparsePoint,IgnoreInaccessible=true}));
+        return candidates.Where(Directory.Exists).Where(p=>!Directory.EnumerateFiles(p,".user-data-left.*").Any())
+            .Where(p=>File.Exists(Path.Combine(p,"plan-usage-history.json"))||Directory.Exists(Path.Combine(p,"Cache")))
             .Select(Path.GetFullPath).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
     }
     public static ClaudeQuotaSnapshot Read(string? directory,string? scope,DateTimeOffset now,CancellationToken cancellation=default)
